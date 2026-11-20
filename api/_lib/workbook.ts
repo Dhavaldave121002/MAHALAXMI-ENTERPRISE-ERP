@@ -156,6 +156,43 @@ export function readUsers(workbook: XLSX.WorkBook): WorkbookUser[] {
   })
 }
 
+export function readSheetRecords(workbook: XLSX.WorkBook, sheetName: string) {
+  const actualName = workbook.SheetNames.find(name => name.toLowerCase() === sheetName.toLowerCase())
+  if (!actualName) throw new ApiError(422, `The master workbook is missing the ${sheetName} sheet.`)
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[actualName], { defval: '', raw: false })
+}
+
+export function appendSheetRecord(workbook: XLSX.WorkBook, sheetName: string, record: Record<string, unknown>, requiredHeaders: string[]) {
+  const actualName = workbook.SheetNames.find(name => name.toLowerCase() === sheetName.toLowerCase())
+  if (!actualName) throw new ApiError(422, `The master workbook is missing the ${sheetName} sheet.`)
+  const sheet = workbook.Sheets[actualName]
+  const headerRow = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, range: 0, blankrows: false })[0] || []
+  const headers = headerRow.map(header => String(header || '').trim())
+  const missing = requiredHeaders.filter(header => !headers.includes(header))
+  if (missing.length) {
+    throw new ApiError(422, `The ${sheetName} sheet is missing required columns: ${missing.join(', ')}.`)
+  }
+  const orderedRecord = Object.fromEntries(headers.map(header => [header, record[header] ?? '']))
+  XLSX.utils.sheet_add_json(sheet, [orderedRecord], { header: headers, skipHeader: true, origin: -1 })
+}
+
+export function ensureSheetColumns(workbook: XLSX.WorkBook, sheetName: string, columns: string[]) {
+  const actualName = workbook.SheetNames.find(name => name.toLowerCase() === sheetName.toLowerCase())
+  if (!actualName) throw new ApiError(422, `The master workbook is missing the ${sheetName} sheet.`)
+  const sheet = workbook.Sheets[actualName]
+  const range = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']) : { s: { r: 0, c: 0 }, e: { r: 0, c: -1 } }
+  const existing = new Set(
+    XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, range: 0, blankrows: false })[0]?.map(value => String(value || '').trim()) || [],
+  )
+  for (const column of columns) {
+    if (existing.has(column)) continue
+    range.e.c += 1
+    sheet[XLSX.utils.encode_cell({ r: range.s.r, c: range.e.c })] = { t: 's', v: column }
+    existing.add(column)
+  }
+  if (sheet['!ref']) sheet['!ref'] = XLSX.utils.encode_range(range)
+}
+
 export function publicUser(user: WorkbookUser): PublicUser {
   return { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active }
 }

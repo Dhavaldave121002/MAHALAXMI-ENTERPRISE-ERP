@@ -6,6 +6,7 @@ import login from './api/auth/login.ts'
 import session from './api/auth/me.ts'
 import logout from './api/auth/logout.ts'
 import users from './api/users.ts'
+import erp from './api/erp.ts'
 
 const apiRoutes = new Map([
   ['/api/auth/status', authStatus],
@@ -14,6 +15,7 @@ const apiRoutes = new Map([
   ['/api/auth/me', session],
   ['/api/auth/logout', logout],
   ['/api/users', users],
+  ['/api/erp', erp],
 ])
 
 export default defineConfig(({ mode }) => {

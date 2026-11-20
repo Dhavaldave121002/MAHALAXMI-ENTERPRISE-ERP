@@ -61,5 +61,5 @@ export function getSessionUser(request: ApiRequest, context: WorkbookContext): P
 }
 
 export function requireAdmin(user: PublicUser) {
-  if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can manage user accounts.')
+  if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can perform this action.')
 }

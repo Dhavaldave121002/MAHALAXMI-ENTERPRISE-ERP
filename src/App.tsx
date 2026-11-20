@@ -15,7 +15,10 @@ type Module = 'Dashboard' | 'Factory' | 'Production' | 'Stitching' | 'Raw Materi
   'Shipping & Delivery' | 'Returns & RTO' | 'Machines' | 'Quality Control' | 'Employees' |
   'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs'
 
-type Product = { id: string; sku: string; name: string; category: string; mrp: number; stock: number; status: 'Active' | 'Draft' }
+type Product = {
+  id: string; sku: string; masterSku: string; name: string; category: string; mrp: number; stock: number;
+  status: 'Active' | 'Draft'; size: string; color: string; packQuantity: number; isVariant: boolean
+}
 type Production = { id: string; date: string; machine: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
 type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean }
@@ -86,18 +89,15 @@ export default function App() {
   const [loginError, setLoginError] = useState('')
   const [setupMode, setSetupMode] = useState(false)
   const [users, setUsers] = useState<UserAccount[]>([])
-  const [machines, setMachines] = useState<Machine[]>(() => readStored('erp-machines', []))
-  const [products, setProducts] = useState<Product[]>(() => readStored('erp-products', []))
-  const [production, setProduction] = useState<Production[]>(() => readStored('erp-production', []))
+  const [machines, setMachines] = useState<Machine[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [production, setProduction] = useState<Production[]>([])
   const [audit, setAudit] = useState<string[]>(() => readStored('erp-audit', ['Workbook connection pending', 'System initialized']))
   const [toast, setToast] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const [workbookMeta, setWorkbookMeta] = useState({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
 
-  useEffect(() => localStorage.setItem('erp-products', JSON.stringify(products)), [products])
-  useEffect(() => localStorage.setItem('erp-production', JSON.stringify(production)), [production])
   useEffect(() => localStorage.setItem('erp-audit', JSON.stringify(audit)), [audit])
-  useEffect(() => localStorage.setItem('erp-machines', JSON.stringify(machines)), [machines])
   useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 30_000)
     return () => window.clearInterval(timer)
@@ -149,72 +149,43 @@ export default function App() {
   }, [sessionUser])
   useEffect(() => {
     let active = true
-    fetch('/Mahalaxmi-Enterprise-Master.xlsx')
-      .then(response => {
-        if (!response.ok) throw new Error('Workbook could not be loaded')
-        return response.arrayBuffer()
-      })
-      .then(buffer => {
-        if (!active) return
-        const workbook = XLSX.read(buffer)
-        const productRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets.Products)
-        const productionRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets.Production)
-        const machineRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets.Machines)
-        const workbookMachines = machineRows.map((row, index) => ({
-          id: String(row['Machine ID'] || `Machine ${String(index + 1).padStart(2, '0')}`),
-          name: String(row['Machine Name'] || ''),
-          type: String(row['Machine Type'] || ''),
-          department: String(row['Department'] || ''),
-          operator: String(row['Operator'] || ''),
-          status: String(row['Status'] || 'Idle'),
-        }))
-        setMachines(prev => [...workbookMachines, ...prev.filter(machine => !workbookMachines.some(item => item.id === machine.id))])
-        const workbookProducts: Product[] = productRows.map((row, index) => ({
-          id: String(row['Internal Product ID'] || `PID-${index + 1}`),
-          sku: String(row['Master SKU'] || ''),
-          name: String(row['Product Title'] || 'Untitled Product'),
-          category: String(row['Category'] || 'Uncategorized'),
-          mrp: Number(row['MRP'] || 0),
-          stock: Number(row['Available Stock'] || 0),
-          status: row['Status'] === 'Active' ? 'Active' as const : 'Draft' as const,
-        })).filter(row => row.sku)
-        const variantRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets.SKU_Variants)
-        const masterBySku = new Map(workbookProducts.map(product => [product.sku, product]))
-        for (const [index, row] of variantRows.entries()) {
-          const sku = String(row['Variant SKU'] || '')
-          if (!sku) continue
-          const master = masterBySku.get(String(row['Master SKU'] || ''))
-          workbookProducts.push({
-            id: String(row['Variant ID'] || `VAR-${index + 1}`),
-            sku,
-            name: master?.name || String(row['Product Title'] || row['Master SKU'] || sku),
-            category: master?.category || 'Uncategorized',
-            mrp: Number(row['MRP'] || master?.mrp || 0),
-            stock: master?.stock || 0,
-            status: row['Status'] === 'Active' ? 'Active' : 'Draft',
-          })
-        }
-        setProducts(prev => [...workbookProducts, ...prev.filter(product => !workbookProducts.some(item => item.sku === product.sku))])
-        const workbookProduction: Production[] = productionRows.map((row, index) => ({
-          id: String(row['Production ID'] || `PRO-${index + 1}`),
-          date: String(row['Date'] || ''),
-          machine: String(row['Machine ID'] || ''),
-          sku: String(row['Master SKU'] || ''),
-          product: String(row['Product Name'] || ''),
-          actual: Number(row['Actual Quantity'] || 0),
-          rejected: Number(row['Rejected Quantity'] || 0),
-        }))
-        setProduction(prev => [...workbookProduction, ...prev.filter(item => !workbookProduction.some(row => row.id === item.id))])
-        setWorkbookMeta({ loaded: true, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: workbook.SheetNames.length })
-        setAudit(prev => prev.some(entry => entry.includes('master workbook loaded'))
-          ? prev
-          : [`${new Date().toLocaleString()} — master workbook loaded: 17 sheets`, ...prev])
-      })
-      .catch(() => {
-        if (active) setWorkbookMeta({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
-      })
-    return () => { active = false }
-  }, [])
+    if (!sessionUser) {
+      setProducts([])
+      setMachines([])
+      setProduction([])
+      setWorkbookMeta({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
+      return () => { active = false }
+    }
+    const refresh = () => {
+      void apiFetch<{
+        products: Product[]
+        machines: Machine[]
+        production: Production[]
+        workbookMeta: { loaded: boolean; name: string; sheetCount: number }
+      }>('/api/erp')
+        .then(data => {
+          if (!active) return
+          setProducts(data.products)
+          setMachines(data.machines)
+          setProduction(data.production)
+          setWorkbookMeta(data.workbookMeta)
+        })
+        .catch(error => {
+          if (active) setToast(error instanceof Error ? error.message : 'Could not load the shared workbook')
+        })
+    }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    refresh()
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      active = false
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [sessionUser])
 
   const notify = (message: string) => { setToast(message); setTimeout(() => setToast(''), 2600) }
   const log = (message: string) => setAudit(prev => [`${new Date().toLocaleString()} — ${message}`, ...prev])
@@ -223,12 +194,52 @@ export default function App() {
     `${p.name} ${p.sku} ${p.category}`.toLowerCase().includes(search.toLowerCase())
   ), [products, search])
 
-  const addProduct = () => {
-    const next = String(products.length + 1001)
-    if (products.some(p => p.sku === `NEW-${next}`)) return notify('A duplicate SKU was detected')
-    setProducts(prev => [...prev, { id: `PID-${next}`, sku: `NEW-${next}`, name: 'Untitled Product', category: 'Uncategorized', mrp: 0, stock: 0, status: 'Draft' }])
-    log(`Created draft product NEW-${next}`)
-    notify('Draft product created')
+  const saveProduct = async (input: { sku: string; name: string; category: string; mrp: number }) => {
+    const result = await apiFetch<{ product: Product }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addProduct', ...input }),
+    })
+    setProducts(prev => [...prev.filter(item => item.sku.toLowerCase() !== result.product.sku.toLowerCase()), result.product])
+    log(`Added product ${result.product.sku}`)
+    notify('Product saved to the shared workbook')
+    return result.product
+  }
+
+  const saveVariant = async (input: { masterSku: string; sku: string; size: string; color: string; packQuantity: number; mrp?: number; sellingPrice?: number }) => {
+    const result = await apiFetch<{ product: Product }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addVariant', ...input }),
+    })
+    setProducts(prev => [...prev.filter(item => item.sku.toLowerCase() !== result.product.sku.toLowerCase()), result.product])
+    log(`Added SKU ${result.product.sku} to ${result.product.masterSku}`)
+    notify('SKU saved to the shared workbook')
+    return result.product
+  }
+
+  const saveMachine = async (input: Omit<Machine, 'id'>) => {
+    const result = await apiFetch<{ machine: Machine }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addMachine', ...input }),
+    })
+    setMachines(prev => [...prev, result.machine])
+    log(`Added ${result.machine.id}: ${result.machine.name}`)
+    notify(`${result.machine.id} saved to the shared workbook`)
+    return result.machine
+  }
+
+  const saveProduction = async (input: Omit<Production, 'id' | 'createdBy' | 'product'> & { product: string }) => {
+    const result = await apiFetch<{ record: Production }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addProduction', ...input }),
+    })
+    setProduction(prev => [result.record, ...prev.filter(item => item.id !== result.record.id)])
+    log(`Recorded production ${result.record.actual} units for ${result.record.sku}`)
+    notify('Production entry saved to the shared workbook')
+    return result.record
   }
 
   const importExcel = async (file: File) => {
@@ -253,11 +264,16 @@ export default function App() {
         if (!sku) throw new Error(`Row ${index + 2} is missing a SKU`)
         return {
           id: String(row['Internal Product ID'] || row['Variant ID'] || row['ID'] || `PID-IMPORT-${index + 1}`), sku,
+          masterSku: String(row['Master SKU'] || sku),
           name: String(row['Name'] || row['Product Title'] || row['Title'] || row['Master SKU'] || 'Imported Product'),
           category: String(row['Category'] || 'Uncategorized'),
           mrp: Number(row['MRP'] || 0),
           stock: Number(row['Stock'] || row['Available Stock'] || 0),
           status: 'Active',
+          size: String(row['Size'] || ''),
+          color: String(row['Color'] || ''),
+          packQuantity: Number(row['Pack Quantity'] || 1),
+          isVariant: variants,
         }
       })
       const existingSkus = new Set(products.map(p => p.sku.toLowerCase()))
@@ -271,9 +287,8 @@ export default function App() {
         existingSkus.add(key)
         return true
       })
-      setProducts(prev => [...prev, ...unique])
-      log(`Imported ${unique.length} records; ${duplicates.length} duplicate SKUs skipped`)
-      notify(duplicates.length ? `Imported ${unique.length}; skipped ${duplicates.length} duplicates` : `Imported ${unique.length} records`)
+      log(`Validated ${unique.length} new catalog rows; ${duplicates.length} existing SKUs found`)
+      notify(`Preview only: ${unique.length} new, ${duplicates.length} duplicates. Use Product Master / SKU Manager to save shared records.`)
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Workbook import failed')
     }
@@ -510,10 +525,10 @@ export default function App() {
               </div>
             </>
           ) : (
-            <ModuleView module={module} products={filteredProducts} production={production} audit={audit} workbookMeta={workbookMeta}
-              search={search} setSearch={setSearch} addProduct={addProduct} exportExcel={exportExcel}
-              fileRef={fileRef} importExcel={importExcel} notify={notify} setProduction={setProduction} log={log}
-              machines={machines} setMachines={setMachines} users={users} setUsers={setUsers} sessionUser={sessionUser}
+            <ModuleView module={module} products={products} filteredProducts={filteredProducts} production={production} audit={audit} workbookMeta={workbookMeta}
+              search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant}
+              saveProduction={saveProduction} saveMachine={saveMachine} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log}
+              machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
               allowedModules={roleModules[sessionUser.role]} />
           )}
         </div>
@@ -524,43 +539,89 @@ export default function App() {
 }
 
 function ModuleView(props: {
-  module: Module; products: Product[]; production: Production[]; audit: string[]; search: string;
+  module: Module; products: Product[]; filteredProducts: Product[]; production: Production[]; audit: string[]; search: string;
   workbookMeta: { loaded: boolean; name: string; sheetCount: number };
-  setSearch: (v: string) => void; addProduct: () => void; exportExcel: () => void;
+  setSearch: (v: string) => void; exportExcel: () => void;
+  saveProduct: (input: { sku: string; name: string; category: string; mrp: number }) => Promise<Product>;
+  saveVariant: (input: { masterSku: string; sku: string; size: string; color: string; packQuantity: number; mrp?: number; sellingPrice?: number }) => Promise<Product>;
+  saveProduction: (input: { date: string; machine: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
+  saveMachine: (input: Omit<Machine, 'id'>) => Promise<Machine>;
   fileRef: React.RefObject<HTMLInputElement | null>; importExcel: (f: File) => void;
-  notify: (v: string) => void; setProduction: React.Dispatch<React.SetStateAction<Production[]>>; log: (v: string) => void
-  machines: Machine[]; setMachines: React.Dispatch<React.SetStateAction<Machine[]>>;
+  notify: (v: string) => void; log: (v: string) => void
+  machines: Machine[];
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
   allowedModules: Module[]
 }) {
-  const { module, products, production, audit, workbookMeta, search, setSearch, addProduct, exportExcel, fileRef, importExcel, notify, setProduction, log, machines, setMachines, users, setUsers, sessionUser, allowedModules } = props
+  const { module, products, filteredProducts, production, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveProduction, saveMachine, fileRef, importExcel, notify, log, machines, users, setUsers, sessionUser, allowedModules } = props
+  const [catalogFormOpen, setCatalogFormOpen] = useState(false)
   if (!allowedModules.includes(module)) {
     return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Your account role cannot open this section.</span></div></section>
   }
 
-  const submitProduction = (e: React.FormEvent<HTMLFormElement>) => {
+  const submitProduction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const form = new FormData(e.currentTarget)
+    const formElement = e.currentTarget
+    const form = new FormData(formElement)
     const actual = Number(form.get('actual'))
     const rejected = Number(form.get('rejected'))
-    if (!actual || actual < 0 || rejected < 0 || rejected > actual) {
-      notify('Enter a valid actual quantity and rejection count')
+    const sku = String(form.get('sku') || '')
+    const product = products.find(item => item.sku === sku && item.status === 'Active')
+    if (!Number.isInteger(actual) || actual <= 0 || !Number.isInteger(rejected) || rejected < 0 || rejected > actual || !product) {
+      notify('Select an active SKU and enter valid whole-number quantities')
       return
     }
-    const record: Production = {
-      id: `PRO-${String(production.length + 1).padStart(3, '0')}`,
-      date: String(form.get('date')),
-      machine: String(form.get('machine')),
-      sku: String(form.get('sku')),
-      product: String(form.get('product')),
-      actual,
-      rejected,
-      createdBy: sessionUser.name,
+    try {
+      await saveProduction({
+        date: String(form.get('date')),
+        machine: String(form.get('machine')),
+        sku,
+        product: product.name,
+        actual,
+        rejected,
+      })
+      formElement.reset()
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Production entry could not be saved')
     }
-    setProduction(prev => [record, ...prev])
-    log(`Recorded production ${record.actual} units for ${record.sku}`)
-    notify('Production entry saved')
-    e.currentTarget.reset()
+  }
+
+  const submitCatalogProduct = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    try {
+      await saveProduct({
+        sku: String(form.get('sku')),
+        name: String(form.get('name')),
+        category: String(form.get('category')),
+        mrp: Number(form.get('mrp')),
+      })
+      formElement.reset()
+      setCatalogFormOpen(false)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Product could not be saved')
+    }
+  }
+
+  const submitSkuVariant = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    try {
+      await saveVariant({
+        masterSku: String(form.get('masterSku')),
+        sku: String(form.get('sku')),
+        size: String(form.get('size')),
+        color: String(form.get('color')),
+        packQuantity: Number(form.get('packQuantity')),
+        mrp: form.get('mrp') ? Number(form.get('mrp')) : undefined,
+        sellingPrice: form.get('sellingPrice') ? Number(form.get('sellingPrice')) : undefined,
+      })
+      formElement.reset()
+      setCatalogFormOpen(false)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'SKU variant could not be saved')
+    }
   }
 
   if (module === 'Machines') {
@@ -570,29 +631,28 @@ function ModuleView(props: {
       XLSX.writeFile(workbook, `Mahalaxmi-Machines-${indiaDateKey()}.xlsx`)
       notify('Machine list downloaded as a new workbook')
     }
-    const addMachine = (event: React.FormEvent<HTMLFormElement>) => {
+    const addMachine = async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault()
       if (sessionUser.role !== 'Super Admin') {
         notify('Only Super Admin can add machines')
         return
       }
-      const form = new FormData(event.currentTarget)
+      const formElement = event.currentTarget
+      const form = new FormData(formElement)
       const name = String(form.get('name')).trim()
       if (!name) return
-      let nextId = machines.length + 1
-      while (machines.some(machine => machine.id === `Machine ${String(nextId).padStart(2, '0')}`)) nextId += 1
-      const machine: Machine = {
-        id: `Machine ${String(nextId).padStart(2, '0')}`,
-        name,
-        type: String(form.get('type')),
-        department: String(form.get('department')),
-        operator: String(form.get('operator')),
-        status: String(form.get('status')),
+      try {
+        await saveMachine({
+          name,
+          type: String(form.get('type')),
+          department: String(form.get('department')),
+          operator: String(form.get('operator')),
+          status: String(form.get('status')),
+        })
+        formElement.reset()
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'Machine could not be saved')
       }
-      setMachines(prev => [...prev, machine])
-      log(`Added ${machine.id}: ${machine.name}`)
-      notify(`${machine.id} added`)
-      event.currentTarget.reset()
     }
     return (
       <section>
@@ -614,36 +674,67 @@ function ModuleView(props: {
   }
 
   if (module === 'Product Master' || module === 'SKU Manager' || module === 'Marketplace Listings') {
+    const tableProducts = module === 'Product Master'
+      ? filteredProducts.filter(product => !product.isVariant)
+      : module === 'SKU Manager'
+        ? filteredProducts.filter(product => product.isVariant)
+        : filteredProducts
+    const masterProducts = products.filter(product => !product.isVariant && product.status === 'Active')
     return (
       <section>
         <div className="page-heading">
           <div><p>{module.toUpperCase()}</p><h1>{module}</h1></div>
           <div className="heading-actions">
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => e.target.files?.[0] && importExcel(e.target.files[0])} />
-            <button className="secondary" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import Excel</button>
-            <button className="primary" onClick={module === 'Product Master' ? addProduct : () => notify('Listing draft created')}><Plus size={17} /> {module === 'Product Master' ? 'Add product' : 'Add listing'}</button>
+            {module !== 'Marketplace Listings' && <button className="primary" onClick={() => setCatalogFormOpen(open => !open)}><Plus size={17} /> {module === 'Product Master' ? 'Add product' : 'Add SKU variant'}</button>}
+            {module === 'Marketplace Listings' && <button className="primary" onClick={() => notify('Marketplace listing setup is not connected yet')}><Plus size={17} /> Add listing</button>}
           </div>
         </div>
+        {catalogFormOpen && module === 'Product Master' && <form className="panel form-card" onSubmit={submitCatalogProduct}>
+          <div className="panel-heading"><div><h2>Add product</h2><p>Save a master product to the shared Excel workbook.</p></div></div>
+          <div className="field-grid">
+            <label>Master SKU<input name="sku" required maxLength={100} autoComplete="off" placeholder="e.g. COTTON-SHIRT-01" /></label>
+            <label>Product name<input name="name" required maxLength={180} placeholder="Product title" /></label>
+            <label>Category<input name="category" maxLength={100} placeholder="e.g. Shirts" /></label>
+            <label>MRP<input name="mrp" type="number" min="0" step="0.01" required placeholder="0.00" /></label>
+          </div>
+          <button className="primary wide" type="submit"><Plus size={17} /> Save product to Excel</button>
+        </form>}
+        {catalogFormOpen && module === 'SKU Manager' && <form className="panel form-card" onSubmit={submitSkuVariant}>
+          <div className="panel-heading"><div><h2>Add SKU variant</h2><p>Link a size/color SKU to its master product.</p></div></div>
+          {masterProducts.length === 0 && <p className="local-storage-note">Add a master product in Product Master first.</p>}
+          <div className="field-grid">
+            <label>Master product<select name="masterSku" required disabled={masterProducts.length === 0}><option value="">Select product</option>{masterProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}</option>)}</select></label>
+            <label>Variant SKU<input name="sku" required maxLength={100} autoComplete="off" placeholder="e.g. COTTON-SHIRT-01-BLK-M" /></label>
+            <label>Size<input name="size" maxLength={60} placeholder="e.g. M" /></label>
+            <label>Color<input name="color" maxLength={60} placeholder="e.g. Black" /></label>
+            <label>Pack quantity<input name="packQuantity" type="number" min="1" step="1" required defaultValue="1" /></label>
+            <label>MRP<input name="mrp" type="number" min="0" step="0.01" placeholder="Uses master product MRP" /></label>
+            <label>Selling price<input name="sellingPrice" type="number" min="0" step="0.01" placeholder="Uses variant MRP" /></label>
+          </div>
+          <button className="primary wide" type="submit" disabled={masterProducts.length === 0}><Plus size={17} /> Save SKU to Excel</button>
+        </form>}
         <div className="toolbar">
           <div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, SKU or barcode" /></div>
           <button className="secondary" onClick={exportExcel}><Download size={16} /> Export</button>
         </div>
         <div className="table-card">
           <table>
-            <thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>MRP</th><th>Stock</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>Product</th><th>{module === 'SKU Manager' ? 'Variant SKU' : 'SKU'}</th>{module === 'SKU Manager' && <th>Master SKU</th>}<th>{module === 'SKU Manager' ? 'Size / color' : 'Category'}</th><th>MRP</th><th>Stock</th><th>Status</th></tr></thead>
             <tbody>
-              {products.map(product => (
+              {tableProducts.map(product => (
                 <tr key={product.id}>
                   <td><div className="product-cell"><div className="product-thumb"><Package size={18} /></div><div><strong>{product.name}</strong><span>{product.id}</span></div></div></td>
-                  <td><code>{product.sku}</code></td><td>{product.category}</td><td>₹{product.mrp.toLocaleString('en-IN')}</td>
+                  <td><code>{product.sku}</code></td>
+                  {module === 'SKU Manager' && <td><code>{product.masterSku}</code></td>}
+                  <td>{module === 'SKU Manager' ? [product.size, product.color].filter(Boolean).join(' · ') || '—' : product.category}</td>
+                  <td>₹{product.mrp.toLocaleString('en-IN')}</td>
                   <td><b className={product.stock < 50 ? 'stock-low' : 'stock-good'}>{product.stock}</b></td>
                   <td><span className={`status ${product.status.toLowerCase()}`}>{product.status}</span></td>
-                  <td><button className="row-menu"><MoreHorizontal size={18} /></button></td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {products.length === 0 && <div className="empty-state"><Package size={28} /><strong>No matching records</strong><span>Try another search or import a workbook.</span></div>}
+          {tableProducts.length === 0 && <div className="empty-state"><Package size={28} /><strong>No matching records</strong><span>{module === 'Product Master' ? 'Add a master product to start the catalog.' : module === 'SKU Manager' ? 'Add a product variant to make it selectable for production.' : 'No listings are connected yet.'}</span></div>}
         </div>
       </section>
     )
@@ -652,6 +743,11 @@ function ModuleView(props: {
   if (module === 'Production') {
     const today = indiaDateKey()
     const month = today.slice(0, 7)
+    const variantMasters = new Set(products.filter(product => product.isVariant && product.status === 'Active').map(product => product.masterSku.toLowerCase()))
+    const activeProducts = products.filter(product =>
+      product.status === 'Active' && (product.isVariant || !variantMasters.has(product.sku.toLowerCase()))
+    )
+    const availableMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
     const visibleProduction = sessionUser.role === 'Production Supervisor'
       ? production.filter(row => row.date === today && row.createdBy === sessionUser.name)
       : production.filter(row => row.date === today)
@@ -691,19 +787,13 @@ function ModuleView(props: {
             <div className="panel-heading"><div><h2>Quick production entry</h2><p>Record actual quantities by machine</p></div></div>
             <div className="field-grid">
               <label>Date<input name="date" type="date" required defaultValue={today} /></label>
-              <label>Machine<select name="machine" required>{machines.length ? machines.map(machine => <option key={machine.id} value={machine.id}>{machine.id}{machine.name ? ` — ${machine.name}` : ''}</option>) : Array.from({ length: 20 }, (_, i) => <option key={i}>Machine {String(i + 1).padStart(2, '0')}</option>)}</select></label>
-              <label>Product name<select name="product" required onChange={event => {
-                const selected = products.find(product => product.name === event.currentTarget.value)
-                if (selected) {
-                  const skuInput = event.currentTarget.form?.elements.namedItem('sku') as HTMLInputElement | null
-                  if (skuInput) skuInput.value = selected.sku
-                }
-              }}><option value="">Select product</option>{products.map(product => <option key={product.id} value={product.name}>{product.name}</option>)}</select></label>
-              <label>Master SKU<select name="sku" required><option value="">Select SKU</option>{products.map(product => <option key={product.sku} value={product.sku}>{product.sku}</option>)}</select></label>
-              <label>Actual quantity<input name="actual" type="number" min="0" required /></label>
-              <label>Rejected quantity<input name="rejected" type="number" min="0" defaultValue="0" required /></label>
+              <label>Machine<select name="machine" required disabled={availableMachines.length === 0}><option value="">Select machine</option>{availableMachines.map(machine => <option key={machine.id} value={machine.id}>{machine.id}{machine.name ? ` — ${machine.name}` : ''}</option>)}</select></label>
+              <label>Product + SKU<select name="sku" required disabled={activeProducts.length === 0}><option value="">Select product and SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{[product.size, product.color].filter(Boolean).length ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
+              <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
+              <label>Rejected quantity<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /></label>
             </div>
-            <button className="primary wide" type="submit"><Plus size={17} /> Save production record</button>
+            {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask Admin to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask Admin to add a machine.' : ''}</p>}
+            <button className="primary wide" type="submit" disabled={activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> Save production record</button>
           </form>
           <div className="panel time-card">
             <div className="panel-heading"><div><h2>Production blocks</h2><p>Break periods are excluded</p></div></div>
@@ -719,20 +809,17 @@ function ModuleView(props: {
   if (module === 'Excel Management') {
     return (
       <section>
-        <div className="page-heading"><div><p>DATA CONTROL</p><h1>Excel Management</h1></div><button className="primary" onClick={() => fileRef.current?.click()}><Upload size={17} /> Import workbook</button></div>
+        <div className="page-heading"><div><p>DATA CONTROL</p><h1>Excel Management</h1></div><button className="primary" onClick={() => fileRef.current?.click()}><Upload size={17} /> Validate Excel</button></div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => e.target.files?.[0] && importExcel(e.target.files[0])} />
         <div className="excel-status-grid">
-          <div className="panel provider-card"><div className="provider-icon"><FileSpreadsheet size={24} /></div><div><span>Master workbook</span><strong>{workbookMeta.name}</strong></div><b className={workbookMeta.loaded ? 'status active' : 'status pending'}>{workbookMeta.loaded ? 'Loaded locally' : 'Not loaded'}</b></div>
-          <div className="panel sync-card"><span>Workbook structure</span><strong>{workbookMeta.sheetCount || 17} sheets detected</strong><small>Google Drive sync credentials are not configured</small></div>
+          <div className="panel provider-card"><div className="provider-icon"><FileSpreadsheet size={24} /></div><div><span>Master workbook</span><strong>{workbookMeta.name}</strong></div><b className={workbookMeta.loaded ? 'status active' : 'status pending'}>{workbookMeta.loaded ? 'Connected' : 'Not loaded'}</b></div>
+          <div className="panel sync-card"><span>Workbook structure</span><strong>{workbookMeta.sheetCount || 17} sheets detected</strong><small>{workbookMeta.loaded ? 'Shared Google Drive workbook is active.' : 'Sign in after configuring the Drive credentials in Vercel.'}</small></div>
         </div>
         <div className="panel setup-card">
-          <div className="panel-heading"><div><h2>Connect original workbook</h2><p>Credentials are configured only in server environment variables</p></div></div>
-          <div className="provider-options">
-            <button onClick={() => notify('Google Drive setup requires OAuth credentials')}><div className="provider-logo drive">D</div><div><strong>Google Drive</strong><span>Google Sheets / Excel</span></div><ChevronDown size={16} /></button>
-            <button onClick={() => notify('Microsoft OneDrive setup requires Graph credentials')}><div className="provider-logo onedrive">O</div><div><strong>Microsoft OneDrive</strong><span>OneDrive / SharePoint</span></div><ChevronDown size={16} /></button>
-          </div>
+          <div className="panel-heading"><div><h2>Shared workbook</h2><p>Catalog, machine, and production changes are backed up and saved to Google Drive.</p></div></div>
+          <p className="local-storage-note">Excel file uploads are preview-only. To make shared changes, use Product Master, SKU Manager, and Machines.</p>
         </div>
-        <div className="panel table-card excel-table"><div className="panel-heading"><div><h2>Import history</h2><p>Local preview imports and validation results</p></div></div><div className="empty-state"><FileSpreadsheet size={28} /><strong>No workbook connected</strong><span>Uploads remain local until server credentials are configured.</span></div></div>
+        <div className="panel table-card excel-table"><div className="panel-heading"><div><h2>Import history</h2><p>Local preview imports and validation results</p></div></div><div className="empty-state"><FileSpreadsheet size={28} /><strong>Uploads are not saved to Drive</strong><span>Validate a spreadsheet here, then use Product Master or SKU Manager to save shared catalog entries.</span></div></div>
       </section>
     )
   }
