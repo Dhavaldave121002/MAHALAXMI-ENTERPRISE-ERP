@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './http.js'
 import { ApiError } from './http.js'
-import { getSessionSecret, readUsers, type PublicUser, type WorkbookContext } from './workbook.js'
+import { getSessionSecret, listUsers, publicUser, type PublicUser, type WorkbookUser } from './workbook.js'
 
 const SESSION_COOKIE = 'mahalaxmi_session'
 const SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 30
@@ -34,7 +34,7 @@ export function clearSessionCookie(response: ApiResponse) {
   response.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`)
 }
 
-export function getSessionUser(request: ApiRequest, context: WorkbookContext): PublicUser {
+export async function getSessionUser(request: ApiRequest, users?: WorkbookUser[]): Promise<PublicUser> {
   const token = getCookie(request, SESSION_COOKIE)
   const [encoded, providedSignature] = token.split('.')
   if (!encoded || !providedSignature) throw new ApiError(401, 'Please sign in.')
@@ -55,9 +55,10 @@ export function getSessionUser(request: ApiRequest, context: WorkbookContext): P
     throw new ApiError(401, 'Your session has expired. Please sign in again.')
   }
 
-  const user = readUsers(context.workbook).find(item => item.id === payload.userId && item.active)
+  const accounts = users || await listUsers()
+  const user = accounts.find(item => item.id === payload.userId && item.active)
   if (!user) throw new ApiError(401, 'This account is inactive or no longer exists.')
-  return { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active }
+  return publicUser(user)
 }
 
 export function requireAdmin(user: PublicUser) {

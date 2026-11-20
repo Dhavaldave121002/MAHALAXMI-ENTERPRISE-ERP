@@ -1,11 +1,10 @@
 import { pbkdf2 as pbkdf2Callback, randomBytes, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-import * as XLSX from 'xlsx'
 import { ApiError } from './http.js'
 
 const pbkdf2 = promisify(pbkdf2Callback)
-const USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At']
 const USER_ROLES = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager'] as const
+const USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At']
 
 export type UserRole = typeof USER_ROLES[number]
 export type WorkbookUser = {
@@ -19,124 +18,92 @@ export type WorkbookUser = {
   createdAt: string
 }
 export type PublicUser = Pick<WorkbookUser, 'id' | 'name' | 'username' | 'role' | 'active'>
-export type WorkbookContext = {
-  workbook: XLSX.WorkBook
-  version: string
-  etag: string
+export type WorkbookData = {
   name: string
+  sheetCount: number
+  sheetNames: string[]
+  sheets: Record<string, Record<string, unknown>[]>
 }
 
-function getConfiguration() {
-  const { GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET, GOOGLE_DRIVE_REFRESH_TOKEN, GOOGLE_DRIVE_WORKBOOK_ID, SESSION_SECRET } = process.env
-  if (!GOOGLE_DRIVE_CLIENT_ID || !GOOGLE_DRIVE_CLIENT_SECRET || !GOOGLE_DRIVE_REFRESH_TOKEN || !GOOGLE_DRIVE_WORKBOOK_ID || !SESSION_SECRET) {
-    throw new ApiError(503, 'Google Drive login is not configured. Add the required Vercel environment variables.')
+function getAppsScriptConfiguration() {
+  const { GOOGLE_APPS_SCRIPT_URL, GOOGLE_APPS_SCRIPT_SECRET } = process.env
+  if (!GOOGLE_APPS_SCRIPT_URL || !GOOGLE_APPS_SCRIPT_SECRET) {
+    throw new ApiError(503, 'Google Sheets Apps Script is not configured. Add the required Vercel environment variables.')
   }
-  if (SESSION_SECRET.length < 32) {
-    throw new ApiError(503, 'SESSION_SECRET must contain at least 32 characters.')
-  }
-  return { clientId: GOOGLE_DRIVE_CLIENT_ID, clientSecret: GOOGLE_DRIVE_CLIENT_SECRET, refreshToken: GOOGLE_DRIVE_REFRESH_TOKEN, workbookId: GOOGLE_DRIVE_WORKBOOK_ID, sessionSecret: SESSION_SECRET }
-}
-
-async function getAccessToken() {
-  const config = getConfiguration()
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      refresh_token: config.refreshToken,
-      grant_type: 'refresh_token',
-    }),
-  })
-  if (!response.ok) throw new ApiError(503, 'Google Drive authorization failed. Check the Vercel Drive credentials.')
-  const result: unknown = await response.json()
-  if (!result || typeof result !== 'object' || !('access_token' in result) || typeof result.access_token !== 'string') {
-    throw new ApiError(503, 'Google Drive did not return an access token.')
-  }
-  return { accessToken: result.access_token, config }
-}
-
-async function getFileMetadata(accessToken: string, workbookId: string) {
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(workbookId)}?fields=id,name,version,mimeType`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (response.status === 404) throw new ApiError(404, 'The configured master workbook was not found in Google Drive.')
-  if (!response.ok) throw new ApiError(503, 'Could not read the master workbook metadata from Google Drive.')
-  const result: unknown = await response.json()
-  if (!result || typeof result !== 'object' || !('version' in result) || !('name' in result)) {
-    throw new ApiError(503, 'Google Drive returned invalid workbook metadata.')
-  }
-  return {
-    version: String(result.version),
-    name: String(result.name),
-    etag: response.headers.get('etag') || '',
-  }
-}
-
-export async function loadWorkbook(): Promise<WorkbookContext> {
-  const { accessToken, config } = await getAccessToken()
-  const metadata = await getFileMetadata(accessToken, config.workbookId)
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(config.workbookId)}?alt=media`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!response.ok) throw new ApiError(503, 'Could not download the master workbook from Google Drive.')
-  const bytes = Buffer.from(await response.arrayBuffer())
-  let workbook: XLSX.WorkBook
+  let url: URL
   try {
-    workbook = XLSX.read(bytes, { type: 'buffer', cellStyles: true, cellFormula: true })
+    url = new URL(GOOGLE_APPS_SCRIPT_URL)
   } catch {
-    throw new ApiError(422, 'The configured Drive file is not a readable Excel workbook.')
+    throw new ApiError(503, 'GOOGLE_APPS_SCRIPT_URL must be a valid Apps Script web app URL.')
   }
-  return { workbook, ...metadata }
+  const isScriptPath = url.pathname.startsWith('/macros/s/') || url.pathname.startsWith('/a/macros/')
+  if (url.protocol !== 'https:' || url.hostname !== 'script.google.com' || !isScriptPath) {
+    throw new ApiError(503, 'GOOGLE_APPS_SCRIPT_URL must be the deployed Google Apps Script web app URL.')
+  }
+  if (GOOGLE_APPS_SCRIPT_SECRET.length < 32) {
+    throw new ApiError(503, 'GOOGLE_APPS_SCRIPT_SECRET must contain at least 32 characters.')
+  }
+  return { url: GOOGLE_APPS_SCRIPT_URL, secret: GOOGLE_APPS_SCRIPT_SECRET }
 }
 
-export async function saveWorkbook(context: WorkbookContext) {
-  const { accessToken, config } = await getAccessToken()
-  const current = await getFileMetadata(accessToken, config.workbookId)
-  if (current.version !== context.version) {
-    throw new ApiError(409, 'The master workbook changed during this request. Reload it and retry.')
-  }
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const backupResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(config.workbookId)}/copy?fields=id`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: `${context.name.replace(/\.xlsx$/i, '')}-Backup-${timestamp}.xlsx` }),
-  })
-  if (!backupResponse.ok) throw new ApiError(503, 'Could not create a Drive backup; workbook was not changed.')
-
-  const finalCheck = await getFileMetadata(accessToken, config.workbookId)
-  if (finalCheck.version !== context.version) {
-    throw new ApiError(409, 'The master workbook changed while preparing a backup. No changes were saved.')
-  }
-
-  const content = XLSX.write(context.workbook, { bookType: 'xlsx', type: 'buffer', compression: true })
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  }
-  if (current.etag) headers['If-Match'] = current.etag
-  const uploadResponse = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(config.workbookId)}?uploadType=media`, {
-    method: 'PATCH',
-    headers,
-    body: content,
-  })
-  if (uploadResponse.status === 412) throw new ApiError(409, 'The master workbook changed before save. Reload it and retry.')
-  if (!uploadResponse.ok) throw new ApiError(503, 'Google Drive rejected the workbook update. The backup remains available.')
+export function getSessionSecret() {
+  const secret = process.env.SESSION_SECRET
+  if (!secret || secret.length < 32) throw new ApiError(503, 'SESSION_SECRET must contain at least 32 characters.')
+  return secret
 }
 
-function getUsersSheet(workbook: XLSX.WorkBook) {
-  const name = workbook.SheetNames.find(sheetName => sheetName.toLowerCase() === 'users')
-  if (!name) return undefined
-  return workbook.Sheets[name]
+async function callAppsScript<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+  const config = getAppsScriptConfiguration()
+  let response: Response
+  try {
+    response = await fetch(config.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: config.secret, action, payload }),
+      cache: 'no-store',
+      redirect: 'follow',
+    })
+  } catch {
+    throw new ApiError(503, 'Could not reach the Google Apps Script web app. Check its deployment URL and access settings.')
+  }
+  if (!response.ok) throw new ApiError(503, 'Google Apps Script returned an HTTP error. Check its deployment.')
+
+  let result: unknown
+  try {
+    result = await response.json()
+  } catch {
+    throw new ApiError(503, 'Google Apps Script did not return JSON. Check that the deployed web app is accessible.')
+  }
+  if (!result || typeof result !== 'object' || !('ok' in result)) {
+    throw new ApiError(503, 'Google Apps Script returned an invalid response.')
+  }
+  if (result.ok !== true) {
+    const status = 'status' in result && typeof result.status === 'number' ? result.status : 503
+    const message = 'error' in result && typeof result.error === 'string' ? result.error : 'Google Apps Script request failed.'
+    throw new ApiError(status >= 400 && status < 500 ? status : 503, message)
+  }
+  if (!('data' in result)) throw new ApiError(503, 'Google Apps Script response is missing its data.')
+  return result.data as T
 }
 
-export function readUsers(workbook: XLSX.WorkBook): WorkbookUser[] {
-  const sheet = getUsersSheet(workbook)
-  if (!sheet) return []
-  const records = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
-  return records.flatMap(row => {
+export async function getWorkbookData(): Promise<WorkbookData> {
+  const data = await callAppsScript<WorkbookData>('getWorkbookData')
+  if (!data || !Array.isArray(data.sheetNames) || !data.sheets || typeof data.sheets !== 'object') {
+    throw new ApiError(503, 'Google Apps Script returned an invalid workbook structure.')
+  }
+  return data
+}
+
+export function readSheetRecords(data: WorkbookData, sheetName: string) {
+  const actualName = data.sheetNames.find(name => name.toLowerCase() === sheetName.toLowerCase())
+  if (!actualName) throw new ApiError(422, `The master Google Sheet is missing the ${sheetName} sheet.`)
+  const rows = data.sheets[actualName]
+  if (!Array.isArray(rows)) throw new ApiError(503, `Apps Script did not return rows for the ${sheetName} sheet.`)
+  return rows
+}
+
+export function readUsers(rows: Record<string, unknown>[]): WorkbookUser[] {
+  return rows.flatMap(row => {
     const role = String(row.Role || '')
     const salt = String(row['Password Salt'] || '')
     const passwordHash = String(row['Password Hash'] || '')
@@ -148,7 +115,7 @@ export function readUsers(workbook: XLSX.WorkBook): WorkbookUser[] {
       name: String(row.Name || ''),
       username,
       role: role as UserRole,
-      active: String(row.Active).toLowerCase() === 'true',
+      active: row.Active === true || ['true', '1', 'yes'].includes(String(row.Active || '').toLowerCase()),
       salt,
       passwordHash,
       createdAt: String(row['Created At'] || ''),
@@ -156,49 +123,14 @@ export function readUsers(workbook: XLSX.WorkBook): WorkbookUser[] {
   })
 }
 
-export function readSheetRecords(workbook: XLSX.WorkBook, sheetName: string) {
-  const actualName = workbook.SheetNames.find(name => name.toLowerCase() === sheetName.toLowerCase())
-  if (!actualName) throw new ApiError(422, `The master workbook is missing the ${sheetName} sheet.`)
-  return XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[actualName], { defval: '', raw: false })
+export async function listUsers() {
+  const result = await callAppsScript<{ users: Record<string, unknown>[] }>('getUsers')
+  if (!result || !Array.isArray(result.users)) throw new ApiError(503, 'Apps Script returned an invalid user list.')
+  return readUsers(result.users)
 }
 
-export function appendSheetRecord(workbook: XLSX.WorkBook, sheetName: string, record: Record<string, unknown>, requiredHeaders: string[]) {
-  const actualName = workbook.SheetNames.find(name => name.toLowerCase() === sheetName.toLowerCase())
-  if (!actualName) throw new ApiError(422, `The master workbook is missing the ${sheetName} sheet.`)
-  const sheet = workbook.Sheets[actualName]
-  const headerRow = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, range: 0, blankrows: false })[0] || []
-  const headers = headerRow.map(header => String(header || '').trim())
-  const missing = requiredHeaders.filter(header => !headers.includes(header))
-  if (missing.length) {
-    throw new ApiError(422, `The ${sheetName} sheet is missing required columns: ${missing.join(', ')}.`)
-  }
-  const orderedRecord = Object.fromEntries(headers.map(header => [header, record[header] ?? '']))
-  XLSX.utils.sheet_add_json(sheet, [orderedRecord], { header: headers, skipHeader: true, origin: -1 })
-}
-
-export function ensureSheetColumns(workbook: XLSX.WorkBook, sheetName: string, columns: string[]) {
-  const actualName = workbook.SheetNames.find(name => name.toLowerCase() === sheetName.toLowerCase())
-  if (!actualName) throw new ApiError(422, `The master workbook is missing the ${sheetName} sheet.`)
-  const sheet = workbook.Sheets[actualName]
-  const range = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']) : { s: { r: 0, c: 0 }, e: { r: 0, c: -1 } }
-  const existing = new Set(
-    XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, range: 0, blankrows: false })[0]?.map(value => String(value || '').trim()) || [],
-  )
-  for (const column of columns) {
-    if (existing.has(column)) continue
-    range.e.c += 1
-    sheet[XLSX.utils.encode_cell({ r: range.s.r, c: range.e.c })] = { t: 's', v: column }
-    existing.add(column)
-  }
-  if (sheet['!ref']) sheet['!ref'] = XLSX.utils.encode_range(range)
-}
-
-export function publicUser(user: WorkbookUser): PublicUser {
-  return { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active }
-}
-
-export function appendUser(workbook: XLSX.WorkBook, user: WorkbookUser) {
-  const row = {
+function toSheetUser(user: WorkbookUser) {
+  return {
     'User ID': user.id,
     Name: user.name,
     Username: user.username,
@@ -208,13 +140,31 @@ export function appendUser(workbook: XLSX.WorkBook, user: WorkbookUser) {
     'Password Hash': user.passwordHash,
     'Created At': user.createdAt,
   }
-  const sheet = getUsersSheet(workbook)
-  if (sheet) {
-    XLSX.utils.sheet_add_json(sheet, [row], { skipHeader: true, origin: -1 })
-    return
-  }
-  const newSheet = XLSX.utils.json_to_sheet([row], { header: USER_COLUMNS })
-  XLSX.utils.book_append_sheet(workbook, newSheet, 'Users')
+}
+
+export async function createInitialAdmin(user: WorkbookUser) {
+  await callAppsScript('createInitialAdmin', { user: toSheetUser(user) })
+}
+
+export async function appendUser(user: WorkbookUser) {
+  await callAppsScript('appendUser', { user: toSheetUser(user) })
+}
+
+export async function setUserActive(userId: string, active: boolean) {
+  await callAppsScript('setUserActive', { id: userId, active })
+}
+
+export async function appendWorkbookRecord(
+  sheet: string,
+  record: Record<string, unknown>,
+  requiredHeaders: string[],
+  ensureColumns: string[] = [],
+) {
+  await callAppsScript('appendRecord', { sheet, record, requiredHeaders, ensureColumns })
+}
+
+export function publicUser(user: WorkbookUser): PublicUser {
+  return { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active }
 }
 
 export async function makePasswordHash(password: string) {
@@ -237,6 +187,6 @@ export function newUser(input: { id: string; name: string; username: string; rol
   return { ...input, active: true, createdAt: new Date().toISOString() }
 }
 
-export function getSessionSecret() {
-  return getConfiguration().sessionSecret
+export function userColumns() {
+  return [...USER_COLUMNS]
 }

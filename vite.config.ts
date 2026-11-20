@@ -20,7 +20,7 @@ const apiRoutes = new Map([
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  for (const key of ['GOOGLE_DRIVE_CLIENT_ID', 'GOOGLE_DRIVE_CLIENT_SECRET', 'GOOGLE_DRIVE_REFRESH_TOKEN', 'GOOGLE_DRIVE_WORKBOOK_ID', 'SESSION_SECRET']) {
+  for (const key of ['GOOGLE_APPS_SCRIPT_URL', 'GOOGLE_APPS_SCRIPT_SECRET', 'SESSION_SECRET']) {
     if (!process.env[key] && env[key]) process.env[key] = env[key]
   }
 

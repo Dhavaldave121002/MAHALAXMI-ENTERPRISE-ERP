@@ -1,7 +1,6 @@
 import type { ApiRequest, ApiResponse } from '../_lib/http.js'
 import { handleApiError, sendJson } from '../_lib/http.js'
 import { getSessionUser } from '../_lib/session.js'
-import { loadWorkbook } from '../_lib/workbook.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'GET') {
@@ -9,8 +8,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return
   }
   try {
-    const context = await loadWorkbook()
-    sendJson(response, 200, { user: getSessionUser(request, context) })
+    sendJson(response, 200, { user: await getSessionUser(request) })
   } catch (error) {
     handleApiError(response, error, 'Session lookup')
   }

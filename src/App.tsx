@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Archive, ArrowUpRight, BarChart3,
-  Boxes, Building2, ChevronDown, CircleDollarSign, ClipboardCheck,
+  Boxes, Building2, CircleDollarSign, ClipboardCheck,
   Factory, FileSpreadsheet, Gauge, LayoutDashboard, Menu, Package,
   RotateCcw, Search, Settings, ShoppingCart, Truck, UserCog, Users,
   Plus, Download, Upload, Bell, MoreHorizontal, CheckCircle2, LogOut, LockKeyhole,
@@ -108,7 +108,7 @@ export default function App() {
       try {
         const statusResponse = await fetch('/api/auth/status', { cache: 'no-store' })
         const statusData = await statusResponse.json() as { error?: string; configured?: boolean; needsAdminSetup?: boolean }
-        if (!statusResponse.ok || !statusData.configured) throw new Error(statusData.error || 'Google Drive login is not configured.')
+        if (!statusResponse.ok || !statusData.configured) throw new Error(statusData.error || 'Google Sheets Apps Script is not configured.')
         if (!active) return
         setNeedsAdminSetup(Boolean(statusData.needsAdminSetup))
         setAuthStatus('ready')
@@ -118,7 +118,7 @@ export default function App() {
           const sessionData = await sessionResponse.json() as { user?: UserAccount }
           if (active && sessionData.user) {
             setSessionUser(sessionData.user)
-            setModule(sessionData.user.role === 'Production Supervisor' ? 'Production' : 'Dashboard')
+            setModule('Dashboard')
           }
         }
       } catch (error) {
@@ -483,47 +483,17 @@ export default function App() {
 
         <div className="content">
           {module === 'Dashboard' ? (
-            <>
-              <div className="page-heading"><div><p>WORKSPACE OVERVIEW</p><h1>Welcome, {sessionUser.name}</h1></div><div className="heading-actions">{sessionUser.role === 'Super Admin' && <button className="secondary" onClick={() => setModule('User Management')}><Users size={17} /> Create team login</button>}<button className="primary" onClick={exportExcel}><Download size={17} /> Export report</button></div></div>
-              <div className="stats-grid">
-                {[
-                  { label: 'Physical Stock', value: String(products.reduce((sum, product) => sum + product.stock, 0)), delta: '0 records', icon: Boxes, tone: 'blue' },
-                  { label: 'Available Stock', value: String(products.reduce((sum, product) => sum + product.stock, 0)), delta: '0 orders reserved', icon: Package, tone: 'green' },
-                  { label: 'Today’s Production', value: String(production.filter(row => row.date === indiaDateKey()).reduce((sum, row) => sum + row.actual, 0)), delta: `${production.filter(row => row.date === indiaDateKey()).length} records`, icon: Factory, tone: 'purple' },
-                  { label: 'Today’s Sales', value: '₹0', delta: '0 orders', icon: CircleDollarSign, tone: 'orange' },
-                ].map(card => (
-                  <div className="stat-card" key={card.label}>
-                    <div className={`stat-icon ${card.tone}`}><card.icon size={21} /></div>
-                    <div className="stat-body"><span>{card.label}</span><strong>{card.value}</strong><small><ArrowUpRight size={13} /> {card.delta} <em>from workbook</em></small></div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="dashboard-grid">
-                <section className="panel production-panel">
-                  <div className="panel-heading"><div><h2>Production overview</h2><p>Actual quantity across all machines</p></div><button className="text-button">Last 7 days <ChevronDown size={14} /></button></div>
-                  <div className="chart-stat"><strong>{production.reduce((sum, row) => sum + row.actual, 0)}</strong><span><ArrowUpRight size={14} /> 0%</span></div>
-                  <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
-                </section>
-                <section className="panel machine-panel">
-                  <div className="panel-heading"><div><h2>Machine status</h2><p>{machines.length} configured in workbook</p></div><button className="text-button" onClick={() => setModule('Machines')}>View all</button></div>
-                  <div className="machine-summary"><div><strong>{machines.filter(machine => machine.status.toLowerCase() === 'running').length}</strong><span>Running</span></div><div><strong>{machines.filter(machine => machine.status.toLowerCase() === 'idle').length}</strong><span>Idle</span></div><div><strong>{machines.filter(machine => machine.status.toLowerCase() === 'maintenance').length}</strong><span>Maintenance</span></div></div>
-                  <div className="machine-list">{machines.slice(0, 4).map(machine => <div className="machine-row" key={machine.id}><div className="machine-icon"><Gauge size={17} /></div><div><strong>{machine.id}</strong><span>{machine.name || machine.department || 'Machine'}</span></div><b className={machine.status.toLowerCase() === 'maintenance' ? 'warning' : ''}>{machine.status}</b></div>)}</div>
-                  {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Add machines to the Machines sheet.</span></div>}
-                </section>
-              </div>
-
-              <div className="bottom-grid">
-                <section className="panel">
-                  <div className="panel-heading"><div><h2>Recent orders</h2><p>Latest marketplace and B2B orders</p></div><button className="text-button">View all</button></div>
-                  <div className="empty-state"><ShoppingCart size={24} /><strong>No recent orders</strong><span>Orders from the workbook will appear here.</span></div>
-                </section>
-                <section className="panel">
-                  <div className="panel-heading"><div><h2>Inventory alerts</h2><p>Items needing attention</p></div><button className="text-button">Manage</button></div>
-                  <div className="empty-state"><AlertTriangle size={24} /><strong>No inventory alerts</strong><span>The workbook has no low-stock records.</span></div>
-                </section>
-              </div>
-            </>
+            <DashboardView
+              role={sessionUser.role}
+              user={sessionUser}
+              users={users}
+              products={products}
+              production={production}
+              machines={machines}
+              productionChart={productionChart}
+              setModule={setModule}
+              exportExcel={exportExcel}
+            />
           ) : (
             <ModuleView module={module} products={products} filteredProducts={filteredProducts} production={production} audit={audit} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant}
@@ -813,10 +783,10 @@ function ModuleView(props: {
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => e.target.files?.[0] && importExcel(e.target.files[0])} />
         <div className="excel-status-grid">
           <div className="panel provider-card"><div className="provider-icon"><FileSpreadsheet size={24} /></div><div><span>Master workbook</span><strong>{workbookMeta.name}</strong></div><b className={workbookMeta.loaded ? 'status active' : 'status pending'}>{workbookMeta.loaded ? 'Connected' : 'Not loaded'}</b></div>
-          <div className="panel sync-card"><span>Workbook structure</span><strong>{workbookMeta.sheetCount || 17} sheets detected</strong><small>{workbookMeta.loaded ? 'Shared Google Drive workbook is active.' : 'Sign in after configuring the Drive credentials in Vercel.'}</small></div>
+          <div className="panel sync-card"><span>Workbook structure</span><strong>{workbookMeta.sheetCount || 17} sheets detected</strong><small>{workbookMeta.loaded ? 'Shared Google Sheet is active.' : 'Sign in after deploying Apps Script and configuring Vercel.'}</small></div>
         </div>
         <div className="panel setup-card">
-          <div className="panel-heading"><div><h2>Shared workbook</h2><p>Catalog, machine, and production changes are backed up and saved to Google Drive.</p></div></div>
+          <div className="panel-heading"><div><h2>Shared workbook</h2><p>Catalog, machine, and production changes are backed up and saved to Google Sheets.</p></div></div>
           <p className="local-storage-note">Excel file uploads are preview-only. To make shared changes, use Product Master, SKU Manager, and Machines.</p>
         </div>
         <div className="panel table-card excel-table"><div className="panel-heading"><div><h2>Import history</h2><p>Local preview imports and validation results</p></div></div><div className="empty-state"><FileSpreadsheet size={28} /><strong>Uploads are not saved to Drive</strong><span>Validate a spreadsheet here, then use Product Master or SKU Manager to save shared catalog entries.</span></div></div>
@@ -916,5 +886,192 @@ function ModuleView(props: {
         <button className="primary" onClick={() => notify(`${module} setup saved`)}><CheckCircle2 size={17} /> Mark configuration ready</button>
       </div>
     </section>
+  )
+}
+
+type DashboardViewProps = {
+  role: Role
+  user: UserAccount
+  users: UserAccount[]
+  products: Product[]
+  production: Production[]
+  machines: Machine[]
+  productionChart: { name: string; qty: number }[]
+  setModule: (module: Module) => void
+  exportExcel: () => void
+}
+
+function DashboardView({
+  role, user, users, products, production, machines, productionChart, setModule, exportExcel,
+}: DashboardViewProps) {
+  const today = indiaDateKey()
+  const todayProduction = production.filter(row => row.date === today)
+  const todayUnits = todayProduction.reduce((sum, row) => sum + row.actual, 0)
+  const todayRejected = todayProduction.reduce((sum, row) => sum + row.rejected, 0)
+  const variantMasters = new Set(products.filter(product => product.isVariant && product.status === 'Active').map(product => product.masterSku.toLowerCase()))
+  const activeProducts = products.filter(product =>
+    product.status === 'Active' && (product.isVariant || !variantMasters.has(product.sku.toLowerCase()))
+  )
+  const zeroStockCount = activeProducts.filter(product => product.stock <= 0).length
+  const availableStock = activeProducts.reduce((sum, product) => sum + product.stock, 0)
+  const activeUsers = users.filter(account => account.active)
+  const roleCounts = (['Production Supervisor', 'Machine Operator', 'Store Manager'] as Role[])
+    .map(accountRole => ({
+      role: accountRole,
+      count: users.filter(account => account.role === accountRole).length,
+      active: users.filter(account => account.role === accountRole && account.active).length,
+    }))
+  const machineStatusCount = (status: string) => machines.filter(machine => machine.status.toLowerCase() === status).length
+
+  const descriptions: Record<Role, string> = {
+    'Super Admin': 'Manage team access, master data, machines, and factory-wide performance.',
+    'Production Supervisor': 'Track your production, review machine availability, and choose from the shared active SKU catalog.',
+    'Machine Operator': 'Record your daily output and review your own production entries.',
+    'Store Manager': 'Review finished-goods availability and open your inventory workspaces.',
+  }
+  const statsByRole: Record<Role, { label: string; value: string; detail: string; icon: typeof Package; tone: string }[]> = {
+    'Super Admin': [
+      { label: 'Team accounts', value: String(users.length), detail: `${activeUsers.length} active`, icon: Users, tone: 'blue' },
+      { label: 'Active SKUs', value: String(activeProducts.length), detail: 'Shared product catalog', icon: Package, tone: 'green' },
+      { label: 'Machines', value: String(machines.length), detail: `${machineStatusCount('running')} running`, icon: Gauge, tone: 'orange' },
+      { label: 'Today’s production', value: String(todayUnits), detail: `${todayProduction.length} records`, icon: Factory, tone: 'purple' },
+    ],
+    'Production Supervisor': [
+      { label: 'Today’s output', value: String(todayUnits), detail: `${todayProduction.length} entries`, icon: Factory, tone: 'purple' },
+      { label: 'Rejected today', value: String(todayRejected), detail: 'Units recorded', icon: ClipboardCheck, tone: 'orange' },
+      { label: 'Active SKUs', value: String(activeProducts.length), detail: 'Available for production', icon: Package, tone: 'green' },
+      { label: 'Working machines', value: String(machines.length - machineStatusCount('maintenance')), detail: `${machineStatusCount('maintenance')} in maintenance`, icon: Gauge, tone: 'blue' },
+    ],
+    'Machine Operator': [
+      { label: 'My output today', value: String(todayUnits), detail: `${todayProduction.length} entries`, icon: Factory, tone: 'purple' },
+      { label: 'My rejects today', value: String(todayRejected), detail: 'Units recorded', icon: ClipboardCheck, tone: 'orange' },
+      { label: 'Active SKUs', value: String(activeProducts.length), detail: 'Available to select', icon: Package, tone: 'green' },
+      { label: 'Available machines', value: String(machines.length - machineStatusCount('maintenance')), detail: 'Not in maintenance', icon: Gauge, tone: 'blue' },
+    ],
+    'Store Manager': [
+      { label: 'Available stock', value: String(availableStock), detail: 'Across active SKUs', icon: Boxes, tone: 'blue' },
+      { label: 'Active SKUs', value: String(activeProducts.length), detail: 'Finished-goods catalog', icon: Package, tone: 'green' },
+      { label: 'Out of stock', value: String(zeroStockCount), detail: 'Active SKUs at zero', icon: AlertTriangle, tone: 'orange' },
+      { label: 'Stocked SKUs', value: String(activeProducts.filter(product => product.stock > 0).length), detail: 'Active SKUs with stock', icon: CheckCircle2, tone: 'purple' },
+    ],
+  }
+  const shortcuts: Record<Role, { module: Module; detail: string }[]> = {
+    'Super Admin': [
+      { module: 'User Management', detail: 'Create accounts and assign team roles' },
+      { module: 'Product Master', detail: 'Manage shared products and master SKUs' },
+      { module: 'SKU Manager', detail: 'Add size and color variants' },
+      { module: 'Machines', detail: 'Configure machines and availability' },
+      { module: 'Reports', detail: 'Review factory data and export reports' },
+    ],
+    'Production Supervisor': [
+      { module: 'Production', detail: 'Enter output and export production reports' },
+      { module: 'Stitching', detail: 'Review stitching work' },
+      { module: 'Quality Control', detail: 'Review quality checks' },
+      { module: 'Machines', detail: 'Check machine availability' },
+    ],
+    'Machine Operator': [
+      { module: 'Production', detail: 'Record output by machine and SKU' },
+    ],
+    'Store Manager': [
+      { module: 'Finished Goods', detail: 'Review finished-goods stock' },
+      { module: 'Raw Material', detail: 'Open raw-material workspace' },
+      { module: 'Inventory', detail: 'Open inventory workspace' },
+    ],
+  }
+  const recentProduction = [...production].reverse().slice(0, 5)
+
+  return (
+    <>
+      <div className="page-heading">
+        <div><p>{role.toUpperCase()} WORKSPACE</p><h1>Welcome, {user.name}</h1><span className="dashboard-description">{descriptions[role]}</span></div>
+        <div className="heading-actions">
+          {role === 'Super Admin' && <button className="secondary" onClick={() => setModule('User Management')}><Users size={17} /> Create team login</button>}
+          {role !== 'Store Manager' && <button className="primary" onClick={exportExcel}><Download size={17} /> Export report</button>}
+        </div>
+      </div>
+
+      <div className="stats-grid">
+        {statsByRole[role].map(card => (
+          <div className="stat-card" key={card.label}>
+            <div className={`stat-icon ${card.tone}`}><card.icon size={21} /></div>
+            <div className="stat-body"><span>{card.label}</span><strong>{card.value}</strong><small>{card.detail}</small></div>
+          </div>
+        ))}
+      </div>
+
+      <div className="dashboard-grid">
+        {role === 'Store Manager' ? (
+          <section className="panel">
+            <div className="panel-heading"><div><h2>Finished-goods stock</h2><p>Stock by active SKU from the shared workbook</p></div><button className="text-button" onClick={() => setModule('Finished Goods')}>View all</button></div>
+            <div className="machine-list">
+              {activeProducts.slice(0, 7).map(product => (
+                <div className="machine-row" key={product.sku}><div className="machine-icon"><Package size={17} /></div><div><strong>{product.sku}</strong><span>{product.name}</span></div><b className={product.stock <= 0 ? 'warning' : ''}>{product.stock} units</b></div>
+              ))}
+              {activeProducts.length === 0 && <div className="empty-state"><Boxes size={24} /><strong>No active stock items</strong><span>Ask Admin to configure the finished-goods catalog.</span></div>}
+            </div>
+          </section>
+        ) : (
+          <section className="panel production-panel">
+            <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Factory production' : 'My production overview'}</h2><p>Actual output over the last 7 days</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
+            <div className="chart-stat"><strong>{production.reduce((sum, row) => sum + row.actual, 0)}</strong><span><ArrowUpRight size={14} /> 7 days</span></div>
+            <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
+          </section>
+        )}
+
+        {role === 'Super Admin' ? (
+          <section className="panel">
+            <div className="panel-heading"><div><h2>Team access</h2><p>{activeUsers.length} active of {users.length} accounts</p></div><button className="text-button" onClick={() => setModule('User Management')}>Manage users</button></div>
+            <div className="dashboard-summary">
+              {roleCounts.map(item => <div className="dashboard-summary-row" key={item.role}><div><strong>{item.role}</strong><span>{item.active} active · {item.count} total</span></div><Users size={16} /></div>)}
+              {users.length === 0 && <div className="empty-state"><Users size={24} /><strong>No team accounts yet</strong><span>Create role-based logins for your team.</span></div>}
+            </div>
+          </section>
+        ) : role === 'Production Supervisor' ? (
+          <section className="panel">
+            <div className="panel-heading"><div><h2>Machine status</h2><p>{machines.length} configured in the workbook</p></div><button className="text-button" onClick={() => setModule('Machines')}>View all</button></div>
+            <div className="machine-summary"><div><strong>{machineStatusCount('running')}</strong><span>Running</span></div><div><strong>{machineStatusCount('idle')}</strong><span>Idle</span></div><div><strong>{machineStatusCount('maintenance')}</strong><span>Maintenance</span></div></div>
+            <div className="machine-list">{machines.slice(0, 4).map(machine => <div className="machine-row" key={machine.id}><div className="machine-icon"><Gauge size={17} /></div><div><strong>{machine.id}</strong><span>{machine.name || machine.department || 'Machine'}</span></div><b className={machine.status.toLowerCase() === 'maintenance' ? 'warning' : ''}>{machine.status}</b></div>)}</div>
+            {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Ask Admin to configure machines.</span></div>}
+          </section>
+        ) : role === 'Machine Operator' ? (
+          <section className="panel">
+            <div className="panel-heading"><div><h2>Getting started</h2><p>Quick access to your daily work</p></div></div>
+            <div className="dashboard-action-list"><button className="dashboard-action" onClick={() => setModule('Production')}><div><strong>Enter production</strong><span>Choose an available machine and active SKU</span></div><ArrowUpRight size={17} /></button></div>
+          </section>
+        ) : (
+          <section className="panel">
+            <div className="panel-heading"><div><h2>Stock attention</h2><p>Active SKUs currently at zero stock</p></div><button className="text-button" onClick={() => setModule('Inventory')}>Open inventory</button></div>
+            <div className="machine-list">{activeProducts.filter(product => product.stock <= 0).slice(0, 4).map(product => <div className="machine-row" key={product.sku}><div className="machine-icon"><AlertTriangle size={17} /></div><div><strong>{product.sku}</strong><span>{product.name}</span></div><b className="warning">Out of stock</b></div>)}</div>
+            {zeroStockCount === 0 && <div className="empty-state"><CheckCircle2 size={24} /><strong>No zero-stock SKUs</strong><span>All active catalog items have available stock.</span></div>}
+          </section>
+        )}
+      </div>
+
+      <div className="bottom-grid">
+        <section className="panel">
+          <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Recent factory production' : role === 'Store Manager' ? 'Stock workspace' : 'My recent production'}</h2><p>{role === 'Super Admin' ? 'Latest entries across the team' : role === 'Store Manager' ? 'Manage finished goods and inventory' : 'Your latest saved entries'}</p></div></div>
+          {role === 'Store Manager' ? (
+            <div className="dashboard-action-list">{shortcuts[role].map(item => <button className="dashboard-action" key={item.module} onClick={() => setModule(item.module)}><div><strong>{item.module}</strong><span>{item.detail}</span></div><ArrowUpRight size={17} /></button>)}</div>
+          ) : recentProduction.length ? (
+            <div className="dashboard-table"><table><thead><tr><th>Date</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{recentProduction.map(row => <tr key={row.id}><td>{row.date}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{role === 'Super Admin' ? row.createdBy || '—' : user.name}</td></tr>)}</tbody></table></div>
+          ) : <div className="empty-state"><Factory size={24} /><strong>No production entries yet</strong><span>Saved entries will appear here.</span></div>}
+        </section>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Admin shortcuts' : role === 'Store Manager' ? 'Inventory snapshot' : 'Your workspace'}</h2><p>{role === 'Super Admin' ? 'Administration and shared master data' : 'Tools available for your assigned role'}</p></div></div>
+          {role === 'Store Manager' ? (
+            <div className="dashboard-summary">
+              <div className="dashboard-summary-row"><div><strong>Active SKUs</strong><span>{activeProducts.length} finished-goods items</span></div><Package size={16} /></div>
+              <div className="dashboard-summary-row"><div><strong>Available stock</strong><span>{availableStock} units across active SKUs</span></div><Boxes size={16} /></div>
+              <div className="dashboard-summary-row"><div><strong>Out of stock</strong><span>{zeroStockCount} active SKUs at zero</span></div><AlertTriangle size={16} /></div>
+            </div>
+          ) : (
+            <div className="dashboard-action-list">{shortcuts[role].map(item => {
+              const Icon = moduleIcons[item.module]
+              return <button className="dashboard-action" key={item.module} onClick={() => setModule(item.module)}><div className="dashboard-action-icon"><Icon size={17} /></div><div><strong>{item.module}</strong><span>{item.detail}</span></div><ArrowUpRight size={16} /></button>
+            })}</div>
+          )}
+        </section>
+      </div>
+    </>
   )
 }
