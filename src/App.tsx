@@ -315,7 +315,7 @@ export default function App() {
         body: JSON.stringify({ username, password, scope: isAdminRoute ? 'admin' : 'team' }),
       })
       setSessionUser(result.user)
-      setModule(result.user.role === 'Production Supervisor' ? 'Production' : 'Dashboard')
+      setModule('Dashboard')
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : 'Login failed')
     }
@@ -425,14 +425,14 @@ export default function App() {
     }
   })
   const roleModules: Record<Role, Module[]> = {
-    'Super Admin': navSections.flatMap(section => section.items),
-    'Production Supervisor': ['Dashboard', 'Production', 'Stitching', 'Quality Control', 'Machines'],
+    'Super Admin': ['Dashboard', 'Production', 'Stitching', 'Quality Control', 'Machines', 'User Management'],
+    'Production Supervisor': navSections.flatMap(section => section.items).filter(item => item !== 'User Management'),
     'Machine Operator': ['Dashboard', 'Production'],
     'Store Manager': ['Dashboard', 'Raw Material', 'Finished Goods', 'Inventory'],
   }
   const mainModules: Record<Role, Module[]> = {
-    'Super Admin': ['Dashboard', 'Production', 'Inventory', 'Product Master'],
-    'Production Supervisor': ['Dashboard', 'Production', 'Stitching', 'Machines'],
+    'Super Admin': ['Dashboard', 'Production', 'Stitching', 'Machines'],
+    'Production Supervisor': ['Dashboard', 'Production', 'Inventory', 'Product Master'],
     'Machine Operator': ['Dashboard', 'Production'],
     'Store Manager': ['Dashboard', 'Inventory', 'Raw Material', 'Finished Goods'],
   }
@@ -603,8 +603,8 @@ function ModuleView(props: {
     }
     const addMachine = async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault()
-      if (sessionUser.role !== 'Super Admin') {
-        notify('Only Super Admin can add machines')
+      if (sessionUser.role !== 'Production Supervisor') {
+        notify('Only a Production Supervisor can add machines')
         return
       }
       const formElement = event.currentTarget
@@ -627,7 +627,7 @@ function ModuleView(props: {
     return (
       <section>
         <div className="page-heading"><div><p>FACTORY SETUP</p><h1>Machines</h1></div><div className="heading-actions"><span className="status active">{machines.length} configured</span><button className="secondary" onClick={exportMachines}><Download size={16} /> Export Excel</button></div></div>
-        {sessionUser.role === 'Super Admin' && <form className="panel form-card machine-form" onSubmit={addMachine}>
+        {sessionUser.role === 'Production Supervisor' && <form className="panel form-card machine-form" onSubmit={addMachine}>
           <div className="panel-heading"><div><h2>Add machine</h2><p>Machine roster used in production entries</p></div></div>
           <div className="field-grid">
             <label>Machine name<input name="name" required placeholder="e.g. Cutting machine" /></label>
@@ -638,7 +638,7 @@ function ModuleView(props: {
           </div>
           <button className="primary wide" type="submit"><Plus size={17} /> Add machine</button>
         </form>}
-        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Department</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.department || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>Super Admin can add machines above.</span></div>}</div>
+        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Department</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.department || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>Production Supervisors can add machines above.</span></div>}</div>
       </section>
     )
   }
@@ -718,7 +718,7 @@ function ModuleView(props: {
       product.status === 'Active' && (product.isVariant || !variantMasters.has(product.sku.toLowerCase()))
     )
     const availableMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
-    const visibleProduction = sessionUser.role === 'Production Supervisor'
+    const visibleProduction = sessionUser.role === 'Super Admin'
       ? production.filter(row => row.date === today && row.createdBy === sessionUser.name)
       : production.filter(row => row.date === today)
     const exportDailyReport = () => {
@@ -734,7 +734,7 @@ function ModuleView(props: {
     }
     const exportMonthlyReport = () => {
       const monthlyRows = production.filter(row =>
-        row.date.startsWith(month) && (sessionUser.role !== 'Production Supervisor' || row.createdBy === sessionUser.name)
+        row.date.startsWith(month) && (sessionUser.role !== 'Super Admin' || row.createdBy === sessionUser.name)
       )
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthlyRows), 'Monthly Production')
@@ -743,7 +743,7 @@ function ModuleView(props: {
         Records: monthlyRows.length,
         Total: monthlyRows.reduce((sum, row) => sum + row.actual, 0),
         Rejected: monthlyRows.reduce((sum, row) => sum + row.rejected, 0),
-        PreparedFor: sessionUser.role === 'Production Supervisor' ? sessionUser.name : 'All users',
+        PreparedFor: sessionUser.role === 'Super Admin' ? sessionUser.name : 'All users',
       }]), 'Summary')
       log(`Generated monthly production workbook for ${month}`)
       XLSX.writeFile(workbook, `Mahalaxmi-Production-${month}.xlsx`)
@@ -762,7 +762,7 @@ function ModuleView(props: {
               <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
               <label>Rejected quantity<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /></label>
             </div>
-            {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask Admin to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask Admin to add a machine.' : ''}</p>}
+            {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask a Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask a Production Supervisor to add a machine.' : ''}</p>}
             <button className="primary wide" type="submit" disabled={activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> Save production record</button>
           </form>
           <div className="panel time-card">
@@ -870,7 +870,7 @@ function ModuleView(props: {
   if (module === 'Audit Logs') {
     return (
       <section><div className="page-heading"><div><p>SECURITY</p><h1>Audit Logs</h1></div></div>
-        <div className="panel audit-card"><div className="panel-heading"><div><h2>Recent activity</h2><p>Changes made in this browser session</p></div></div>{audit.map((entry, i) => <div className="audit-row" key={i}><div className="audit-dot" /><div><strong>{entry}</strong><span>Super Admin</span></div></div>)}</div>
+        <div className="panel audit-card"><div className="panel-heading"><div><h2>Recent activity</h2><p>Changes made in this browser session</p></div></div>{audit.map((entry, i) => <div className="audit-row" key={i}><div className="audit-dot" /><div><strong>{entry}</strong><span>{sessionUser.name}</span></div></div>)}</div>
       </section>
     )
   }
@@ -924,23 +924,23 @@ function DashboardView({
   const machineStatusCount = (status: string) => machines.filter(machine => machine.status.toLowerCase() === status).length
 
   const descriptions: Record<Role, string> = {
-    'Super Admin': 'Manage team access, master data, machines, and factory-wide performance.',
-    'Production Supervisor': 'Track your production, review machine availability, and choose from the shared active SKU catalog.',
+    'Super Admin': 'Review your production workspace and manage team access.',
+    'Production Supervisor': 'Manage products, SKU variants, machines, and factory-wide ERP workspaces.',
     'Machine Operator': 'Record your daily output and review your own production entries.',
     'Store Manager': 'Review finished-goods availability and open your inventory workspaces.',
   }
   const statsByRole: Record<Role, { label: string; value: string; detail: string; icon: typeof Package; tone: string }[]> = {
     'Super Admin': [
-      { label: 'Team accounts', value: String(users.length), detail: `${activeUsers.length} active`, icon: Users, tone: 'blue' },
-      { label: 'Active SKUs', value: String(activeProducts.length), detail: 'Shared product catalog', icon: Package, tone: 'green' },
-      { label: 'Machines', value: String(machines.length), detail: `${machineStatusCount('running')} running`, icon: Gauge, tone: 'orange' },
-      { label: 'Today’s production', value: String(todayUnits), detail: `${todayProduction.length} records`, icon: Factory, tone: 'purple' },
+      { label: 'My output today', value: String(todayUnits), detail: `${todayProduction.length} entries`, icon: Factory, tone: 'purple' },
+      { label: 'My rejects today', value: String(todayRejected), detail: 'Units recorded', icon: ClipboardCheck, tone: 'orange' },
+      { label: 'Active SKUs', value: String(activeProducts.length), detail: 'Available to select', icon: Package, tone: 'green' },
+      { label: 'Available machines', value: String(machines.length - machineStatusCount('maintenance')), detail: 'Not in maintenance', icon: Gauge, tone: 'blue' },
     ],
     'Production Supervisor': [
-      { label: 'Today’s output', value: String(todayUnits), detail: `${todayProduction.length} entries`, icon: Factory, tone: 'purple' },
-      { label: 'Rejected today', value: String(todayRejected), detail: 'Units recorded', icon: ClipboardCheck, tone: 'orange' },
+      { label: 'Master products', value: String(products.filter(product => !product.isVariant).length), detail: 'Shared product catalog', icon: Archive, tone: 'blue' },
       { label: 'Active SKUs', value: String(activeProducts.length), detail: 'Available for production', icon: Package, tone: 'green' },
-      { label: 'Working machines', value: String(machines.length - machineStatusCount('maintenance')), detail: `${machineStatusCount('maintenance')} in maintenance`, icon: Gauge, tone: 'blue' },
+      { label: 'Machines', value: String(machines.length), detail: `${machineStatusCount('running')} running`, icon: Gauge, tone: 'orange' },
+      { label: 'Today’s production', value: String(todayUnits), detail: `${todayProduction.length} records`, icon: Factory, tone: 'purple' },
     ],
     'Machine Operator': [
       { label: 'My output today', value: String(todayUnits), detail: `${todayProduction.length} entries`, icon: Factory, tone: 'purple' },
@@ -958,16 +958,17 @@ function DashboardView({
   const shortcuts: Record<Role, { module: Module; detail: string }[]> = {
     'Super Admin': [
       { module: 'User Management', detail: 'Create accounts and assign team roles' },
+      { module: 'Production', detail: 'Review and enter your production records' },
+      { module: 'Stitching', detail: 'Review stitching work' },
+      { module: 'Quality Control', detail: 'Review quality checks' },
+      { module: 'Machines', detail: 'Check machine availability' },
+    ],
+    'Production Supervisor': [
       { module: 'Product Master', detail: 'Manage shared products and master SKUs' },
       { module: 'SKU Manager', detail: 'Add size and color variants' },
       { module: 'Machines', detail: 'Configure machines and availability' },
       { module: 'Reports', detail: 'Review factory data and export reports' },
-    ],
-    'Production Supervisor': [
       { module: 'Production', detail: 'Enter output and export production reports' },
-      { module: 'Stitching', detail: 'Review stitching work' },
-      { module: 'Quality Control', detail: 'Review quality checks' },
-      { module: 'Machines', detail: 'Check machine availability' },
     ],
     'Machine Operator': [
       { module: 'Production', detail: 'Record output by machine and SKU' },
@@ -1007,12 +1008,12 @@ function DashboardView({
               {activeProducts.slice(0, 7).map(product => (
                 <div className="machine-row" key={product.sku}><div className="machine-icon"><Package size={17} /></div><div><strong>{product.sku}</strong><span>{product.name}</span></div><b className={product.stock <= 0 ? 'warning' : ''}>{product.stock} units</b></div>
               ))}
-              {activeProducts.length === 0 && <div className="empty-state"><Boxes size={24} /><strong>No active stock items</strong><span>Ask Admin to configure the finished-goods catalog.</span></div>}
+              {activeProducts.length === 0 && <div className="empty-state"><Boxes size={24} /><strong>No active stock items</strong><span>Ask a Production Supervisor to configure the finished-goods catalog.</span></div>}
             </div>
           </section>
         ) : (
           <section className="panel production-panel">
-            <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Factory production' : 'My production overview'}</h2><p>Actual output over the last 7 days</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
+            <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Factory production' : 'My production overview'}</h2><p>Actual output over the last 7 days</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
             <div className="chart-stat"><strong>{production.reduce((sum, row) => sum + row.actual, 0)}</strong><span><ArrowUpRight size={14} /> 7 days</span></div>
             <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
           </section>
@@ -1031,7 +1032,7 @@ function DashboardView({
             <div className="panel-heading"><div><h2>Machine status</h2><p>{machines.length} configured in the workbook</p></div><button className="text-button" onClick={() => setModule('Machines')}>View all</button></div>
             <div className="machine-summary"><div><strong>{machineStatusCount('running')}</strong><span>Running</span></div><div><strong>{machineStatusCount('idle')}</strong><span>Idle</span></div><div><strong>{machineStatusCount('maintenance')}</strong><span>Maintenance</span></div></div>
             <div className="machine-list">{machines.slice(0, 4).map(machine => <div className="machine-row" key={machine.id}><div className="machine-icon"><Gauge size={17} /></div><div><strong>{machine.id}</strong><span>{machine.name || machine.department || 'Machine'}</span></div><b className={machine.status.toLowerCase() === 'maintenance' ? 'warning' : ''}>{machine.status}</b></div>)}</div>
-            {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Ask Admin to configure machines.</span></div>}
+            {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Ask a Production Supervisor to configure machines.</span></div>}
           </section>
         ) : role === 'Machine Operator' ? (
           <section className="panel">
@@ -1049,15 +1050,15 @@ function DashboardView({
 
       <div className="bottom-grid">
         <section className="panel">
-          <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Recent factory production' : role === 'Store Manager' ? 'Stock workspace' : 'My recent production'}</h2><p>{role === 'Super Admin' ? 'Latest entries across the team' : role === 'Store Manager' ? 'Manage finished goods and inventory' : 'Your latest saved entries'}</p></div></div>
+          <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Recent factory production' : role === 'Store Manager' ? 'Stock workspace' : 'My recent production'}</h2><p>{role === 'Production Supervisor' ? 'Latest entries across the team' : role === 'Store Manager' ? 'Manage finished goods and inventory' : 'Your latest saved entries'}</p></div></div>
           {role === 'Store Manager' ? (
             <div className="dashboard-action-list">{shortcuts[role].map(item => <button className="dashboard-action" key={item.module} onClick={() => setModule(item.module)}><div><strong>{item.module}</strong><span>{item.detail}</span></div><ArrowUpRight size={17} /></button>)}</div>
           ) : recentProduction.length ? (
-            <div className="dashboard-table"><table><thead><tr><th>Date</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{recentProduction.map(row => <tr key={row.id}><td>{row.date}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{role === 'Super Admin' ? row.createdBy || '—' : user.name}</td></tr>)}</tbody></table></div>
+            <div className="dashboard-table"><table><thead><tr><th>Date</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{recentProduction.map(row => <tr key={row.id}><td>{row.date}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{role === 'Production Supervisor' ? row.createdBy || '—' : user.name}</td></tr>)}</tbody></table></div>
           ) : <div className="empty-state"><Factory size={24} /><strong>No production entries yet</strong><span>Saved entries will appear here.</span></div>}
         </section>
         <section className="panel">
-          <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Admin shortcuts' : role === 'Store Manager' ? 'Inventory snapshot' : 'Your workspace'}</h2><p>{role === 'Super Admin' ? 'Administration and shared master data' : 'Tools available for your assigned role'}</p></div></div>
+          <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Admin controls' : role === 'Production Supervisor' ? 'ERP management shortcuts' : role === 'Store Manager' ? 'Inventory snapshot' : 'Your workspace'}</h2><p>{role === 'Super Admin' ? 'Team access and your workspaces' : role === 'Production Supervisor' ? 'Shared master data and factory operations' : 'Tools available for your assigned role'}</p></div></div>
           {role === 'Store Manager' ? (
             <div className="dashboard-summary">
               <div className="dashboard-summary-row"><div><strong>Active SKUs</strong><span>{activeProducts.length} finished-goods items</span></div><Package size={16} /></div>

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
-import { getSessionUser, requireAdmin } from './_lib/session.js'
+import { getSessionUser, requireProductionSupervisor } from './_lib/session.js'
 import {
   appendWorkbookRecord,
   getWorkbookData,
@@ -129,7 +129,7 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
 
   const production: Production[] = records(data, 'Production').flatMap((row, index) => {
     const createdBy = text(row['Created By'])
-    if (user.role !== 'Super Admin' && createdBy.toLowerCase() !== user.name.toLowerCase()) return []
+    if (user.role !== 'Production Supervisor' && createdBy.toLowerCase() !== user.name.toLowerCase()) return []
     return [{
       id: text(row['Production ID']) || `PRO-${index + 1}`,
       date: dateKey(row.Date),
@@ -143,7 +143,7 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
   })
 
   return {
-    products: user.role === 'Super Admin' ? products : products.filter(item => item.status === 'Active'),
+    products: user.role === 'Production Supervisor' ? products : products.filter(item => item.status === 'Active'),
     machines,
     production,
     workbookMeta: { loaded: true, name: data.name, sheetCount: data.sheetCount },
@@ -340,7 +340,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       sendJson(response, 201, { record })
       return
     }
-    requireAdmin(user)
+    requireProductionSupervisor(user)
     if (action === 'addProduct') {
       const product = await addProduct(data, body)
       sendJson(response, 201, { product })

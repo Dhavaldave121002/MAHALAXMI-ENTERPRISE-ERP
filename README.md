@@ -33,14 +33,14 @@ Never paste either secret into chat, frontend code, or GitHub. The web app endpo
 - Passwords are stored as salted PBKDF2 hashes; raw passwords are never written to the workbook.
 - The Admin creates non-admin accounts from **Create team login** or **More → User Management**.
 - `/admin` is for the single Super Admin; team members use the main login page. API handlers verify roles and use an HttpOnly session cookie.
-- After sign-in, each role opens its own dashboard: Super Admin gets team and ERP controls, Supervisors get production and machine summaries, Operators get their production workspace, and Store Managers get finished-goods stock and inventory shortcuts.
+- After sign-in, each role opens its own dashboard: Super Admin gets team management and personal production workspaces; Production Supervisors manage shared products, SKU variants, machines, and factory-wide ERP workspaces (but not user accounts); Operators get their production workspace, and Store Managers get finished-goods stock and inventory shortcuts.
 - User creation and status changes create a Drive backup before updating the Google Sheet.
 
 ## Shared SKU and production workflow
 
-- The Super Admin creates master products in **Product Master** and SKU variants in **SKU Manager**. These save to the Google Sheet's `Products` and `SKU_Variants` sheets.
+- Production Supervisors create master products in **Product Master**, SKU variants in **SKU Manager**, and machines in **Machines**. These save to the corresponding Google Sheet tabs. Only the Super Admin can manage user accounts.
 - Active SKUs are read from the Google Sheet for team accounts. When a product has active variants, production shows those variants instead of an ambiguous parent SKU; the selector displays product name, SKU, size, and color.
-- Admin machine entries save to the `Machines` sheet. Supervisors and operators can select configured, non-maintenance machines.
+- Production Supervisor machine entries save to the `Machines` sheet. Supervisors and operators can select configured, non-maintenance machines.
 - Production entries are validated and saved to the `Production` sheet. The API adds a `Variant SKU` column if needed so variant selections remain identifiable.
 - The app reloads shared workbook data on sign-in and when a signed-in browser returns to the foreground.
 - Writes create a Drive backup and Apps Script locks edits to avoid concurrent row writes.
