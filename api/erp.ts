@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
-import { getSessionUser, requireAdmin } from './_lib/session.js'
+import { getSessionUser, requireSupervisorOrAdmin } from './_lib/session.js'
 import {
+  addWorkbookMarketplaceListing,
   addWorkbookRawMaterial,
   applyWorkbookStockMovement,
   archiveWorkbookStockItem,
   appendWorkbookRecord,
   deleteUnusedWorkbookStockItem,
   getWorkbookData,
+  importWorkbookMarketplaceCatalog,
   recordWorkbookProduction,
   readUsers,
   readSheetRecords,
@@ -31,6 +33,19 @@ type CatalogItem = {
   isVariant: boolean
 }
 
+type MarketplaceListing = {
+  id: string
+  platform: string
+  platformSku: string
+  productSku: string
+  masterSku: string
+  productName: string
+  status: string
+  createdBy: string
+  createdAt: string
+}
+
+const MARKETPLACES = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
 type Machine = { id: string; name: string; type: string; department: string; operator: string; status: string }
 type Production = { id: string; date: string; machine: string; sku: string; product: string; actual: number; rejected: number; createdBy: string }
 type RawMaterial = {
@@ -100,7 +115,9 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
   const archivedFinishedSkus = new Set(finishedRows
     .filter(row => text(row.Status).toLowerCase() === 'archived')
     .map(row => text(row['Product SKU']).toLowerCase()))
-  const productStock = (sku: string) => user.role === 'Super Admin' ? stockBySku.get(sku.toLowerCase()) || 0 : 0
+  const productStock = (sku: string) => user.role === 'Super Admin' || user.role === 'Production Supervisor'
+    ? stockBySku.get(sku.toLowerCase()) || 0
+    : 0
   const rawMaterials: RawMaterial[] = optionalRecords(data, 'Raw_Materials').flatMap(row => {
     const sku = text(row['Material SKU'])
     if (!sku) return []
@@ -184,7 +201,7 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       category: text(row.Category) || 'Uncategorized',
       mrp: number(row.MRP),
       stock: productStock(sku),
-      status: user.role === 'Super Admin' && archivedFinishedSkus.has(sku.toLowerCase()) ? 'Draft' : normalizedStatus(row.Status),
+      status: (user.role === 'Super Admin' || user.role === 'Production Supervisor') && archivedFinishedSkus.has(sku.toLowerCase()) ? 'Draft' : normalizedStatus(row.Status),
       size: text(row.Size),
       color: text(row.Color),
       packQuantity: number(row['Pack Quantity']) || 1,
@@ -207,7 +224,7 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       category: master?.category || 'Uncategorized',
       mrp: number(row.MRP) || master?.mrp || 0,
       stock: productStock(sku),
-      status: master?.status === 'Active' && !(user.role === 'Super Admin' && archivedFinishedSkus.has(sku.toLowerCase())) ? normalizedStatus(row.Status) : 'Draft',
+      status: master?.status === 'Active' && !((user.role === 'Super Admin' || user.role === 'Production Supervisor') && archivedFinishedSkus.has(sku.toLowerCase())) ? normalizedStatus(row.Status) : 'Draft',
       size: text(row.Size),
       color: text(row.Color),
       packQuantity: number(row['Pack Quantity']) || 1,
@@ -242,14 +259,34 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       createdBy,
     }]
   })
+  const marketplaceListings: MarketplaceListing[] = optionalRecords(data, 'Marketplace_Listings').flatMap(row => {
+    const id = text(row['Listing ID'])
+    const platform = text(row.Platform)
+    const platformSku = text(row['Platform SKU'])
+    const productSku = text(row['Product SKU'])
+    if (!platformSku || !productSku) return []
+    const product = products.find(item => item.sku.toLowerCase() === productSku.toLowerCase())
+    return [{
+      id: id || `${platform}:${platformSku}`,
+      platform,
+      platformSku,
+      productSku,
+      masterSku: text(row['Master SKU']) || product?.masterSku || productSku,
+      productName: text(row['Product Name']) || product?.name || productSku,
+      status: text(row.Status) || 'Active',
+      createdBy: text(row['Created By']),
+      createdAt: text(row['Created At']),
+    }]
+  })
 
   return {
     products: user.role === 'Production Supervisor' || user.role === 'Super Admin' ? products : products.filter(item => item.status === 'Active'),
+    marketplaceListings: user.role === 'Production Supervisor' || user.role === 'Super Admin' ? marketplaceListings : [],
     machines,
     production,
-    rawMaterials: user.role === 'Super Admin' ? rawMaterials : [],
-    finishedGoods: user.role === 'Super Admin' ? finishedGoods : [],
-    stockMovements: user.role === 'Super Admin' ? stockMovements.reverse() : [],
+    rawMaterials: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? rawMaterials : [],
+    finishedGoods: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? finishedGoods : [],
+    stockMovements: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? stockMovements.reverse() : [],
     workbookMeta: { loaded: true, name: data.name, sheetCount: data.sheetCount },
   }
 }
@@ -350,6 +387,72 @@ async function addVariant(data: WorkbookData, body: Record<string, unknown>) {
   return item
 }
 
+async function addMarketplaceListing(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
+  const platform = requiredText(body.platform, 'Platform', 40)
+  if (!MARKETPLACES.includes(platform)) throw new ApiError(400, 'Choose a supported marketplace platform.')
+  const platformSku = requiredText(body.platformSku, 'Platform SKU', 100)
+  const productSku = requiredText(body.productSku, 'Product SKU', 100)
+  const product = getSnapshot(data, user).products.find(item => item.sku.toLowerCase() === productSku.toLowerCase())
+  if (!product || product.status !== 'Active') throw new ApiError(400, 'Choose an active product or variant from the catalog.')
+  const duplicate = optionalRecords(data, 'Marketplace_Listings').some(row =>
+    text(row.Platform).toLowerCase() === platform.toLowerCase() &&
+    text(row['Platform SKU']).toLowerCase() === platformSku.toLowerCase()
+  )
+  if (duplicate) throw new ApiError(409, `The SKU ${platformSku} already exists on ${platform}.`)
+  const listing: MarketplaceListing = {
+    id: `LST-${randomUUID()}`,
+    platform,
+    platformSku,
+    productSku: product.sku,
+    masterSku: product.masterSku,
+    productName: product.name,
+    status: 'Active',
+    createdBy: user.name,
+    createdAt: new Date().toISOString(),
+  }
+  await addWorkbookMarketplaceListing({
+    id: listing.id,
+    platform: listing.platform,
+    platformSku: listing.platformSku,
+    productSku: listing.productSku,
+    masterSku: listing.masterSku,
+    productName: listing.productName,
+    createdBy: listing.createdBy,
+    createdAt: listing.createdAt,
+  })
+  return listing
+}
+
+function marketplaceImportRows(body: Record<string, unknown>, key: string, requiredHeaders: string[], maxRows: number) {
+  const value = body[key]
+  if (!Array.isArray(value) || value.length === 0 || value.length > maxRows) {
+    throw new ApiError(400, `${key} must contain between 1 and ${maxRows} rows.`)
+  }
+  return value.map((row, index) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      throw new ApiError(400, `${key} row ${index + 1} must be an object.`)
+    }
+    const record = row as Record<string, unknown>
+    const missing = requiredHeaders.filter(header => !text(record[header]))
+    if (missing.length) {
+      throw new ApiError(400, `${key} row ${index + 1} is missing: ${missing.join(', ')}.`)
+    }
+    return record
+  })
+}
+
+async function importMarketplaceWorkbook(user: PublicUser, body: Record<string, unknown>) {
+  const products = marketplaceImportRows(body, 'products', ['Internal Product ID', 'Master SKU', 'Product Title'], 5000)
+  const variants = marketplaceImportRows(body, 'variants', ['Variant ID', 'Master SKU', 'Variant SKU'], 10000)
+  const listings = marketplaceImportRows(body, 'listings', ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name'], 10000)
+  for (const [index, listing] of listings.entries()) {
+    if (!MARKETPLACES.includes(text(listing.Platform))) {
+      throw new ApiError(400, `Marketplace_Listings_Import row ${index + 1} uses an unsupported platform.`)
+    }
+  }
+  return importWorkbookMarketplaceCatalog({ products, variants, listings, createdBy: user.name })
+}
+
 async function addMachine(data: WorkbookData, body: Record<string, unknown>) {
   const name = requiredText(body.name, 'Machine name', 100)
   const existing = records(data, 'Machines')
@@ -421,7 +524,7 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     rejected,
     createdBy: user.name,
   }
-  if (user.role !== 'Super Admin') return savedRecord
+  if (user.role !== 'Super Admin' && user.role !== 'Production Supervisor') return savedRecord
   return {
     ...savedRecord,
     finishedGood: {
@@ -551,7 +654,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return
     }
     if (['addRawMaterial', 'applyStockMovement', 'archiveStockItem', 'deleteUnusedStockItem'].includes(action)) {
-      requireAdmin(user)
+      requireSupervisorOrAdmin(user)
       if (action === 'addRawMaterial') {
         const material = await addRawMaterial(user, body)
         sendJson(response, 201, { material })
@@ -571,7 +674,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       sendJson(response, 200, result)
       return
     }
-    requireAdmin(user)
+    requireSupervisorOrAdmin(user)
     if (action === 'addProduct') {
       const product = await addProduct(data, body)
       sendJson(response, 201, { product })
@@ -580,6 +683,16 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (action === 'addVariant') {
       const product = await addVariant(data, body)
       sendJson(response, 201, { product })
+      return
+    }
+    if (action === 'addMarketplaceListing') {
+      const listing = await addMarketplaceListing(data, user, body)
+      sendJson(response, 201, { listing })
+      return
+    }
+    if (action === 'importMarketplaceWorkbook') {
+      const result = await importMarketplaceWorkbook(user, body)
+      sendJson(response, 200, { result })
       return
     }
     if (action === 'addMachine') {

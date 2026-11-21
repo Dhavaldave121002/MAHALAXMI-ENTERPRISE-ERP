@@ -64,3 +64,9 @@ export async function getSessionUser(request: ApiRequest, users?: WorkbookUser[]
 export function requireAdmin(user: PublicUser) {
   if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can perform this action.')
 }
+
+export function requireSupervisorOrAdmin(user: PublicUser) {
+  if (user.role !== 'Super Admin' && user.role !== 'Production Supervisor') {
+    throw new ApiError(403, 'Only the Super Admin or Production Supervisor can perform this action.')
+  }
+}

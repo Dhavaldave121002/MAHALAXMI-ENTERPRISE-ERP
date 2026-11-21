@@ -19,6 +19,21 @@ type Product = {
   id: string; sku: string; masterSku: string; name: string; category: string; mrp: number; stock: number;
   status: 'Active' | 'Draft'; size: string; color: string; packQuantity: number; isVariant: boolean
 }
+type MarketplaceListing = {
+  id: string; platform: string; platformSku: string; productSku: string; masterSku: string;
+  productName: string; status: string; createdBy?: string; createdAt?: string
+}
+type MarketplaceImportRows = {
+  products: Record<string, unknown>[]
+  variants: Record<string, unknown>[]
+  listings: Record<string, unknown>[]
+  issues: Record<string, unknown>[]
+}
+type MarketplaceImportResult = {
+  added: { products: number; variants: number; listings: number }
+  skipped: { products: number; variants: number; listings: number }
+  backupName: string
+}
 type Production = { id: string; date: string; machine: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
 type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean }
@@ -48,6 +63,7 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
+const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   Dashboard: LayoutDashboard, Production: Factory, Stitching: ClipboardCheck, 'Raw Material': Boxes,
@@ -107,6 +123,7 @@ export default function App() {
   const [users, setUsers] = useState<UserAccount[]>([])
   const [machines, setMachines] = useState<Machine[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [marketplaceListings, setMarketplaceListings] = useState<MarketplaceListing[]>([])
   const [production, setProduction] = useState<Production[]>([])
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [finishedGoods, setFinishedGoods] = useState<FinishedGood[]>([])
@@ -119,6 +136,7 @@ export default function App() {
   const refreshWorkbook = useCallback(async () => {
     const data = await apiFetch<{
       products: Product[]
+      marketplaceListings: MarketplaceListing[]
       machines: Machine[]
       production: Production[]
       rawMaterials: RawMaterial[]
@@ -127,6 +145,7 @@ export default function App() {
       workbookMeta: { loaded: boolean; name: string; sheetCount: number }
     }>('/api/erp')
     setProducts(data.products)
+    setMarketplaceListings(data.marketplaceListings)
     setMachines(data.machines)
     setProduction(data.production)
     setRawMaterials(data.rawMaterials)
@@ -189,6 +208,7 @@ export default function App() {
     let active = true
     if (!sessionUser) {
       setProducts([])
+      setMarketplaceListings([])
       setMachines([])
       setProduction([])
       setRawMaterials([])
@@ -220,8 +240,30 @@ export default function App() {
   const log = (message: string) => setAudit(prev => [`${new Date().toLocaleString()} — ${message}`, ...prev])
 
   const filteredProducts = useMemo(() => products.filter(p =>
-    `${p.name} ${p.sku} ${p.category}`.toLowerCase().includes(search.toLowerCase())
+    `${p.name} ${p.sku} ${p.masterSku} ${p.category}`.toLowerCase().includes(search.toLowerCase())
   ), [products, search])
+  const globalSearchResults = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (query.length < 2) return []
+    const matchedListings = marketplaceListings.filter(listing =>
+      `${listing.platform} ${listing.platformSku} ${listing.productSku} ${listing.masterSku} ${listing.productName}`.toLowerCase().includes(query)
+    )
+    const matchingProducts = products.filter(product =>
+      `${product.name} ${product.sku} ${product.masterSku} ${product.category}`.toLowerCase().includes(query)
+    )
+    const listingProducts = matchedListings.flatMap(listing => {
+      const product = products.find(item => item.sku.toLowerCase() === listing.productSku.toLowerCase())
+      return product ? [product] : []
+    })
+    const uniqueProducts = new Map([...matchingProducts, ...listingProducts].map(product => [product.sku.toLowerCase(), product]))
+    return [...uniqueProducts.values()].slice(0, 8).map(product => ({
+      product,
+      listings: marketplaceListings.filter(listing =>
+        listing.productSku.toLowerCase() === product.sku.toLowerCase() &&
+        (matchedListings.some(match => match.id === listing.id) || matchingProducts.includes(product))
+      ),
+    }))
+  }, [marketplaceListings, products, search])
 
   const saveProduct = async (input: { sku: string; name: string; category: string; mrp: number }) => {
     const result = await apiFetch<{ product: Product }>('/api/erp', {
@@ -245,6 +287,35 @@ export default function App() {
     log(`Added SKU ${result.product.sku} to ${result.product.masterSku}`)
     notify('SKU saved to the shared workbook')
     return result.product
+  }
+
+  const saveMarketplaceListing = async (input: { platform: string; platformSku: string; productSku: string }) => {
+    const result = await apiFetch<{ listing: MarketplaceListing }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addMarketplaceListing', ...input }),
+    })
+    setMarketplaceListings(prev => [result.listing, ...prev.filter(item => item.id !== result.listing.id)])
+    log(`Added ${result.listing.platform} listing SKU ${result.listing.platformSku}`)
+    notify('Marketplace SKU saved to the shared workbook')
+    return result.listing
+  }
+
+  const importMarketplaceWorkbook = async (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => {
+    const response = await apiFetch<{ result: MarketplaceImportResult }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'importMarketplaceWorkbook', ...rows }),
+    })
+    log(`Imported marketplace workbook: ${response.result.added.listings} listings added`)
+    try {
+      await refreshWorkbook()
+    } catch {
+      notify('Import saved, but the live workbook could not be refreshed. Reload the page before retrying.')
+      throw new Error('Import succeeded, but the live workbook could not be refreshed. Reload the page before retrying.')
+    }
+    notify(`Import complete: ${response.result.added.listings} listings added; existing rows skipped.`)
+    return response.result
   }
 
   const saveMachine = async (input: Omit<Machine, 'id'>) => {
@@ -500,9 +571,10 @@ export default function App() {
     }
   })
   const adminModules = navSections.flatMap(section => section.items)
+  const adminOnlyModules: Module[] = ['Employees', 'Suppliers', 'Accounts', 'Reports', 'User Management', 'Settings', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules,
-    'Production Supervisor': ['Dashboard', 'Factory', 'Production', 'Stitching', 'Quality Control'],
+    'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item)),
     'Machine Operator': ['Dashboard', 'Production'],
     'Store Manager': ['Dashboard'],
   }
@@ -553,7 +625,19 @@ export default function App() {
       <main>
         <header className="topbar">
           <button className="icon-button" onClick={() => setSidebarOpen(v => !v)} aria-label="Toggle navigation"><Menu size={20} /></button>
-          <div className="global-search"><Search size={17} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search SKU, product, order, barcode..." /><kbd>⌘ K</kbd></div>
+          <div className="global-search-wrap">
+            <div className="global-search"><Search size={17} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search SKU, product, order, barcode..." /><kbd>⌘ K</kbd></div>
+            {search.trim().length >= 2 && <div className="global-search-results" role="status" aria-live="polite">
+              {globalSearchResults.length ? globalSearchResults.map(({ product, listings }) => (
+                <div className="global-search-result" key={product.sku}>
+                  <div><strong>{product.name}</strong><span>Product SKU: <code>{product.sku}</code>{product.masterSku !== product.sku ? <> · Master: <code>{product.masterSku}</code></> : null}</span></div>
+                  <div className="global-search-platforms">{listings.length
+                    ? listings.map(listing => <span key={listing.id}><b>{listing.platform}</b><code>{listing.platformSku}</code></span>)
+                    : <span className="global-search-unlisted">No marketplace SKU linked</span>}</div>
+                </div>
+              )) : <div className="global-search-empty">No matching product or marketplace SKU</div>}
+            </div>}
+          </div>
           <div className="top-actions"><button className="icon-button" title="Notifications"><Bell size={19} /><i /></button><div className="date-chip"><span>{new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }).format(clock)} IST</span><strong>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(clock)}</strong></div><button className="icon-button" onClick={logout} title="Log out"><LogOut size={18} /></button></div>
         </header>
 
@@ -571,8 +655,8 @@ export default function App() {
               exportExcel={exportExcel}
             />
           ) : (
-            <ModuleView module={module} products={products} filteredProducts={filteredProducts} production={production} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
-              search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant}
+            <ModuleView module={module} products={products} marketplaceListings={marketplaceListings} filteredProducts={filteredProducts} production={production} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
+              search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
               saveProduction={saveProduction} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
@@ -586,12 +670,14 @@ export default function App() {
 }
 
 function ModuleView(props: {
-  module: Module; products: Product[]; filteredProducts: Product[]; production: Production[];
+  module: Module; products: Product[]; marketplaceListings: MarketplaceListing[]; filteredProducts: Product[]; production: Production[];
   rawMaterials: RawMaterial[]; finishedGoods: FinishedGood[]; stockMovements: StockMovement[]; audit: string[]; search: string;
   workbookMeta: { loaded: boolean; name: string; sheetCount: number };
   setSearch: (v: string) => void; exportExcel: () => void;
   saveProduct: (input: { sku: string; name: string; category: string; mrp: number }) => Promise<Product>;
   saveVariant: (input: { masterSku: string; sku: string; size: string; color: string; packQuantity: number; mrp?: number; sellingPrice?: number }) => Promise<Product>;
+  saveMarketplaceListing: (input: { platform: string; platformSku: string; productSku: string }) => Promise<MarketplaceListing>;
+  importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => Promise<MarketplaceImportResult>;
   saveProduction: (input: { date: string; machine: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
   saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
   applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string }) => Promise<void>;
@@ -605,10 +691,87 @@ function ModuleView(props: {
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
   allowedModules: Module[]
 }) {
-  const { module, products, filteredProducts, production, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveProduction, saveRawMaterial, applyStockMovement, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
+  const { module, products, marketplaceListings, filteredProducts, production, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveRawMaterial, applyStockMovement, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
   const [catalogFormOpen, setCatalogFormOpen] = useState(false)
   const [stockFormOpen, setStockFormOpen] = useState(false)
   const [materialFormOpen, setMaterialFormOpen] = useState(false)
+  const [marketplaceFilter, setMarketplaceFilter] = useState('')
+  const [marketplaceImportPreview, setMarketplaceImportPreview] = useState<MarketplaceImportRows | null>(null)
+  const [marketplaceImportFileName, setMarketplaceImportFileName] = useState('')
+  const [marketplaceImportError, setMarketplaceImportError] = useState('')
+  const [marketplaceImportBusy, setMarketplaceImportBusy] = useState(false)
+  const [marketplaceImportResult, setMarketplaceImportResult] = useState<MarketplaceImportResult | null>(null)
+  const marketplaceImportFileRef = useRef<HTMLInputElement>(null)
+  const loadMarketplaceImport = async (file: File) => {
+    try {
+      if (file.size > 10 * 1024 * 1024) throw new Error('Workbook must be 10 MB or smaller.')
+      if (!/\.xlsx$/i.test(file.name)) throw new Error('Choose the combined .xlsx marketplace import workbook.')
+      const workbook = XLSX.read(await file.arrayBuffer())
+      const readSheet = (name: string, requiredHeaders: string[]) => {
+        const sheet = workbook.Sheets[name]
+        if (!sheet) throw new Error(`The workbook is missing the ${name} sheet.`)
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+        if (!rows.length) throw new Error(`The ${name} sheet is empty.`)
+        const missing = requiredHeaders.filter(header => !Object.prototype.hasOwnProperty.call(rows[0], header))
+        if (missing.length) throw new Error(`${name} is missing columns: ${missing.join(', ')}.`)
+        return rows
+      }
+      const products = readSheet('Products_Import', ['Internal Product ID', 'Master SKU', 'Product Title'])
+      const variants = readSheet('SKU_Variants_Import', ['Variant ID', 'Master SKU', 'Variant SKU'])
+      const listings = readSheet('Marketplace_Listings_Import', ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name'])
+      if (products.length > 5000 || variants.length > 10000 || listings.length > 10000) {
+        throw new Error('This workbook exceeds the safe import row limits.')
+      }
+      const issues = workbook.Sheets.Import_Issues
+        ? XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets.Import_Issues, { defval: '' })
+        : []
+      for (const [index, row] of products.entries()) {
+        if (!row['Internal Product ID'] || !row['Master SKU'] || !row['Product Title']) {
+          throw new Error(`Products_Import row ${index + 2} is missing its ID, SKU, or title.`)
+        }
+      }
+      for (const [index, row] of variants.entries()) {
+        if (!row['Variant ID'] || !row['Master SKU'] || !row['Variant SKU']) {
+          throw new Error(`SKU_Variants_Import row ${index + 2} is missing its ID or SKU mapping.`)
+        }
+      }
+      for (const [index, row] of listings.entries()) {
+        if (!row['Listing ID'] || !row.Platform || !row['Platform SKU'] || !row['Product SKU'] || !row['Master SKU'] || !row['Product Name']) {
+          throw new Error(`Marketplace_Listings_Import row ${index + 2} is missing required listing data.`)
+        }
+      }
+      setMarketplaceImportFileName(file.name)
+      setMarketplaceImportPreview({ products, variants, listings, issues })
+      setMarketplaceImportResult(null)
+      setMarketplaceImportError('')
+    } catch (error) {
+      setMarketplaceImportPreview(null)
+      setMarketplaceImportError(error instanceof Error ? error.message : 'The marketplace workbook could not be read.')
+    }
+  }
+  const applyMarketplaceImport = async () => {
+    if (!marketplaceImportPreview || marketplaceImportBusy) return
+    setMarketplaceImportBusy(true)
+    setMarketplaceImportError('')
+    try {
+      const result = await importMarketplaceWorkbook({
+        products: marketplaceImportPreview.products,
+        variants: marketplaceImportPreview.variants,
+        listings: marketplaceImportPreview.listings,
+      })
+      setMarketplaceImportResult(result)
+      setMarketplaceImportPreview(null)
+    } catch (error) {
+      setMarketplaceImportError(error instanceof Error ? error.message : 'Marketplace workbook import failed.')
+    } finally {
+      setMarketplaceImportBusy(false)
+    }
+  }
+  const importPlatformCounts = marketplaceImportPreview?.listings.reduce<Record<string, number>>((counts, row) => {
+    const platform = String(row.Platform || 'Unknown')
+    counts[platform] = (counts[platform] || 0) + 1
+    return counts
+  }, {})
   if (!allowedModules.includes(module)) {
     return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Your account role cannot open this section.</span></div></section>
   }
@@ -679,7 +842,24 @@ function ModuleView(props: {
     }
   }
 
-  const canManageInventory = sessionUser.role === 'Super Admin'
+  const submitMarketplaceListing = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    try {
+      await saveMarketplaceListing({
+        platform: String(form.get('platform')),
+        platformSku: String(form.get('platformSku')).trim(),
+        productSku: String(form.get('productSku')),
+      })
+      formElement.reset()
+      setCatalogFormOpen(false)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Marketplace SKU could not be saved')
+    }
+  }
+
+  const canManageInventory = sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor'
   const hasItemMovement = (kind: 'raw' | 'finished', sku: string) => stockMovements.some(movement =>
     movement.sku.toLowerCase() === sku.toLowerCase() && (!movement.itemType || movement.itemType === (kind === 'raw' ? 'Raw Material' : 'Finished Goods'))
   )
@@ -940,7 +1120,7 @@ function ModuleView(props: {
           </div>
           <button className="primary wide" type="submit"><Plus size={17} /> Add machine</button>
         </form>}
-        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Department</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.department || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>The Super Admin can add machines.</span></div>}</div>
+        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Department</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.department || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>The Super Admin or Production Supervisor can add machines.</span></div>}</div>
       </section>
     )
   }
@@ -952,15 +1132,33 @@ function ModuleView(props: {
         ? filteredProducts.filter(product => product.isVariant)
         : filteredProducts
     const masterProducts = products.filter(product => !product.isVariant && product.status === 'Active')
+    const visibleMarketplaceListings = marketplaceListings.filter(listing =>
+      (!marketplaceFilter || listing.platform.toLowerCase() === marketplaceFilter.toLowerCase()) &&
+      `${listing.platform} ${listing.platformSku} ${listing.productName} ${listing.productSku} ${listing.masterSku}`.toLowerCase().includes(search.toLowerCase())
+    )
     return (
       <section>
         <div className="page-heading">
           <div><p>{module.toUpperCase()}</p><h1>{module}</h1></div>
           <div className="heading-actions">
             {module !== 'Marketplace Listings' && <button className="primary" onClick={() => setCatalogFormOpen(open => !open)}><Plus size={17} /> {module === 'Product Master' ? 'Add product' : 'Add SKU variant'}</button>}
-            {module === 'Marketplace Listings' && <button className="primary" onClick={() => notify('Marketplace listing setup is not connected yet')}><Plus size={17} /> Add listing</button>}
+            {module === 'Marketplace Listings' && <>
+              <button className="secondary" disabled={marketplaceImportBusy} onClick={() => marketplaceImportFileRef.current?.click()}><Upload size={17} /> Import workbook</button>
+              <button className="primary" onClick={() => setCatalogFormOpen(open => !open)}><Plus size={17} /> Add platform SKU</button>
+            </>}
           </div>
         </div>
+        {module === 'Marketplace Listings' && <input
+          ref={marketplaceImportFileRef}
+          type="file"
+          accept=".xlsx"
+          hidden
+          onChange={event => {
+            const file = event.currentTarget.files?.[0]
+            event.currentTarget.value = ''
+            if (file) void loadMarketplaceImport(file)
+          }}
+        />}
         {catalogFormOpen && module === 'Product Master' && <form className="panel form-card" onSubmit={submitCatalogProduct}>
           <div className="panel-heading"><div><h2>Add product</h2><p>Save a master product to the shared Excel workbook.</p></div></div>
           <div className="field-grid">
@@ -985,11 +1183,73 @@ function ModuleView(props: {
           </div>
           <button className="primary wide" type="submit" disabled={masterProducts.length === 0}><Plus size={17} /> Save SKU to Excel</button>
         </form>}
+        {catalogFormOpen && module === 'Marketplace Listings' && <form className="panel form-card" onSubmit={submitMarketplaceListing}>
+          <div className="panel-heading"><div><h2>Add platform-specific SKU</h2><p>Select the marketplace first; its saved listings will be shown below.</p></div></div>
+          <div className="field-grid">
+            <label>Platform<select name="platform" required value={marketplaceFilter} onChange={event => setMarketplaceFilter(event.target.value)}><option value="" disabled>Select platform first</option>{marketplaces.map(platform => <option key={platform}>{platform}</option>)}</select></label>
+            {marketplaceFilter && <>
+              <label>Product<select name="productSku" required defaultValue=""><option value="" disabled>Select product and internal SKU</option>{products.filter(product => product.status === 'Active').map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}</option>)}</select></label>
+              <label>Platform SKU<input name="platformSku" required maxLength={100} autoComplete="off" placeholder={`Enter this ${marketplaceFilter} SKU`} /></label>
+            </>}
+          </div>
+          {marketplaceFilter
+            ? <p className="marketplace-selection-note">{marketplaceListings.filter(listing => listing.platform.toLowerCase() === marketplaceFilter.toLowerCase()).length} saved {marketplaceFilter} listing(s) are shown below.</p>
+            : <p className="marketplace-selection-note">Choose a platform to view its saved SKUs and enter a new platform SKU.</p>}
+          {marketplaceFilter && <button className="primary wide" type="submit" disabled={!products.some(product => product.status === 'Active')}><Plus size={17} /> Save platform SKU</button>}
+        </form>}
+        {module === 'Marketplace Listings' && marketplaceImportError && <p className="marketplace-import-error" role="alert">{marketplaceImportError}</p>}
+        {module === 'Marketplace Listings' && marketplaceImportPreview && <div className="panel marketplace-import-panel">
+          <div className="panel-heading">
+            <div><h2>Review marketplace workbook</h2><p>{marketplaceImportFileName}</p></div>
+            <button className="text-button" type="button" disabled={marketplaceImportBusy} onClick={() => { setMarketplaceImportPreview(null); setMarketplaceImportError('') }}>Cancel</button>
+          </div>
+          <div className="marketplace-import-summary">
+            <div><strong>{marketplaceImportPreview.products.length}</strong><span>Product masters</span></div>
+            <div><strong>{marketplaceImportPreview.variants.length}</strong><span>SKU variants</span></div>
+            <div><strong>{marketplaceImportPreview.listings.length}</strong><span>Marketplace listings</span></div>
+          </div>
+          <p className="marketplace-selection-note">
+            Platforms: {Object.entries(importPlatformCounts || {}).map(([platform, count]) => `${platform} ${count}`).join(' · ')}.
+            {' '}Workbook issues flagged: {marketplaceImportPreview.issues.length}.
+          </p>
+          <p className="local-storage-note">This imports missing rows into the existing connected Google Sheet. Existing SKUs/listings are skipped; nothing is deleted. Stock, machines, and user accounts are not imported. If rows need adding, a Drive backup is created before changes.</p>
+          {marketplaceImportPreview.issues.length > 0 && <details className="marketplace-import-issues">
+            <summary>Review {marketplaceImportPreview.issues.length} source issues</summary>
+            <ul>{marketplaceImportPreview.issues.slice(0, 20).map((issue, index) => (
+              <li key={`${String(issue.Source || 'source')}-${String(issue['Source Row'] || index)}-${index}`}>
+                {String(issue.Source || 'Source')} row {String(issue['Source Row'] || '—')}: {String(issue.Issue || 'Needs review')}
+              </li>
+            ))}</ul>
+            {marketplaceImportPreview.issues.length > 20 && <span>Only the first 20 issues are shown.</span>}
+          </details>}
+          <button className="primary wide" type="button" disabled={marketplaceImportBusy} onClick={() => void applyMarketplaceImport()}>
+            {marketplaceImportBusy ? 'Importing…' : `Back up and import ${marketplaceImportPreview.listings.length} listings to the existing Google Sheet`}
+          </button>
+        </div>}
+        {module === 'Marketplace Listings' && marketplaceImportResult && <div className="panel marketplace-import-panel">
+          <div className="panel-heading"><div><h2>Import complete</h2><p>Rows were merged into the existing connected Google Sheet.</p></div></div>
+          <p className="marketplace-selection-note">
+            Added: {marketplaceImportResult.added.products} products, {marketplaceImportResult.added.variants} variants, {marketplaceImportResult.added.listings} listings.
+            {' '}Skipped as already present: {marketplaceImportResult.skipped.products} products, {marketplaceImportResult.skipped.variants} variants, {marketplaceImportResult.skipped.listings} listings.
+          </p>
+          {marketplaceImportResult.backupName && <p className="marketplace-selection-note">Backup created in Drive: <code>{marketplaceImportResult.backupName}</code></p>}
+        </div>}
         <div className="toolbar">
+          {module === 'Marketplace Listings' && <label className="marketplace-filter">Platform
+            <select aria-label="Filter marketplace listings by platform" value={marketplaceFilter} onChange={event => setMarketplaceFilter(event.target.value)}>
+              <option value="">All platforms ({marketplaceListings.length})</option>
+              {marketplaces.map(platform => <option key={platform} value={platform}>{platform} ({marketplaceListings.filter(listing => listing.platform.toLowerCase() === platform.toLowerCase()).length})</option>)}
+            </select>
+          </label>}
           <div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, SKU or barcode" /></div>
           <button className="secondary" onClick={exportExcel}><Download size={16} /> Export</button>
         </div>
-        <div className="table-card">
+        {module === 'Marketplace Listings' ? <div className="table-card">
+          <table><thead><tr><th>Platform</th><th>Platform SKU</th><th>Product</th><th>Internal SKU</th><th>Status</th></tr></thead><tbody>
+            {visibleMarketplaceListings.map(listing => <tr key={listing.id}><td><b>{listing.platform}</b></td><td><code>{listing.platformSku}</code></td><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td><span className="status active">{listing.status}</span></td></tr>)}
+          </tbody></table>
+          {visibleMarketplaceListings.length === 0 && <div className="empty-state"><ShoppingCart size={28} /><strong>{marketplaceListings.length ? 'No matching listings' : 'No platform SKUs yet'}</strong><span>{marketplaceListings.length ? 'Try another platform, product, or SKU search.' : 'Add a platform SKU and link it to an active product.'}</span></div>}
+        </div> : <div className="table-card">
           <table>
             <thead><tr><th>Product</th><th>{module === 'SKU Manager' ? 'Variant SKU' : 'SKU'}</th>{module === 'SKU Manager' && <th>Master SKU</th>}<th>{module === 'SKU Manager' ? 'Size / color' : 'Category'}</th><th>MRP</th><th>Stock</th><th>Status</th></tr></thead>
             <tbody>
@@ -1007,7 +1267,7 @@ function ModuleView(props: {
             </tbody>
           </table>
           {tableProducts.length === 0 && <div className="empty-state"><Package size={28} /><strong>No matching records</strong><span>{module === 'Product Master' ? 'Add a master product to start the catalog.' : module === 'SKU Manager' ? 'Add a product variant to make it selectable for production.' : 'No listings are connected yet.'}</span></div>}
-        </div>
+        </div>}
       </section>
     )
   }
@@ -1060,7 +1320,7 @@ function ModuleView(props: {
               <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
               <label>Rejected quantity<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /></label>
             </div>
-            {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask the Super Admin to add a machine.' : ''}</p>}
+            {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin or Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask the Super Admin or Production Supervisor to add a machine.' : ''}</p>}
             <button className="primary wide" type="submit" disabled={activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> Save production record</button>
           </form>
           <div className="panel time-card">
@@ -1077,7 +1337,7 @@ function ModuleView(props: {
   if (module === 'Excel Management') {
     return (
       <section>
-        <div className="page-heading"><div><p>DATA CONTROL</p><h1>Excel Management</h1></div><button className="primary" onClick={() => fileRef.current?.click()}><Upload size={17} /> Validate Excel</button></div>
+        <div className="page-heading"><div><p>DATA CONTROL</p><h1>Excel Management</h1></div><button className="primary" onClick={() => fileRef.current?.click()}><Upload size={17} /> Preview Excel</button></div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => e.target.files?.[0] && importExcel(e.target.files[0])} />
         <div className="excel-status-grid">
           <div className="panel provider-card"><div className="provider-icon"><FileSpreadsheet size={24} /></div><div><span>Master workbook</span><strong>{workbookMeta.name}</strong></div><b className={workbookMeta.loaded ? 'status active' : 'status pending'}>{workbookMeta.loaded ? 'Connected' : 'Not loaded'}</b></div>
@@ -1085,9 +1345,9 @@ function ModuleView(props: {
         </div>
         <div className="panel setup-card">
           <div className="panel-heading"><div><h2>Shared workbook</h2><p>Catalog, machine, and production changes are backed up and saved to Google Sheets.</p></div></div>
-          <p className="local-storage-note">Excel file uploads are preview-only. To make shared changes, use Product Master, SKU Manager, and Machines.</p>
+          <p className="local-storage-note">Excel uploads here are preview-only. To import the prepared combined marketplace workbook into the existing Google Sheet, open Catalog → Marketplace Listings → Import workbook.</p>
         </div>
-        <div className="panel table-card excel-table"><div className="panel-heading"><div><h2>Import history</h2><p>Local preview imports and validation results</p></div></div><div className="empty-state"><FileSpreadsheet size={28} /><strong>Uploads are not saved to Drive</strong><span>Validate a spreadsheet here, then use Product Master or SKU Manager to save shared catalog entries.</span></div></div>
+        <div className="panel table-card excel-table"><div className="panel-heading"><div><h2>Import help</h2><p>Marketplace workbook workflow</p></div></div><div className="empty-state"><FileSpreadsheet size={28} /><strong>Import from Marketplace Listings</strong><span>Use Catalog → Marketplace Listings → Import workbook to preview and add missing catalog rows to the connected Sheet.</span></div></div>
       </section>
     )
   }
@@ -1227,7 +1487,7 @@ function DashboardView({
     return (
       <section>
         <div className="page-heading"><div><p>STORE MANAGER</p><h1>Workspace restricted</h1></div></div>
-        <div className="panel placeholder"><div className="placeholder-icon"><LockKeyhole size={28} /></div><h2>Admin-only modules</h2><p>Inventory, stock movements, and management modules are available only from the Super Admin workspace.</p></div>
+        <div className="panel placeholder"><div className="placeholder-icon"><LockKeyhole size={28} /></div><h2>Assigned workspace</h2><p>Inventory, factory operations, and catalog access are assigned to the Super Admin and Production Supervisor roles.</p></div>
       </section>
     )
   }
@@ -1252,9 +1512,9 @@ function DashboardView({
 
   const descriptions: Record<Role, string> = {
     'Super Admin': 'Manage the full ERP, inventory, factory operations, and team access.',
-    'Production Supervisor': 'Record production and review assigned factory operations. Inventory and management are Admin-only.',
+    'Production Supervisor': 'Manage production, inventory, catalog, machines, and sales. Management, User Management, Settings, and Audit Logs are Admin-only.',
     'Machine Operator': 'Record your daily output and review your own production entries.',
-    'Store Manager': 'Inventory and management workspaces are available only to the Super Admin.',
+    'Store Manager': 'This account has dashboard-only access. Contact the Super Admin if your assigned workspace needs to change.',
   }
   const statsByRole: Record<Role, { label: string; value: string; detail: string; icon: typeof Package; tone: string }[]> = {
     'Super Admin': [
@@ -1291,7 +1551,9 @@ function DashboardView({
       { module: 'Stock Movement', detail: 'Audit the complete stock ledger' },
     ],
     'Production Supervisor': [
+      { module: 'Inventory', detail: 'Manage raw materials and finished goods' },
       { module: 'Production', detail: 'Enter output and export production reports' },
+      { module: 'Product Master', detail: 'Manage products and master SKUs' },
       { module: 'Stitching', detail: 'Review stitching work' },
       { module: 'Quality Control', detail: 'Review quality checks' },
     ],
@@ -1341,7 +1603,7 @@ function DashboardView({
             <div className="panel-heading"><div><h2>Machine status</h2><p>{machines.length} configured in the workbook</p></div></div>
             <div className="machine-summary"><div><strong>{machineStatusCount('running')}</strong><span>Running</span></div><div><strong>{machineStatusCount('idle')}</strong><span>Idle</span></div><div><strong>{machineStatusCount('maintenance')}</strong><span>Maintenance</span></div></div>
             <div className="machine-list">{machines.slice(0, 4).map(machine => <div className="machine-row" key={machine.id}><div className="machine-icon"><Gauge size={17} /></div><div><strong>{machine.id}</strong><span>{machine.name || machine.department || 'Machine'}</span></div><b className={machine.status.toLowerCase() === 'maintenance' ? 'warning' : ''}>{machine.status}</b></div>)}</div>
-            {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Ask the Super Admin to configure machines.</span></div>}
+            {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Ask the Super Admin or Production Supervisor to configure machines.</span></div>}
           </section>
         ) : role === 'Machine Operator' ? (
           <section className="panel">

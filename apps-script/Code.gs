@@ -1,5 +1,5 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At']
-    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production']
+    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
     const ERP_FINISHED_GOODS_HEADERS = ['Product SKU', 'Product Name', 'Opening Stock', 'Production Received', 'Quality Approved', 'Rejected', 'Reserved Stock', 'Available Stock', 'Dispatched Stock', 'Returned Stock', 'Damaged Stock', 'Last Updated', 'Adjustment In', 'Adjustment Out', 'Status']
@@ -76,6 +76,10 @@
           return setUserActive_(spreadsheet, payload.id, payload.active)
         case 'appendRecord':
           return appendRecord_(spreadsheet, payload)
+        case 'addMarketplaceListing':
+          return addMarketplaceListing_(spreadsheet, payload)
+        case 'importMarketplaceWorkbook':
+          return importMarketplaceWorkbook_(spreadsheet, payload)
         case 'addRawMaterial':
           return addRawMaterial_(spreadsheet, payload)
         case 'applyStockMovement':
@@ -607,6 +611,308 @@
       })
     }
 
+    function addMarketplaceListing_(spreadsheet, payload) {
+      return withWriteLock_(function () {
+        const platform = String(payload.platform || '').trim()
+        const platformSku = String(payload.platformSku || '').trim()
+        const productSku = String(payload.productSku || '').trim()
+        const allowedPlatforms = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
+        if (allowedPlatforms.indexOf(platform) < 0) throw apiError_(400, 'Choose a supported marketplace platform.')
+        if (!platformSku || platformSku.length > 100 || !productSku || productSku.length > 100) {
+          throw apiError_(400, 'A valid platform SKU and product SKU are required.')
+        }
+
+        const headers = ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name', 'Status', 'Created By', 'Created At']
+        const backupState = { created: false }
+        const target = ensureStockSheet_(spreadsheet, 'Marketplace_Listings', headers, backupState)
+        const existing = readSheetRecords_(spreadsheet, 'Marketplace_Listings')
+        if (existing.some(function (row) {
+          return String(row.Platform || '').trim().toLowerCase() === platform.toLowerCase()
+            && String(row['Platform SKU'] || '').trim().toLowerCase() === platformSku.toLowerCase()
+        })) throw apiError_(409, 'That platform SKU already exists on ' + platform + '.')
+
+        createBackupOnce_(spreadsheet, backupState)
+        const record = {
+          'Listing ID': String(payload.id || Utilities.getUuid()),
+          Platform: platform,
+          'Platform SKU': platformSku,
+          'Product SKU': productSku,
+          'Master SKU': String(payload.masterSku || productSku),
+          'Product Name': String(payload.productName || productSku),
+          Status: 'Active',
+          'Created By': String(payload.createdBy || ''),
+          'Created At': String(payload.createdAt || new Date().toISOString()),
+        }
+        appendStockRow_(target.sheet, target.headers, record)
+        SpreadsheetApp.flush()
+        return { appended: true, listing: record }
+      })
+    }
+
+    function importMarketplaceWorkbook_(spreadsheet, payload) {
+      return withWriteLock_(function () {
+        function rowsFor(key, label, maximum) {
+          const rows = payload[key]
+          if (!Array.isArray(rows) || rows.length < 1 || rows.length > maximum) {
+            throw apiError_(400, label + ' must contain between 1 and ' + maximum + ' rows.')
+          }
+          return rows.map(function (row, index) {
+            if (!row || typeof row !== 'object' || Array.isArray(row)) {
+              throw apiError_(400, label + ' row ' + (index + 1) + ' must be an object.')
+            }
+            return row
+          })
+        }
+
+        function requiredImportText(row, key, label, maximum) {
+          const value = String(row[key] === undefined || row[key] === null ? '' : row[key]).trim()
+          if (!value || value.length > maximum || /[\u0000-\u001f]/.test(value)) {
+            throw apiError_(400, label + ' is missing or invalid.')
+          }
+          return value
+        }
+
+        function importText(row, key, maximum) {
+          const value = String(row[key] === undefined || row[key] === null ? '' : row[key]).trim()
+          if (value.length > maximum || /[\u0000-\u001f]/.test(value)) {
+            throw apiError_(400, key + ' is too long or contains invalid characters.')
+          }
+          return value
+        }
+
+        function importAmount(value, label) {
+          if (value === '' || value === null || value === undefined) return ''
+          const amount = Number(value)
+          if (!isFinite(amount) || amount < 0) throw apiError_(400, label + ' must be a non-negative number.')
+          return amount
+        }
+
+        function keyOf(value) {
+          const text = String(value || '').trim()
+          const normalized = text.charAt(0) === "'" && /^[=+\-@\t\r]/.test(text.charAt(1))
+            ? text.slice(1)
+            : text
+          return normalized.toLowerCase()
+        }
+
+        function appendImportRows(target, rows) {
+          if (!rows.length) return
+          const values = rows.map(function (record) {
+            return target.headers.map(function (header) {
+              return safeCellValue_(record[header] === undefined ? '' : record[header])
+            })
+          })
+          const startRow = Math.max(2, target.sheet.getLastRow() + 1)
+          target.sheet.getRange(startRow, 1, values.length, target.headers.length).setValues(values)
+        }
+
+        const inputProducts = rowsFor('products', 'Products', 5000)
+        const inputVariants = rowsFor('variants', 'SKU variants', 10000)
+        const inputListings = rowsFor('listings', 'Marketplace listings', 10000)
+        const productHeaders = ['Internal Product ID', 'Master SKU', 'Product Title', 'Category', 'MRP', 'Status', 'Created Date', 'Updated Date', 'ASIN', 'Shopify Product ID']
+        const variantHeaders = ['Variant ID', 'Master SKU', 'Variant SKU', 'Size', 'Color', 'Pack Quantity', 'MRP', 'Selling Price', 'Status', 'Variant Title', 'Shopify Product ID', 'Shopify Variant ID', 'Shopify Inventory']
+        const listingHeaders = ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name', 'ASIN', 'Amazon Listing ID', 'Selling Price', 'MRP', 'Fulfillment Channel', 'Status', 'Variant Title', 'Shopify Product ID', 'Shopify Variant ID', 'Shopify Inventory', 'Created By', 'Created At']
+        const currentProducts = readSheetRecords_(spreadsheet, 'Products')
+        const currentVariants = readSheetRecords_(spreadsheet, 'SKU_Variants')
+        const currentListings = readSheetRecords_(spreadsheet, 'Marketplace_Listings')
+        const productSkuToMaster = new Map()
+        const productIds = new Map()
+        const variantSkuToMaster = new Map()
+        const variantIds = new Map()
+        const listingSkuToId = new Map()
+        const listingIds = new Map()
+
+        currentProducts.forEach(function (row) {
+          const sku = String(row['Master SKU'] || '').trim()
+          const key = keyOf(sku)
+          const id = keyOf(row['Internal Product ID'])
+          if (key) productSkuToMaster.set(key, sku)
+          if (id) productIds.set(id, key)
+        })
+        currentVariants.forEach(function (row) {
+          const sku = String(row['Variant SKU'] || '').trim()
+          const key = keyOf(sku)
+          const master = String(row['Master SKU'] || '').trim()
+          const id = keyOf(row['Variant ID'])
+          if (key) variantSkuToMaster.set(key, master)
+          if (id) variantIds.set(id, key)
+        })
+        currentListings.forEach(function (row) {
+          const id = keyOf(row['Listing ID'])
+          const platformKey = keyOf(row.Platform) + ':' + keyOf(row['Platform SKU'])
+          if (id) listingIds.set(id, platformKey)
+          if (row.Platform && row['Platform SKU']) listingSkuToId.set(platformKey, id)
+        })
+
+        const addedProducts = []
+        const addedVariants = []
+        const addedListings = []
+        const skipped = { products: 0, variants: 0, listings: 0 }
+        const seenProductSkus = new Set()
+        const seenProductIds = new Set()
+        inputProducts.forEach(function (row, index) {
+          const label = 'Products row ' + (index + 1)
+          const productId = requiredImportText(row, 'Internal Product ID', label + ' Internal Product ID', 160)
+          const masterSku = requiredImportText(row, 'Master SKU', label + ' Master SKU', 100)
+          const title = requiredImportText(row, 'Product Title', label + ' Product Title', 300)
+          const skuKey = keyOf(masterSku)
+          const idKey = keyOf(productId)
+          if (seenProductSkus.has(skuKey)) throw apiError_(409, 'Duplicate product Master SKU in import: ' + masterSku)
+          seenProductSkus.add(skuKey)
+          if (productSkuToMaster.has(skuKey)) {
+            skipped.products += 1
+            return
+          }
+          if (seenProductIds.has(idKey) || (productIds.has(idKey) && productIds.get(idKey) !== skuKey)) {
+            throw apiError_(409, 'Product ID conflicts with an existing product: ' + productId)
+          }
+          seenProductIds.add(idKey)
+          const record = {
+            'Internal Product ID': productId,
+            'Master SKU': masterSku,
+            'Product Title': title,
+            Category: importText(row, 'Category', 160),
+            MRP: importAmount(row.MRP, label + ' MRP'),
+            Status: importText(row, 'Status', 40) || 'Active',
+            'Created Date': importText(row, 'Created Date', 100),
+            'Updated Date': importText(row, 'Updated Date', 100),
+            ASIN: importText(row, 'ASIN', 100),
+            'Shopify Product ID': importText(row, 'Shopify Product ID', 100),
+          }
+          addedProducts.push(record)
+          productSkuToMaster.set(skuKey, masterSku)
+          productIds.set(idKey, skuKey)
+        })
+
+        const seenVariantSkus = new Set()
+        const seenVariantIds = new Set()
+        inputVariants.forEach(function (row, index) {
+          const label = 'SKU variants row ' + (index + 1)
+          const variantId = requiredImportText(row, 'Variant ID', label + ' Variant ID', 160)
+          const masterSku = requiredImportText(row, 'Master SKU', label + ' Master SKU', 100)
+          const variantSku = requiredImportText(row, 'Variant SKU', label + ' Variant SKU', 100)
+          const skuKey = keyOf(variantSku)
+          const idKey = keyOf(variantId)
+          const masterKey = keyOf(masterSku)
+          if (seenVariantSkus.has(skuKey)) throw apiError_(409, 'Duplicate variant SKU in import: ' + variantSku)
+          seenVariantSkus.add(skuKey)
+          if (productSkuToMaster.has(skuKey)) throw apiError_(409, 'Variant SKU conflicts with an existing master SKU: ' + variantSku)
+          if (!productSkuToMaster.has(masterKey)) throw apiError_(422, 'Variant ' + variantSku + ' references a missing master product.')
+          if (keyOf(productSkuToMaster.get(masterKey)) !== masterKey) throw apiError_(422, 'Variant ' + variantSku + ' references an inconsistent master SKU.')
+          if (variantSkuToMaster.has(skuKey)) {
+            if (keyOf(variantSkuToMaster.get(skuKey)) !== masterKey) throw apiError_(409, 'Existing variant SKU is linked to a different master: ' + variantSku)
+            skipped.variants += 1
+            return
+          }
+          if (seenVariantIds.has(idKey) || (variantIds.has(idKey) && variantIds.get(idKey) !== skuKey)) {
+            throw apiError_(409, 'Variant ID conflicts with an existing SKU: ' + variantId)
+          }
+          seenVariantIds.add(idKey)
+          const packQuantity = row['Pack Quantity'] === '' || row['Pack Quantity'] === null || row['Pack Quantity'] === undefined
+            ? ''
+            : Number(row['Pack Quantity'])
+          if (packQuantity !== '' && (!isFinite(packQuantity) || packQuantity < 1 || Math.floor(packQuantity) !== packQuantity)) {
+            throw apiError_(400, label + ' Pack Quantity must be a positive whole number.')
+          }
+          const record = {
+            'Variant ID': variantId,
+            'Master SKU': masterSku,
+            'Variant SKU': variantSku,
+            Size: importText(row, 'Size', 60),
+            Color: importText(row, 'Color', 100),
+            'Pack Quantity': packQuantity,
+            MRP: importAmount(row.MRP, label + ' MRP'),
+            'Selling Price': importAmount(row['Selling Price'], label + ' Selling Price'),
+            Status: importText(row, 'Status', 40) || 'Active',
+            'Variant Title': importText(row, 'Variant Title', 200),
+            'Shopify Product ID': importText(row, 'Shopify Product ID', 100),
+            'Shopify Variant ID': importText(row, 'Shopify Variant ID', 100),
+            'Shopify Inventory': importAmount(row['Shopify Inventory'], label + ' Shopify Inventory'),
+          }
+          addedVariants.push(record)
+          variantSkuToMaster.set(skuKey, masterSku)
+          variantIds.set(idKey, skuKey)
+        })
+
+        const seenListingSkus = new Set()
+        const seenListingIds = new Set()
+        const allowedPlatforms = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
+        inputListings.forEach(function (row, index) {
+          const label = 'Marketplace listings row ' + (index + 1)
+          const listingId = requiredImportText(row, 'Listing ID', label + ' Listing ID', 180)
+          const platform = requiredImportText(row, 'Platform', label + ' Platform', 40)
+          const platformSku = requiredImportText(row, 'Platform SKU', label + ' Platform SKU', 100)
+          const productSku = requiredImportText(row, 'Product SKU', label + ' Product SKU', 100)
+          const masterSku = requiredImportText(row, 'Master SKU', label + ' Master SKU', 100)
+          const productName = requiredImportText(row, 'Product Name', label + ' Product Name', 300)
+          if (allowedPlatforms.indexOf(platform) < 0) throw apiError_(400, 'Unsupported marketplace: ' + platform)
+          const listingKey = keyOf(platform) + ':' + keyOf(platformSku)
+          const idKey = keyOf(listingId)
+          const productKey = keyOf(productSku)
+          const linkedMaster = variantSkuToMaster.get(productKey) || productSkuToMaster.get(productKey)
+          if (!linkedMaster) throw apiError_(422, 'Listing SKU ' + platformSku + ' references a missing product SKU.')
+          if (keyOf(linkedMaster) !== keyOf(masterSku)) throw apiError_(422, 'Listing SKU ' + platformSku + ' has an inconsistent Master SKU.')
+          if (seenListingSkus.has(listingKey) || seenListingIds.has(idKey)) {
+            throw apiError_(409, 'Duplicate marketplace listing in import: ' + platformSku)
+          }
+          seenListingSkus.add(listingKey)
+          seenListingIds.add(idKey)
+          const existingIdPlatform = listingIds.get(idKey)
+          const existingSkuId = listingSkuToId.get(listingKey)
+          if (existingIdPlatform !== undefined && existingIdPlatform !== listingKey) {
+            throw apiError_(409, 'Listing ID conflicts with an existing marketplace SKU: ' + listingId)
+          }
+          if (existingSkuId !== undefined || existingIdPlatform === listingKey) {
+            skipped.listings += 1
+            return
+          }
+          const status = importText(row, 'Status', 40) || 'Active'
+          const record = {
+            'Listing ID': listingId,
+            Platform: platform,
+            'Platform SKU': platformSku,
+            'Product SKU': productSku,
+            'Master SKU': masterSku,
+            'Product Name': productName,
+            ASIN: importText(row, 'ASIN', 100),
+            'Amazon Listing ID': importText(row, 'Amazon Listing ID', 100),
+            'Selling Price': importAmount(row['Selling Price'], label + ' Selling Price'),
+            MRP: importAmount(row.MRP, label + ' MRP'),
+            'Fulfillment Channel': importText(row, 'Fulfillment Channel', 100),
+            Status: status,
+            'Variant Title': importText(row, 'Variant Title', 200),
+            'Shopify Product ID': importText(row, 'Shopify Product ID', 100),
+            'Shopify Variant ID': importText(row, 'Shopify Variant ID', 100),
+            'Shopify Inventory': importAmount(row['Shopify Inventory'], label + ' Shopify Inventory'),
+            'Created By': String(payload.createdBy || ''),
+            'Created At': new Date().toISOString(),
+          }
+          addedListings.push(record)
+          listingSkuToId.set(listingKey, idKey)
+          listingIds.set(idKey, listingKey)
+        })
+
+        const totals = {
+          added: { products: addedProducts.length, variants: addedVariants.length, listings: addedListings.length },
+          skipped: skipped,
+          backupName: '',
+        }
+        if (!addedProducts.length && !addedVariants.length && !addedListings.length) return totals
+
+        const backupState = { created: false, backupName: '' }
+        createBackupOnce_(spreadsheet, backupState)
+        const productTarget = ensureStockSheet_(spreadsheet, 'Products', productHeaders, backupState)
+        const variantTarget = ensureStockSheet_(spreadsheet, 'SKU_Variants', variantHeaders, backupState)
+        const listingTarget = ensureStockSheet_(spreadsheet, 'Marketplace_Listings', listingHeaders, backupState)
+        appendImportRows(productTarget, addedProducts)
+        appendImportRows(variantTarget, addedVariants)
+        appendImportRows(listingTarget, addedListings)
+        SpreadsheetApp.flush()
+        totals.backupName = backupState.backupName
+        return totals
+      })
+    }
+
     function assertRecordUnique_(spreadsheet, sheetName, record) {
       const fields = {
         Products: 'Master SKU',
@@ -654,14 +960,18 @@
       const timestamp = Utilities.formatDate(new Date(), spreadsheet.getSpreadsheetTimeZone(), 'yyyy-MM-dd-HH-mm-ss')
       const backupName = spreadsheet.getName() + '-Backup-' + timestamp
       const parents = file.getParents()
-      if (parents.hasNext()) file.makeCopy(backupName, parents.next())
-      else file.makeCopy(backupName)
+      const backup = parents.hasNext() ? file.makeCopy(backupName, parents.next()) : file.makeCopy(backupName)
+      return backup.getName()
     }
 
     function createBackupOnce_(spreadsheet, state) {
       if (state && state.created) return
-      createBackup_(spreadsheet)
-      if (state) state.created = true
+      const backupName = createBackup_(spreadsheet)
+      if (state) {
+        state.created = true
+        state.backupName = backupName
+      }
+      return backupName
     }
 
     function safeCellValue_(value) {

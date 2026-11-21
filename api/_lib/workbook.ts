@@ -163,6 +163,23 @@ export async function appendWorkbookRecord(
   await callAppsScript('appendRecord', { sheet, record, requiredHeaders, ensureColumns })
 }
 
+export async function addWorkbookMarketplaceListing(input: Record<string, unknown>) {
+  return callAppsScript<{ appended: boolean; listing: Record<string, unknown> }>('addMarketplaceListing', input)
+}
+
+export async function importWorkbookMarketplaceCatalog(input: {
+  products: Record<string, unknown>[]
+  variants: Record<string, unknown>[]
+  listings: Record<string, unknown>[]
+  createdBy: string
+}) {
+  return callAppsScript<{
+    added: { products: number; variants: number; listings: number }
+    skipped: { products: number; variants: number; listings: number }
+    backupName: string
+  }>('importMarketplaceWorkbook', input)
+}
+
 export async function addWorkbookRawMaterial(input: Record<string, unknown>) {
   return callAppsScript<{ material: Record<string, unknown> }>('addRawMaterial', input)
 }
