@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Archive, ArrowUpRight, BarChart3,
   Boxes, Building2, CircleDollarSign, ClipboardCheck,
@@ -12,7 +12,7 @@ import './App.css'
 
 type Module = 'Dashboard' | 'Factory' | 'Production' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
   'Product Master' | 'SKU Manager' | 'Marketplace Listings' | 'Orders' | 'Inventory' |
-  'Shipping & Delivery' | 'Returns & RTO' | 'Machines' | 'Quality Control' | 'Employees' |
+  'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'Machines' | 'Quality Control' | 'Employees' |
   'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs'
 
 type Product = {
@@ -23,11 +23,26 @@ type Production = { id: string; date: string; machine: string; sku: string; prod
 type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean }
 type Machine = { id: string; name: string; type: string; department: string; operator: string; status: string }
+type RawMaterial = {
+  id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
+  supplier: string; issued: number; machineConsumption: number; stitchingConsumption: number;
+  wastage: number; adjustmentIn: number; adjustmentOut: number; closingStock: number;
+  reorderLevel: number; averageUnitCost: number; stockValue: number; status: string
+}
+type FinishedGood = {
+  sku: string; name: string; openingStock: number; productionReceived: number; qualityApproved: number;
+  rejected: number; reservedStock: number; availableStock: number; dispatchedStock: number;
+  returnedStock: number; damagedStock: number; adjustmentIn: number; adjustmentOut: number; status: string
+}
+type StockMovement = {
+  id: string; date: string; sku: string; itemType: string; type: string; quantity: number;
+  referenceId: string; machineId: string; reason: string; openingStock: number; closingStock: number; createdBy: string
+}
 type AuthStatus = 'checking' | 'ready' | 'unavailable'
 
 const navSections: { label: string; items: Module[] }[] = [
   { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Stitching', 'Quality Control'] as Module[] },
-  { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Machines'] },
+  { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Master', 'SKU Manager', 'Marketplace Listings'] },
   { label: 'SALES', items: ['Orders', 'Shipping & Delivery', 'Returns & RTO'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
@@ -38,6 +53,7 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   Dashboard: LayoutDashboard, Production: Factory, Stitching: ClipboardCheck, 'Raw Material': Boxes,
   'Finished Goods': Package, 'Product Master': Archive, 'SKU Manager': BarChart3,
   'Marketplace Listings': ShoppingCart, Orders: ShoppingCart, Inventory: Boxes,
+  'Stock Movement': ArrowUpRight,
   'Shipping & Delivery': Truck, 'Returns & RTO': RotateCcw, Machines: Gauge,
   'Quality Control': ClipboardCheck, Employees: Users, Suppliers: Building2,
   Accounts: CircleDollarSign, Reports: BarChart3, 'Excel Management': FileSpreadsheet,
@@ -92,10 +108,32 @@ export default function App() {
   const [machines, setMachines] = useState<Machine[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [production, setProduction] = useState<Production[]>([])
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
+  const [finishedGoods, setFinishedGoods] = useState<FinishedGood[]>([])
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
   const [audit, setAudit] = useState<string[]>(() => readStored('erp-audit', ['Workbook connection pending', 'System initialized']))
   const [toast, setToast] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const [workbookMeta, setWorkbookMeta] = useState({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
+
+  const refreshWorkbook = useCallback(async () => {
+    const data = await apiFetch<{
+      products: Product[]
+      machines: Machine[]
+      production: Production[]
+      rawMaterials: RawMaterial[]
+      finishedGoods: FinishedGood[]
+      stockMovements: StockMovement[]
+      workbookMeta: { loaded: boolean; name: string; sheetCount: number }
+    }>('/api/erp')
+    setProducts(data.products)
+    setMachines(data.machines)
+    setProduction(data.production)
+    setRawMaterials(data.rawMaterials)
+    setFinishedGoods(data.finishedGoods)
+    setStockMovements(data.stockMovements)
+    setWorkbookMeta(data.workbookMeta)
+  }, [])
 
   useEffect(() => localStorage.setItem('erp-audit', JSON.stringify(audit)), [audit])
   useEffect(() => {
@@ -153,23 +191,14 @@ export default function App() {
       setProducts([])
       setMachines([])
       setProduction([])
+      setRawMaterials([])
+      setFinishedGoods([])
+      setStockMovements([])
       setWorkbookMeta({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
       return () => { active = false }
     }
     const refresh = () => {
-      void apiFetch<{
-        products: Product[]
-        machines: Machine[]
-        production: Production[]
-        workbookMeta: { loaded: boolean; name: string; sheetCount: number }
-      }>('/api/erp')
-        .then(data => {
-          if (!active) return
-          setProducts(data.products)
-          setMachines(data.machines)
-          setProduction(data.production)
-          setWorkbookMeta(data.workbookMeta)
-        })
+      void refreshWorkbook()
         .catch(error => {
           if (active) setToast(error instanceof Error ? error.message : 'Could not load the shared workbook')
         })
@@ -185,7 +214,7 @@ export default function App() {
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [sessionUser])
+  }, [sessionUser, refreshWorkbook])
 
   const notify = (message: string) => { setToast(message); setTimeout(() => setToast(''), 2600) }
   const log = (message: string) => setAudit(prev => [`${new Date().toLocaleString()} — ${message}`, ...prev])
@@ -231,15 +260,61 @@ export default function App() {
   }
 
   const saveProduction = async (input: Omit<Production, 'id' | 'createdBy' | 'product'> & { product: string }) => {
-    const result = await apiFetch<{ record: Production }>('/api/erp', {
+    const result = await apiFetch<{ record: Production & { finishedGood?: FinishedGood } }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'addProduction', ...input }),
     })
     setProduction(prev => [result.record, ...prev.filter(item => item.id !== result.record.id)])
+    await refreshWorkbook()
     log(`Recorded production ${result.record.actual} units for ${result.record.sku}`)
     notify('Production entry saved to the shared workbook')
     return result.record
+  }
+
+  const saveRawMaterial = async (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => {
+    const result = await apiFetch<{ material: RawMaterial }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addRawMaterial', ...input }),
+    })
+    await refreshWorkbook()
+    log(`Added raw material ${result.material.sku}`)
+    notify('Raw material saved to the shared workbook')
+    return result.material
+  }
+
+  const applyStockMovement = async (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string }) => {
+    await apiFetch<{ item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'applyStockMovement', ...input }),
+    })
+    await refreshWorkbook()
+    log(`${input.type} · ${input.sku} · ${input.quantity}`)
+    notify('Stock movement saved to the ledger')
+  }
+
+  const archiveStockItem = async (kind: 'raw' | 'finished', sku: string) => {
+    await apiFetch('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'archiveStockItem', kind, sku }),
+    })
+    await refreshWorkbook()
+    log(`Archived ${sku}`)
+    notify('Item archived; its stock history was retained')
+  }
+
+  const deleteUnusedStockItem = async (kind: 'raw' | 'finished', sku: string) => {
+    await apiFetch('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'deleteUnusedStockItem', kind, sku }),
+    })
+    await refreshWorkbook()
+    log(`Deleted unused item ${sku}`)
+    notify('Unused item deleted')
   }
 
   const importExcel = async (file: File) => {
@@ -424,17 +499,18 @@ export default function App() {
       qty: production.filter(row => row.date === key).reduce((sum, row) => sum + row.actual, 0),
     }
   })
+  const adminModules = navSections.flatMap(section => section.items)
   const roleModules: Record<Role, Module[]> = {
-    'Super Admin': ['Dashboard', 'Production', 'Stitching', 'Quality Control', 'Machines', 'User Management'],
-    'Production Supervisor': navSections.flatMap(section => section.items).filter(item => item !== 'User Management'),
+    'Super Admin': adminModules,
+    'Production Supervisor': ['Dashboard', 'Factory', 'Production', 'Stitching', 'Quality Control'],
     'Machine Operator': ['Dashboard', 'Production'],
-    'Store Manager': ['Dashboard', 'Raw Material', 'Finished Goods', 'Inventory'],
+    'Store Manager': ['Dashboard'],
   }
   const mainModules: Record<Role, Module[]> = {
-    'Super Admin': ['Dashboard', 'Production', 'Stitching', 'Machines'],
-    'Production Supervisor': ['Dashboard', 'Production', 'Inventory', 'Product Master'],
+    'Super Admin': ['Dashboard', 'Inventory', 'Production', 'Product Master'],
+    'Production Supervisor': ['Dashboard', 'Production'],
     'Machine Operator': ['Dashboard', 'Production'],
-    'Store Manager': ['Dashboard', 'Inventory', 'Raw Material', 'Finished Goods'],
+    'Store Manager': ['Dashboard'],
   }
   const primaryModules = mainModules[sessionUser.role].filter(item => roleModules[sessionUser.role].includes(item))
   const otherModules = roleModules[sessionUser.role].filter(item => !primaryModules.includes(item))
@@ -495,9 +571,10 @@ export default function App() {
               exportExcel={exportExcel}
             />
           ) : (
-            <ModuleView module={module} products={products} filteredProducts={filteredProducts} production={production} audit={audit} workbookMeta={workbookMeta}
+            <ModuleView module={module} products={products} filteredProducts={filteredProducts} production={production} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant}
-              saveProduction={saveProduction} saveMachine={saveMachine} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log}
+              saveProduction={saveProduction} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
+              archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
               allowedModules={roleModules[sessionUser.role]} />
           )}
@@ -509,21 +586,29 @@ export default function App() {
 }
 
 function ModuleView(props: {
-  module: Module; products: Product[]; filteredProducts: Product[]; production: Production[]; audit: string[]; search: string;
+  module: Module; products: Product[]; filteredProducts: Product[]; production: Production[];
+  rawMaterials: RawMaterial[]; finishedGoods: FinishedGood[]; stockMovements: StockMovement[]; audit: string[]; search: string;
   workbookMeta: { loaded: boolean; name: string; sheetCount: number };
   setSearch: (v: string) => void; exportExcel: () => void;
   saveProduct: (input: { sku: string; name: string; category: string; mrp: number }) => Promise<Product>;
   saveVariant: (input: { masterSku: string; sku: string; size: string; color: string; packQuantity: number; mrp?: number; sellingPrice?: number }) => Promise<Product>;
   saveProduction: (input: { date: string; machine: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
+  saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
+  applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string }) => Promise<void>;
+  archiveStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
+  deleteUnusedStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
   saveMachine: (input: Omit<Machine, 'id'>) => Promise<Machine>;
   fileRef: React.RefObject<HTMLInputElement | null>; importExcel: (f: File) => void;
   notify: (v: string) => void; log: (v: string) => void
+  setModule: (v: Module) => void
   machines: Machine[];
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
   allowedModules: Module[]
 }) {
-  const { module, products, filteredProducts, production, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveProduction, saveMachine, fileRef, importExcel, notify, log, machines, users, setUsers, sessionUser, allowedModules } = props
+  const { module, products, filteredProducts, production, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveProduction, saveRawMaterial, applyStockMovement, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
   const [catalogFormOpen, setCatalogFormOpen] = useState(false)
+  const [stockFormOpen, setStockFormOpen] = useState(false)
+  const [materialFormOpen, setMaterialFormOpen] = useState(false)
   if (!allowedModules.includes(module)) {
     return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Your account role cannot open this section.</span></div></section>
   }
@@ -594,6 +679,223 @@ function ModuleView(props: {
     }
   }
 
+  const canManageInventory = sessionUser.role === 'Super Admin'
+  const hasItemMovement = (kind: 'raw' | 'finished', sku: string) => stockMovements.some(movement =>
+    movement.sku.toLowerCase() === sku.toLowerCase() && (!movement.itemType || movement.itemType === (kind === 'raw' ? 'Raw Material' : 'Finished Goods'))
+  )
+
+  const submitRawMaterial = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    try {
+      await saveRawMaterial({
+        sku: String(form.get('sku')),
+        name: String(form.get('name')),
+        unit: String(form.get('unit')),
+        supplier: String(form.get('supplier')),
+        openingStock: Number(form.get('openingStock')),
+        reorderLevel: Number(form.get('reorderLevel')),
+        unitCost: Number(form.get('unitCost')),
+      })
+      formElement.reset()
+      setStockFormOpen(false)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Raw material could not be saved')
+    }
+  }
+
+  const submitStockMovement = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const kind = String(form.get('kind')) === 'raw' ? 'raw' : 'finished'
+    try {
+      await applyStockMovement({
+        kind,
+        sku: String(form.get('sku')),
+        type: String(form.get('type')),
+        quantity: Number(form.get('quantity')),
+        unitCost: form.get('unitCost') ? Number(form.get('unitCost')) : undefined,
+        referenceId: String(form.get('referenceId') || ''),
+        machineId: String(form.get('machineId') || ''),
+        reason: String(form.get('reason') || ''),
+      })
+      formElement.reset()
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Stock movement could not be saved')
+    }
+  }
+
+  const confirmArchive = async (kind: 'raw' | 'finished', sku: string) => {
+    if (!window.confirm(`Archive ${sku}? Its movement history will remain in the ledger.`)) return
+    try {
+      await archiveStockItem(kind, sku)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Item could not be archived')
+    }
+  }
+
+  const confirmDeleteUnused = async (kind: 'raw' | 'finished', sku: string) => {
+    if (!window.confirm(`Permanently delete unused item ${sku}? This is only allowed when it has zero stock and no movement history.`)) return
+    try {
+      await deleteUnusedStockItem(kind, sku)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Unused item could not be deleted')
+    }
+  }
+
+  const renderMovementForm = (kind: 'raw' | 'finished', title: string, typeOptions: string[], defaultType: string) => {
+    const itemOptions = kind === 'raw'
+      ? rawMaterials.filter(item => item.status.toLowerCase() !== 'archived').map(item => ({ sku: item.sku, name: item.name, unit: item.unit }))
+      : products.filter(item => item.status === 'Active').map(item => ({ sku: item.sku, name: item.name, unit: 'units' }))
+    const defaultSku = itemOptions[0]?.sku || ''
+    return (
+      <form className="panel form-card stock-form" onSubmit={submitStockMovement}>
+        <div className="panel-heading"><div><h2>{title}</h2><p>Each saved entry records the balance change in the stock ledger.</p></div></div>
+        <input type="hidden" name="kind" value={kind} />
+        <div className="field-grid">
+          <label>Stock item<select name="sku" required defaultValue={defaultSku} disabled={!canManageInventory || itemOptions.length === 0}><option value="">Select item</option>{itemOptions.map(item => <option key={item.sku} value={item.sku}>{item.name} · {item.sku}</option>)}</select></label>
+          <label>Movement type<select name="type" required defaultValue={defaultType}>{typeOptions.map(type => <option key={type}>{type}</option>)}</select></label>
+          <label>Quantity<input name="quantity" type="number" min="0.001" step={kind === 'raw' ? '0.001' : '1'} required /></label>
+          {kind === 'raw' && <label>Unit cost (purchase inward only)<input name="unitCost" type="number" min="0" step="0.01" placeholder="Leave blank to keep average cost" /></label>}
+          <label>Reference ID<input name="referenceId" maxLength={100} placeholder={kind === 'raw' ? 'Purchase / issue reference' : 'Order / return / production reference'} /></label>
+          <label>{kind === 'raw' ? 'Machine ID (optional)' : 'Machine ID (optional)'}<input name="machineId" maxLength={100} placeholder="Machine reference" /></label>
+          <label className="stock-reason">Reason<input name="reason" maxLength={300} placeholder="Reason / notes" /></label>
+        </div>
+        <button className="primary wide" type="submit" disabled={!canManageInventory || itemOptions.length === 0}><Plus size={17} /> Post movement</button>
+        {!canManageInventory && <p className="local-storage-note">This role can view stock but cannot post movements.</p>}
+        {canManageInventory && itemOptions.length === 0 && <p className="local-storage-note">{kind === 'raw' ? 'Add a raw material before posting a movement.' : 'Add a product or SKU before posting finished-goods stock.'}</p>}
+      </form>
+    )
+  }
+
+  if (module === 'Raw Material') {
+    return (
+      <section>
+        <div className="page-heading"><div><p>INVENTORY · RAW MATERIAL</p><h1>Raw Materials</h1></div><div className="heading-actions">
+          {canManageInventory && <><button className="secondary" onClick={() => setStockFormOpen(open => !open)}><Plus size={16} /> Stock movement</button><button className="primary" onClick={() => setMaterialFormOpen(open => !open)}><Plus size={16} /> Add material</button></>}
+        </div></div>
+        {materialFormOpen && canManageInventory && <form className="panel form-card" onSubmit={submitRawMaterial}>
+          <div className="panel-heading"><div><h2>Add raw material</h2><p>Opening quantity and cost are written to the workbook and ledger.</p></div></div>
+          <div className="field-grid">
+            <label>Material SKU<input name="sku" required maxLength={100} autoComplete="off" placeholder="e.g. FABRIC-COTTON-01" /></label>
+            <label>Material name<input name="name" required maxLength={180} placeholder="Material name" /></label>
+            <label>Unit<input name="unit" required maxLength={40} placeholder="kg, meter, pcs..." /></label>
+            <label>Supplier<input name="supplier" maxLength={180} placeholder="Supplier name" /></label>
+            <label>Opening stock<input name="openingStock" type="number" min="0" step="0.001" required defaultValue="0" /></label>
+            <label>Reorder level<input name="reorderLevel" type="number" min="0" step="0.001" required defaultValue="0" /></label>
+            <label>Average unit cost<input name="unitCost" type="number" min="0" step="0.01" required defaultValue="0" /></label>
+          </div>
+          <button className="primary wide" type="submit"><Plus size={17} /> Save material</button>
+        </form>}
+        {stockFormOpen && canManageInventory && renderMovementForm('raw', 'Post raw-material movement', ['Purchase Inward', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Adjustment In', 'Adjustment Out'], 'Purchase Inward')}
+        <div className="table-card entries-table inventory-table"><table><thead><tr><th>SKU</th><th>Material</th><th>Unit</th><th>Supplier</th><th>On hand</th><th>Reorder at</th><th>Stock value</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+          {rawMaterials.map(item => {
+            const hasHistory = hasItemMovement('raw', item.sku)
+            const low = item.closingStock <= item.reorderLevel
+            return <tr key={item.sku}><td><code>{item.sku}</code></td><td>{item.name}</td><td>{item.unit || '—'}</td><td>{item.supplier || '—'}</td><td><b className={low ? 'stock-low' : 'stock-good'}>{item.closingStock.toLocaleString('en-IN')}</b></td><td>{item.reorderLevel.toLocaleString('en-IN')}</td><td>₹{item.stockValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td><span className={`status ${item.status.toLowerCase() === 'active' ? 'active' : 'draft'}`}>{item.status}</span></td><td>{item.status.toLowerCase() === 'archived' ? '—' : item.closingStock === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('raw', item.sku)}>Delete unused</button> : item.closingStock === 0 ? <button className="text-action" onClick={() => void confirmArchive('raw', item.sku)}>Archive</button> : '—'}</td></tr>
+          })}
+        </tbody></table>
+          {rawMaterials.length === 0 && <div className="empty-state"><Boxes size={26} /><strong>No raw materials yet</strong><span>Add an item, then record purchase inward, issue, consumption, wastage or a correction.</span></div>}
+        </div>
+      </section>
+    )
+  }
+
+  if (module === 'Finished Goods') {
+    const productRows = new Map(products.map(product => [product.sku.toLowerCase(), product]))
+    finishedGoods.forEach(item => {
+      if (productRows.has(item.sku.toLowerCase())) return
+      productRows.set(item.sku.toLowerCase(), {
+        id: item.sku,
+        sku: item.sku,
+        masterSku: item.sku,
+        name: item.name,
+        category: '',
+        mrp: 0,
+        stock: item.availableStock,
+        status: item.status.toLowerCase() === 'archived' ? 'Draft' : 'Active',
+        size: '',
+        color: '',
+        packQuantity: 1,
+        isVariant: false,
+      })
+    })
+    const finishedRows = [...productRows.values()].map(product => ({
+      product,
+      item: finishedGoods.find(item => item.sku.toLowerCase() === product.sku.toLowerCase()),
+    }))
+    return (
+      <section>
+        <div className="page-heading"><div><p>INVENTORY · FINISHED GOODS</p><h1>Finished Goods</h1></div><div className="heading-actions">{canManageInventory && <button className="primary" onClick={() => setStockFormOpen(open => !open)}><Plus size={16} /> Stock movement</button>}</div></div>
+        {stockFormOpen && canManageInventory && renderMovementForm('finished', 'Post finished-goods movement', ['Opening Stock', 'Dispatch', 'Return', 'Damage', 'Adjustment In', 'Adjustment Out', 'Reserve', 'Release Reservation'], 'Opening Stock')}
+        <div className="table-card entries-table inventory-table"><table><thead><tr><th>SKU</th><th>Product</th><th>Produced</th><th>Approved</th><th>Dispatched</th><th>Returned</th><th>Damaged</th><th>Reserved</th><th>Available</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+          {finishedRows.map(({ product, item }) => {
+            const available = item?.availableStock || 0
+            const hasHistory = hasItemMovement('finished', product.sku)
+            return <tr key={product.sku}><td><code>{product.sku}</code></td><td>{product.name}</td><td>{item?.productionReceived || 0}</td><td>{item?.qualityApproved || 0}</td><td>{item?.dispatchedStock || 0}</td><td>{item?.returnedStock || 0}</td><td>{item?.damagedStock || 0}</td><td>{item?.reservedStock || 0}</td><td><b className={available < 10 ? 'stock-low' : 'stock-good'}>{available}</b></td><td><span className={`status ${item?.status.toLowerCase() === 'archived' ? 'draft' : 'active'}`}>{item?.status || 'Not initialized'}</span></td><td>{!item || item.status.toLowerCase() === 'archived' ? '—' : available === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('finished', product.sku)}>Delete unused</button> : available === 0 ? <button className="text-action" onClick={() => void confirmArchive('finished', product.sku)}>Archive</button> : '—'}</td></tr>
+          })}
+        </tbody></table>
+          {finishedRows.length === 0 && <div className="empty-state"><Package size={26} /><strong>No active products or SKUs</strong><span>Add products in Product Master or SKU Manager first.</span></div>}
+        </div>
+      </section>
+    )
+  }
+
+  if (module === 'Inventory') {
+    const activeRaw = rawMaterials.filter(item => item.status.toLowerCase() !== 'archived')
+    const activeFinished = finishedGoods.filter(item => item.status.toLowerCase() !== 'archived')
+    const lowStock = activeRaw.filter(item => item.closingStock <= item.reorderLevel)
+    return (
+      <section>
+        <div className="page-heading"><div><p>INVENTORY CONTROL</p><h1>Inventory</h1></div><div className="heading-actions"><button className="secondary" onClick={() => setModule('Stock Movement')}><ArrowUpRight size={16} /> Movement ledger</button></div></div>
+        <div className="stats-grid inventory-stats">
+          <div className="stat-card"><span>Raw material SKUs</span><strong>{activeRaw.length}</strong><small>{lowStock.length} at or below reorder level</small></div>
+          <div className="stat-card"><span>Raw material on hand</span><strong>{activeRaw.reduce((sum, item) => sum + item.closingStock, 0).toLocaleString('en-IN')}</strong><small>Across active materials</small></div>
+          <div className="stat-card"><span>Finished goods SKUs</span><strong>{activeFinished.length}</strong><small>Production and returned stock</small></div>
+          <div className="stat-card"><span>Finished goods available</span><strong>{activeFinished.reduce((sum, item) => sum + item.availableStock, 0).toLocaleString('en-IN')}</strong><small>After dispatch, damage and reservations</small></div>
+        </div>
+        {lowStock.length > 0 && <div className="local-storage-note inventory-alert"><strong>Reorder check:</strong> {lowStock.map(item => `${item.name} (${item.closingStock} ${item.unit})`).join(', ')}</div>}
+        <div className="inventory-shortcuts">
+          <button className="panel inventory-shortcut" onClick={() => setModule('Raw Material')}><Boxes size={22} /><span><strong>Raw Materials</strong><small>Purchase, issue, consume and correct stock</small></span><ArrowUpRight size={17} /></button>
+          <button className="panel inventory-shortcut" onClick={() => setModule('Finished Goods')}><Package size={22} /><span><strong>Finished Goods</strong><small>Production, dispatch, returns, damage and reservations</small></span><ArrowUpRight size={17} /></button>
+          <button className="panel inventory-shortcut" onClick={() => setModule('Stock Movement')}><Archive size={22} /><span><strong>Stock Movement</strong><small>Audit trail of every posted inventory movement</small></span><ArrowUpRight size={17} /></button>
+        </div>
+        <div className="panel table-card inventory-recent"><div className="panel-heading"><div><h2>Recent stock activity</h2><p>Posted movements are immutable; use an adjustment to correct stock.</p></div></div>
+          <MovementTable movements={stockMovements.slice(0, 8)} />
+        </div>
+      </section>
+    )
+  }
+
+  if (module === 'Stock Movement') {
+    const filteredMovements = stockMovements.filter(movement =>
+      `${movement.sku} ${movement.type} ${movement.referenceId} ${movement.reason} ${movement.itemType}`.toLowerCase().includes(search.toLowerCase())
+    )
+    return (
+      <section>
+        <div className="page-heading"><div><p>INVENTORY · AUDIT LEDGER</p><h1>Stock Movement</h1></div><span className="status active">{stockMovements.length} movements</span></div>
+        <div className="local-storage-note">Posted movements cannot be deleted. Correct an error with an adjustment; zero-balance items with history can only be archived.</div>
+        <div className="toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search SKU, reference or movement" /></div></div>
+        <div className="table-card entries-table inventory-table"><MovementTable movements={filteredMovements} /></div>
+      </section>
+    )
+  }
+
+  if (module === 'Shipping & Delivery' || module === 'Returns & RTO') {
+    const isShipping = module === 'Shipping & Delivery'
+    const relevantTypes = isShipping ? ['Dispatch'] : ['Return', 'Damage']
+    const relevantMovements = stockMovements.filter(movement => movement.itemType === 'Finished Goods' && relevantTypes.includes(movement.type))
+    return (
+      <section>
+        <div className="page-heading"><div><p>FINISHED GOODS · {isShipping ? 'DISPATCH' : 'RETURNS'}</p><h1>{module}</h1></div></div>
+        {renderMovementForm('finished', isShipping ? 'Record dispatch' : 'Record return or damage', relevantTypes, relevantTypes[0])}
+        <div className="table-card entries-table inventory-table"><MovementTable movements={relevantMovements} /></div>
+      </section>
+    )
+  }
+
   if (module === 'Machines') {
     const exportMachines = () => {
       const workbook = XLSX.utils.book_new()
@@ -603,8 +905,8 @@ function ModuleView(props: {
     }
     const addMachine = async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault()
-      if (sessionUser.role !== 'Production Supervisor') {
-        notify('Only a Production Supervisor can add machines')
+      if (!canManageInventory) {
+        notify('Only the Super Admin or Production Supervisor can add machines')
         return
       }
       const formElement = event.currentTarget
@@ -627,7 +929,7 @@ function ModuleView(props: {
     return (
       <section>
         <div className="page-heading"><div><p>FACTORY SETUP</p><h1>Machines</h1></div><div className="heading-actions"><span className="status active">{machines.length} configured</span><button className="secondary" onClick={exportMachines}><Download size={16} /> Export Excel</button></div></div>
-        {sessionUser.role === 'Production Supervisor' && <form className="panel form-card machine-form" onSubmit={addMachine}>
+        {canManageInventory && <form className="panel form-card machine-form" onSubmit={addMachine}>
           <div className="panel-heading"><div><h2>Add machine</h2><p>Machine roster used in production entries</p></div></div>
           <div className="field-grid">
             <label>Machine name<input name="name" required placeholder="e.g. Cutting machine" /></label>
@@ -638,7 +940,7 @@ function ModuleView(props: {
           </div>
           <button className="primary wide" type="submit"><Plus size={17} /> Add machine</button>
         </form>}
-        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Department</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.department || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>Production Supervisors can add machines above.</span></div>}</div>
+        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Department</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.department || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>The Super Admin can add machines.</span></div>}</div>
       </section>
     )
   }
@@ -718,9 +1020,7 @@ function ModuleView(props: {
       product.status === 'Active' && (product.isVariant || !variantMasters.has(product.sku.toLowerCase()))
     )
     const availableMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
-    const visibleProduction = sessionUser.role === 'Super Admin'
-      ? production.filter(row => row.date === today && row.createdBy === sessionUser.name)
-      : production.filter(row => row.date === today)
+    const visibleProduction = production.filter(row => row.date === today)
     const exportDailyReport = () => {
       const sheet = XLSX.utils.json_to_sheet(visibleProduction)
       const workbook = XLSX.utils.book_new()
@@ -733,9 +1033,7 @@ function ModuleView(props: {
       notify('Daily production report exported')
     }
     const exportMonthlyReport = () => {
-      const monthlyRows = production.filter(row =>
-        row.date.startsWith(month) && (sessionUser.role !== 'Super Admin' || row.createdBy === sessionUser.name)
-      )
+      const monthlyRows = production.filter(row => row.date.startsWith(month))
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthlyRows), 'Monthly Production')
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
@@ -743,7 +1041,7 @@ function ModuleView(props: {
         Records: monthlyRows.length,
         Total: monthlyRows.reduce((sum, row) => sum + row.actual, 0),
         Rejected: monthlyRows.reduce((sum, row) => sum + row.rejected, 0),
-        PreparedFor: sessionUser.role === 'Super Admin' ? sessionUser.name : 'All users',
+        PreparedFor: sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor' ? 'All users' : sessionUser.name,
       }]), 'Summary')
       log(`Generated monthly production workbook for ${month}`)
       XLSX.writeFile(workbook, `Mahalaxmi-Production-${month}.xlsx`)
@@ -762,7 +1060,7 @@ function ModuleView(props: {
               <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
               <label>Rejected quantity<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /></label>
             </div>
-            {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask a Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask a Production Supervisor to add a machine.' : ''}</p>}
+            {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask the Super Admin to add a machine.' : ''}</p>}
             <button className="primary wide" type="submit" disabled={activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> Save production record</button>
           </form>
           <div className="panel time-card">
@@ -889,6 +1187,27 @@ function ModuleView(props: {
   )
 }
 
+function MovementTable({ movements }: { movements: StockMovement[] }) {
+  return (
+    <>
+      <table aria-label="Stock movement history"><thead><tr><th>Date / time</th><th>Item</th><th>SKU</th><th>Movement</th><th>Quantity</th><th>Balance</th><th>Reference</th><th>Reason</th><th>Entered by</th></tr></thead><tbody>
+        {movements.map(movement => <tr key={movement.id}>
+          <td>{movement.date ? movement.date.replace('T', ' ').slice(0, 19) : '—'}</td>
+          <td>{movement.itemType || '—'}</td>
+          <td><code>{movement.sku}</code></td>
+          <td>{movement.type}</td>
+          <td>{movement.quantity.toLocaleString('en-IN')}</td>
+          <td>{movement.openingStock.toLocaleString('en-IN')} → {movement.closingStock.toLocaleString('en-IN')}</td>
+          <td>{movement.referenceId || '—'}</td>
+          <td>{movement.reason || '—'}</td>
+          <td>{movement.createdBy || '—'}</td>
+        </tr>)}
+      </tbody></table>
+      {movements.length === 0 && <div className="empty-state"><Archive size={24} /><strong>No stock movements yet</strong><span>Saved stock changes will appear here and cannot be deleted.</span></div>}
+    </>
+  )
+}
+
 type DashboardViewProps = {
   role: Role
   user: UserAccount
@@ -904,6 +1223,14 @@ type DashboardViewProps = {
 function DashboardView({
   role, user, users, products, production, machines, productionChart, setModule, exportExcel,
 }: DashboardViewProps) {
+  if (role === 'Store Manager') {
+    return (
+      <section>
+        <div className="page-heading"><div><p>STORE MANAGER</p><h1>Workspace restricted</h1></div></div>
+        <div className="panel placeholder"><div className="placeholder-icon"><LockKeyhole size={28} /></div><h2>Admin-only modules</h2><p>Inventory, stock movements, and management modules are available only from the Super Admin workspace.</p></div>
+      </section>
+    )
+  }
   const today = indiaDateKey()
   const todayProduction = production.filter(row => row.date === today)
   const todayUnits = todayProduction.reduce((sum, row) => sum + row.actual, 0)
@@ -924,15 +1251,15 @@ function DashboardView({
   const machineStatusCount = (status: string) => machines.filter(machine => machine.status.toLowerCase() === status).length
 
   const descriptions: Record<Role, string> = {
-    'Super Admin': 'Review your production workspace and manage team access.',
-    'Production Supervisor': 'Manage products, SKU variants, machines, and factory-wide ERP workspaces.',
+    'Super Admin': 'Manage the full ERP, inventory, factory operations, and team access.',
+    'Production Supervisor': 'Record production and review assigned factory operations. Inventory and management are Admin-only.',
     'Machine Operator': 'Record your daily output and review your own production entries.',
-    'Store Manager': 'Review finished-goods availability and open your inventory workspaces.',
+    'Store Manager': 'Inventory and management workspaces are available only to the Super Admin.',
   }
   const statsByRole: Record<Role, { label: string; value: string; detail: string; icon: typeof Package; tone: string }[]> = {
     'Super Admin': [
-      { label: 'My output today', value: String(todayUnits), detail: `${todayProduction.length} entries`, icon: Factory, tone: 'purple' },
-      { label: 'My rejects today', value: String(todayRejected), detail: 'Units recorded', icon: ClipboardCheck, tone: 'orange' },
+      { label: 'Today’s production', value: String(todayUnits), detail: `${todayProduction.length} team entries`, icon: Factory, tone: 'purple' },
+      { label: 'Today’s rejects', value: String(todayRejected), detail: 'Units recorded', icon: ClipboardCheck, tone: 'orange' },
       { label: 'Active SKUs', value: String(activeProducts.length), detail: 'Available to select', icon: Package, tone: 'green' },
       { label: 'Available machines', value: String(machines.length - machineStatusCount('maintenance')), detail: 'Not in maintenance', icon: Gauge, tone: 'blue' },
     ],
@@ -958,26 +1285,20 @@ function DashboardView({
   const shortcuts: Record<Role, { module: Module; detail: string }[]> = {
     'Super Admin': [
       { module: 'User Management', detail: 'Create accounts and assign team roles' },
-      { module: 'Production', detail: 'Review and enter your production records' },
-      { module: 'Stitching', detail: 'Review stitching work' },
-      { module: 'Quality Control', detail: 'Review quality checks' },
-      { module: 'Machines', detail: 'Check machine availability' },
+      { module: 'Inventory', detail: 'Review raw materials and finished goods' },
+      { module: 'Product Master', detail: 'Create products and master SKUs' },
+      { module: 'Machines', detail: 'Configure machines and availability' },
+      { module: 'Stock Movement', detail: 'Audit the complete stock ledger' },
     ],
     'Production Supervisor': [
-      { module: 'Product Master', detail: 'Manage shared products and master SKUs' },
-      { module: 'SKU Manager', detail: 'Add size and color variants' },
-      { module: 'Machines', detail: 'Configure machines and availability' },
-      { module: 'Reports', detail: 'Review factory data and export reports' },
       { module: 'Production', detail: 'Enter output and export production reports' },
+      { module: 'Stitching', detail: 'Review stitching work' },
+      { module: 'Quality Control', detail: 'Review quality checks' },
     ],
     'Machine Operator': [
       { module: 'Production', detail: 'Record output by machine and SKU' },
     ],
-    'Store Manager': [
-      { module: 'Finished Goods', detail: 'Review finished-goods stock' },
-      { module: 'Raw Material', detail: 'Open raw-material workspace' },
-      { module: 'Inventory', detail: 'Open inventory workspace' },
-    ],
+    'Store Manager': [],
   }
   const recentProduction = [...production].reverse().slice(0, 5)
 
@@ -987,7 +1308,7 @@ function DashboardView({
         <div><p>{role.toUpperCase()} WORKSPACE</p><h1>Welcome, {user.name}</h1><span className="dashboard-description">{descriptions[role]}</span></div>
         <div className="heading-actions">
           {role === 'Super Admin' && <button className="secondary" onClick={() => setModule('User Management')}><Users size={17} /> Create team login</button>}
-          {role !== 'Store Manager' && <button className="primary" onClick={exportExcel}><Download size={17} /> Export report</button>}
+        <button className="primary" onClick={exportExcel}><Download size={17} /> Export report</button>
         </div>
       </div>
 
@@ -1001,23 +1322,11 @@ function DashboardView({
       </div>
 
       <div className="dashboard-grid">
-        {role === 'Store Manager' ? (
-          <section className="panel">
-            <div className="panel-heading"><div><h2>Finished-goods stock</h2><p>Stock by active SKU from the shared workbook</p></div><button className="text-button" onClick={() => setModule('Finished Goods')}>View all</button></div>
-            <div className="machine-list">
-              {activeProducts.slice(0, 7).map(product => (
-                <div className="machine-row" key={product.sku}><div className="machine-icon"><Package size={17} /></div><div><strong>{product.sku}</strong><span>{product.name}</span></div><b className={product.stock <= 0 ? 'warning' : ''}>{product.stock} units</b></div>
-              ))}
-              {activeProducts.length === 0 && <div className="empty-state"><Boxes size={24} /><strong>No active stock items</strong><span>Ask a Production Supervisor to configure the finished-goods catalog.</span></div>}
-            </div>
-          </section>
-        ) : (
-          <section className="panel production-panel">
-            <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Factory production' : 'My production overview'}</h2><p>Actual output over the last 7 days</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
-            <div className="chart-stat"><strong>{production.reduce((sum, row) => sum + row.actual, 0)}</strong><span><ArrowUpRight size={14} /> 7 days</span></div>
-            <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
-          </section>
-        )}
+        <section className="panel production-panel">
+          <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Factory production' : role === 'Super Admin' ? 'Factory production' : 'My production overview'}</h2><p>Actual output over the last 7 days</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
+          <div className="chart-stat"><strong>{production.reduce((sum, row) => sum + row.actual, 0)}</strong><span><ArrowUpRight size={14} /> 7 days</span></div>
+          <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
+        </section>
 
         {role === 'Super Admin' ? (
           <section className="panel">
@@ -1029,10 +1338,10 @@ function DashboardView({
           </section>
         ) : role === 'Production Supervisor' ? (
           <section className="panel">
-            <div className="panel-heading"><div><h2>Machine status</h2><p>{machines.length} configured in the workbook</p></div><button className="text-button" onClick={() => setModule('Machines')}>View all</button></div>
+            <div className="panel-heading"><div><h2>Machine status</h2><p>{machines.length} configured in the workbook</p></div></div>
             <div className="machine-summary"><div><strong>{machineStatusCount('running')}</strong><span>Running</span></div><div><strong>{machineStatusCount('idle')}</strong><span>Idle</span></div><div><strong>{machineStatusCount('maintenance')}</strong><span>Maintenance</span></div></div>
             <div className="machine-list">{machines.slice(0, 4).map(machine => <div className="machine-row" key={machine.id}><div className="machine-icon"><Gauge size={17} /></div><div><strong>{machine.id}</strong><span>{machine.name || machine.department || 'Machine'}</span></div><b className={machine.status.toLowerCase() === 'maintenance' ? 'warning' : ''}>{machine.status}</b></div>)}</div>
-            {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Ask a Production Supervisor to configure machines.</span></div>}
+            {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Ask the Super Admin to configure machines.</span></div>}
           </section>
         ) : role === 'Machine Operator' ? (
           <section className="panel">
@@ -1041,36 +1350,25 @@ function DashboardView({
           </section>
         ) : (
           <section className="panel">
-            <div className="panel-heading"><div><h2>Stock attention</h2><p>Active SKUs currently at zero stock</p></div><button className="text-button" onClick={() => setModule('Inventory')}>Open inventory</button></div>
-            <div className="machine-list">{activeProducts.filter(product => product.stock <= 0).slice(0, 4).map(product => <div className="machine-row" key={product.sku}><div className="machine-icon"><AlertTriangle size={17} /></div><div><strong>{product.sku}</strong><span>{product.name}</span></div><b className="warning">Out of stock</b></div>)}</div>
-            {zeroStockCount === 0 && <div className="empty-state"><CheckCircle2 size={24} /><strong>No zero-stock SKUs</strong><span>All active catalog items have available stock.</span></div>}
+            <div className="panel-heading"><div><h2>Your workspace</h2><p>Quick access to your assigned production work</p></div></div>
+            <div className="dashboard-action-list"><button className="dashboard-action" onClick={() => setModule('Production')}><div><strong>Enter production</strong><span>Choose an available machine and active SKU</span></div><ArrowUpRight size={17} /></button></div>
           </section>
         )}
       </div>
 
       <div className="bottom-grid">
         <section className="panel">
-          <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Recent factory production' : role === 'Store Manager' ? 'Stock workspace' : 'My recent production'}</h2><p>{role === 'Production Supervisor' ? 'Latest entries across the team' : role === 'Store Manager' ? 'Manage finished goods and inventory' : 'Your latest saved entries'}</p></div></div>
-          {role === 'Store Manager' ? (
-            <div className="dashboard-action-list">{shortcuts[role].map(item => <button className="dashboard-action" key={item.module} onClick={() => setModule(item.module)}><div><strong>{item.module}</strong><span>{item.detail}</span></div><ArrowUpRight size={17} /></button>)}</div>
-          ) : recentProduction.length ? (
-            <div className="dashboard-table"><table><thead><tr><th>Date</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{recentProduction.map(row => <tr key={row.id}><td>{row.date}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{role === 'Production Supervisor' ? row.createdBy || '—' : user.name}</td></tr>)}</tbody></table></div>
+          <div className="panel-heading"><div><h2>{role === 'Production Supervisor' || role === 'Super Admin' ? 'Recent factory production' : 'My recent production'}</h2><p>{role === 'Production Supervisor' || role === 'Super Admin' ? 'Latest entries across the team' : 'Your latest saved entries'}</p></div></div>
+          {recentProduction.length ? (
+            <div className="dashboard-table"><table><thead><tr><th>Date</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{recentProduction.map(row => <tr key={row.id}><td>{row.date}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{role === 'Production Supervisor' || role === 'Super Admin' ? row.createdBy || '—' : user.name}</td></tr>)}</tbody></table></div>
           ) : <div className="empty-state"><Factory size={24} /><strong>No production entries yet</strong><span>Saved entries will appear here.</span></div>}
         </section>
         <section className="panel">
-          <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Admin controls' : role === 'Production Supervisor' ? 'ERP management shortcuts' : role === 'Store Manager' ? 'Inventory snapshot' : 'Your workspace'}</h2><p>{role === 'Super Admin' ? 'Team access and your workspaces' : role === 'Production Supervisor' ? 'Shared master data and factory operations' : 'Tools available for your assigned role'}</p></div></div>
-          {role === 'Store Manager' ? (
-            <div className="dashboard-summary">
-              <div className="dashboard-summary-row"><div><strong>Active SKUs</strong><span>{activeProducts.length} finished-goods items</span></div><Package size={16} /></div>
-              <div className="dashboard-summary-row"><div><strong>Available stock</strong><span>{availableStock} units across active SKUs</span></div><Boxes size={16} /></div>
-              <div className="dashboard-summary-row"><div><strong>Out of stock</strong><span>{zeroStockCount} active SKUs at zero</span></div><AlertTriangle size={16} /></div>
-            </div>
-          ) : (
-            <div className="dashboard-action-list">{shortcuts[role].map(item => {
-              const Icon = moduleIcons[item.module]
-              return <button className="dashboard-action" key={item.module} onClick={() => setModule(item.module)}><div className="dashboard-action-icon"><Icon size={17} /></div><div><strong>{item.module}</strong><span>{item.detail}</span></div><ArrowUpRight size={16} /></button>
-            })}</div>
-          )}
+          <div className="panel-heading"><div><h2>{role === 'Super Admin' ? 'Admin controls' : role === 'Production Supervisor' ? 'Factory operations' : 'Your workspace'}</h2><p>{role === 'Super Admin' ? 'Full ERP access and user management' : role === 'Production Supervisor' ? 'Production, stitching, and quality work' : 'Tools available for your assigned role'}</p></div></div>
+          <div className="dashboard-action-list">{shortcuts[role].map(item => {
+            const Icon = moduleIcons[item.module]
+            return <button className="dashboard-action" key={item.module} onClick={() => setModule(item.module)}><div className="dashboard-action-icon"><Icon size={17} /></div><div><strong>{item.module}</strong><span>{item.detail}</span></div><ArrowUpRight size={16} /></button>
+          })}</div>
         </section>
       </div>
     </>

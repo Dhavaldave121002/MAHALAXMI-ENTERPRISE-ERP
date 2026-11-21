@@ -1,10 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
-import { getSessionUser, requireProductionSupervisor } from './_lib/session.js'
+import { getSessionUser, requireAdmin } from './_lib/session.js'
 import {
+  addWorkbookRawMaterial,
+  applyWorkbookStockMovement,
+  archiveWorkbookStockItem,
   appendWorkbookRecord,
+  deleteUnusedWorkbookStockItem,
   getWorkbookData,
+  recordWorkbookProduction,
   readUsers,
   readSheetRecords,
   type PublicUser,
@@ -28,6 +33,21 @@ type CatalogItem = {
 
 type Machine = { id: string; name: string; type: string; department: string; operator: string; status: string }
 type Production = { id: string; date: string; machine: string; sku: string; product: string; actual: number; rejected: number; createdBy: string }
+type RawMaterial = {
+  id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
+  supplier: string; issued: number; machineConsumption: number; stitchingConsumption: number;
+  wastage: number; adjustmentIn: number; adjustmentOut: number; closingStock: number;
+  reorderLevel: number; averageUnitCost: number; stockValue: number; status: string
+}
+type FinishedGood = {
+  sku: string; name: string; openingStock: number; productionReceived: number; qualityApproved: number;
+  rejected: number; reservedStock: number; availableStock: number; dispatchedStock: number;
+  returnedStock: number; damagedStock: number; adjustmentIn: number; adjustmentOut: number; status: string
+}
+type StockMovement = {
+  id: string; date: string; sku: string; itemType: string; type: string; quantity: number;
+  referenceId: string; machineId: string; reason: string; openingStock: number; closingStock: number; createdBy: string
+}
 
 function text(value: unknown) {
   return String(value ?? '').trim()
@@ -58,6 +78,11 @@ function records(data: WorkbookData, sheetName: string) {
   return readSheetRecords(data, sheetName)
 }
 
+function optionalRecords(data: WorkbookData, sheetName: string) {
+  const actualName = data.sheetNames.find(name => name.toLowerCase() === sheetName.toLowerCase())
+  return actualName && Array.isArray(data.sheets[actualName]) ? data.sheets[actualName] : []
+}
+
 function productionSkus(products: CatalogItem[]) {
   const variantMasters = new Set(
     products.filter(item => item.isVariant && item.status === 'Active').map(item => item.masterSku.toLowerCase()),
@@ -70,7 +95,83 @@ function productionSkus(products: CatalogItem[]) {
 function getSnapshot(data: WorkbookData, user: PublicUser) {
   const masters = records(data, 'Products')
   const variants = records(data, 'SKU_Variants')
-  const stockBySku = new Map(records(data, 'Finished_Goods').map(row => [text(row['Product SKU']).toLowerCase(), number(row['Available Stock'])]))
+  const finishedRows = records(data, 'Finished_Goods')
+  const stockBySku = new Map(finishedRows.map(row => [text(row['Product SKU']).toLowerCase(), number(row['Available Stock'])]))
+  const archivedFinishedSkus = new Set(finishedRows
+    .filter(row => text(row.Status).toLowerCase() === 'archived')
+    .map(row => text(row['Product SKU']).toLowerCase()))
+  const productStock = (sku: string) => user.role === 'Super Admin' ? stockBySku.get(sku.toLowerCase()) || 0 : 0
+  const rawMaterials: RawMaterial[] = optionalRecords(data, 'Raw_Materials').flatMap(row => {
+    const sku = text(row['Material SKU'])
+    if (!sku) return []
+    return [{
+      id: text(row['Material ID']),
+      sku,
+      name: text(row['Material Name']) || sku,
+      unit: text(row.Unit),
+      openingStock: number(row['Opening Stock']),
+      purchaseInward: number(row['Purchase Inward']),
+      supplier: text(row.Supplier),
+      issued: number(row['Material Issued']),
+      machineConsumption: number(row['Machine Consumption']),
+      stitchingConsumption: number(row['Stitching Consumption']),
+      wastage: number(row.Wastage),
+      adjustmentIn: number(row['Adjustment In']),
+      adjustmentOut: number(row['Adjustment Out']),
+      closingStock: row['Closing Stock'] === undefined || row['Closing Stock'] === ''
+        ? number(row['Opening Stock']) + number(row['Purchase Inward']) - number(row['Material Issued'])
+          - number(row['Machine Consumption']) - number(row['Stitching Consumption']) - number(row.Wastage)
+          + number(row['Adjustment In']) - number(row['Adjustment Out'])
+        : number(row['Closing Stock']),
+      reorderLevel: number(row['Reorder Level']),
+      averageUnitCost: number(row['Average Unit Cost']),
+      stockValue: number(row['Stock Value']),
+      status: text(row.Status) || 'Active',
+    }]
+  })
+  const finishedGoods: FinishedGood[] = optionalRecords(data, 'Finished_Goods').flatMap(row => {
+    const sku = text(row['Product SKU'])
+    if (!sku) return []
+    return [{
+      sku,
+      name: text(row['Product Name']) || sku,
+      openingStock: number(row['Opening Stock']),
+      productionReceived: number(row['Production Received']),
+      qualityApproved: number(row['Quality Approved']),
+      rejected: number(row.Rejected),
+      reservedStock: number(row['Reserved Stock']),
+      availableStock: row['Available Stock'] === undefined || row['Available Stock'] === ''
+        ? number(row['Opening Stock']) + (row['Quality Approved'] === undefined || row['Quality Approved'] === ''
+          ? Math.max(0, number(row['Production Received']) - number(row.Rejected))
+          : number(row['Quality Approved'])) + number(row['Returned Stock']) + number(row['Adjustment In'])
+          - number(row['Dispatched Stock']) - number(row['Damaged Stock']) - number(row['Reserved Stock']) - number(row['Adjustment Out'])
+        : number(row['Available Stock']),
+      dispatchedStock: number(row['Dispatched Stock']),
+      returnedStock: number(row['Returned Stock']),
+      damagedStock: number(row['Damaged Stock']),
+      adjustmentIn: number(row['Adjustment In']),
+      adjustmentOut: number(row['Adjustment Out']),
+      status: text(row.Status) || 'Active',
+    }]
+  })
+  const stockMovements: StockMovement[] = optionalRecords(data, 'Stock_Movement').flatMap(row => {
+    const id = text(row['Movement ID'])
+    if (!id) return []
+    return [{
+      id,
+      date: text(row['Date/Time']),
+      sku: text(row.SKU),
+      itemType: text(row['Item Type']),
+      type: text(row['Movement Type']),
+      quantity: number(row.Quantity),
+      referenceId: text(row['Reference ID']),
+      machineId: text(row['Machine ID']),
+      reason: text(row.Reason),
+      openingStock: number(row['Opening Stock']),
+      closingStock: number(row['Closing Stock']),
+      createdBy: text(row['Created By']),
+    }]
+  })
   const masterBySku = new Map<string, CatalogItem>()
   const products: CatalogItem[] = masters.flatMap((row, index) => {
     const sku = text(row['Master SKU'])
@@ -82,8 +183,8 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       name: text(row['Product Title']) || sku,
       category: text(row.Category) || 'Uncategorized',
       mrp: number(row.MRP),
-      stock: stockBySku.get(sku.toLowerCase()) || 0,
-      status: normalizedStatus(row.Status),
+      stock: productStock(sku),
+      status: user.role === 'Super Admin' && archivedFinishedSkus.has(sku.toLowerCase()) ? 'Draft' : normalizedStatus(row.Status),
       size: text(row.Size),
       color: text(row.Color),
       packQuantity: number(row['Pack Quantity']) || 1,
@@ -105,8 +206,8 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       name: master?.name || masterSku,
       category: master?.category || 'Uncategorized',
       mrp: number(row.MRP) || master?.mrp || 0,
-      stock: stockBySku.get(sku.toLowerCase()) || 0,
-      status: master?.status === 'Active' ? normalizedStatus(row.Status) : 'Draft',
+      stock: productStock(sku),
+      status: master?.status === 'Active' && !(user.role === 'Super Admin' && archivedFinishedSkus.has(sku.toLowerCase())) ? normalizedStatus(row.Status) : 'Draft',
       size: text(row.Size),
       color: text(row.Color),
       packQuantity: number(row['Pack Quantity']) || 1,
@@ -129,7 +230,7 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
 
   const production: Production[] = records(data, 'Production').flatMap((row, index) => {
     const createdBy = text(row['Created By'])
-    if (user.role !== 'Production Supervisor' && createdBy.toLowerCase() !== user.name.toLowerCase()) return []
+    if (user.role !== 'Production Supervisor' && user.role !== 'Super Admin' && createdBy.toLowerCase() !== user.name.toLowerCase()) return []
     return [{
       id: text(row['Production ID']) || `PRO-${index + 1}`,
       date: dateKey(row.Date),
@@ -143,9 +244,12 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
   })
 
   return {
-    products: user.role === 'Production Supervisor' ? products : products.filter(item => item.status === 'Active'),
+    products: user.role === 'Production Supervisor' || user.role === 'Super Admin' ? products : products.filter(item => item.status === 'Active'),
     machines,
     production,
+    rawMaterials: user.role === 'Super Admin' ? rawMaterials : [],
+    finishedGoods: user.role === 'Super Admin' ? finishedGoods : [],
+    stockMovements: user.role === 'Super Admin' ? stockMovements.reverse() : [],
     workbookMeta: { loaded: true, name: data.name, sheetCount: data.sheetCount },
   }
 }
@@ -293,7 +397,7 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
   }
   const id = `PRO-${randomUUID()}`
   const createdAt = new Date().toISOString()
-  await appendWorkbookRecord('Production', {
+  const productionRecord = {
     'Production ID': id,
     Date: date,
     'Machine ID': machineId,
@@ -305,8 +409,9 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     'Rejected Quantity': rejected,
     'Created By': user.name,
     'Created Date': createdAt,
-  }, ['Production ID', 'Date', 'Machine ID', 'Product Name', 'Master SKU', 'Variant SKU', 'Operator', 'Actual Quantity', 'Rejected Quantity', 'Created By', 'Created Date'], ['Variant SKU'])
-  return {
+  }
+  const stockResult = await recordWorkbookProduction(productionRecord)
+  const savedRecord: Production = {
     id,
     date,
     machine: machineId,
@@ -315,7 +420,112 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     actual,
     rejected,
     createdBy: user.name,
-  } satisfies Production
+  }
+  if (user.role !== 'Super Admin') return savedRecord
+  return {
+    ...savedRecord,
+    finishedGood: {
+      sku,
+      name: text(stockResult.finishedGood['Product Name']) || catalog.name,
+      openingStock: number(stockResult.finishedGood['Opening Stock']),
+      productionReceived: number(stockResult.finishedGood['Production Received']),
+      qualityApproved: number(stockResult.finishedGood['Quality Approved']),
+      rejected: number(stockResult.finishedGood.Rejected),
+      reservedStock: number(stockResult.finishedGood['Reserved Stock']),
+      availableStock: number(stockResult.finishedGood['Available Stock']),
+      dispatchedStock: number(stockResult.finishedGood['Dispatched Stock']),
+      returnedStock: number(stockResult.finishedGood['Returned Stock']),
+      damagedStock: number(stockResult.finishedGood['Damaged Stock']),
+      adjustmentIn: number(stockResult.finishedGood['Adjustment In']),
+      adjustmentOut: number(stockResult.finishedGood['Adjustment Out']),
+      status: text(stockResult.finishedGood.Status) || 'Active',
+    } satisfies FinishedGood,
+  }
+}
+
+async function addRawMaterial(user: PublicUser, body: Record<string, unknown>) {
+  const sku = requiredText(body.sku, 'Material SKU', 100)
+  const name = requiredText(body.name, 'Material name', 180)
+  const unit = requiredText(body.unit, 'Unit', 40)
+  const openingStock = nonnegativeNumber(body.openingStock, 'Opening stock')
+  const reorderLevel = nonnegativeNumber(body.reorderLevel, 'Reorder level')
+  const unitCost = nonnegativeNumber(body.unitCost, 'Average unit cost')
+  const supplier = text(body.supplier).slice(0, 180)
+  const result = await addWorkbookRawMaterial({
+    sku, name, unit, openingStock, reorderLevel, unitCost, supplier, createdBy: user.name,
+  })
+  const material = result.material
+  return {
+    id: text(material['Material ID']),
+    sku: text(material['Material SKU']),
+    name: text(material['Material Name']),
+    unit: text(material.Unit),
+    openingStock: number(material['Opening Stock']),
+    purchaseInward: number(material['Purchase Inward']),
+    supplier: text(material.Supplier),
+    issued: number(material['Material Issued']),
+    machineConsumption: number(material['Machine Consumption']),
+    stitchingConsumption: number(material['Stitching Consumption']),
+    wastage: number(material.Wastage),
+    adjustmentIn: number(material['Adjustment In']),
+    adjustmentOut: number(material['Adjustment Out']),
+    closingStock: number(material['Closing Stock']),
+    reorderLevel: number(material['Reorder Level']),
+    averageUnitCost: number(material['Average Unit Cost']),
+    stockValue: number(material['Stock Value']),
+    status: text(material.Status) || 'Active',
+  } satisfies RawMaterial
+}
+
+async function applyStockMovement(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
+  const kind = text(body.kind)
+  const sku = requiredText(body.sku, 'SKU', 100)
+  const type = requiredText(body.type, 'Movement type', 40)
+  const quantity = nonnegativeNumber(body.quantity, 'Quantity')
+  if (quantity <= 0 || quantity > 1_000_000_000) throw new ApiError(400, 'Quantity must be greater than zero and within the supported range.')
+  const reason = text(body.reason)
+  const referenceId = text(body.referenceId)
+  if (reason.length > 300 || referenceId.length > 100) throw new ApiError(400, 'Reason or reference is too long.')
+  if (kind === 'raw') {
+    if (!['Purchase Inward', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Adjustment In', 'Adjustment Out'].includes(type)) {
+      throw new ApiError(400, 'Choose a supported raw-material movement type.')
+    }
+  } else if (kind === 'finished') {
+    if (!['Opening Stock', 'Dispatch', 'Return', 'Damage', 'Adjustment In', 'Adjustment Out', 'Reserve', 'Release Reservation'].includes(type)) {
+      throw new ApiError(400, 'Choose a supported finished-goods movement type.')
+    }
+    if (!Number.isInteger(quantity)) throw new ApiError(400, 'Finished-goods quantity must be a whole number.')
+  } else {
+    throw new ApiError(400, 'Choose raw material or finished goods.')
+  }
+  const product = kind === 'finished'
+    ? getSnapshot(data, user).products.find(item => item.sku.toLowerCase() === sku.toLowerCase())
+    : undefined
+  if (kind === 'finished' && !product) throw new ApiError(404, 'Choose an active SKU from the master workbook.')
+  const result = await applyWorkbookStockMovement({
+    kind, sku, type, quantity,
+    reason: reason.slice(0, 300),
+    referenceId: referenceId.slice(0, 100),
+    machineId: text(body.machineId).slice(0, 100),
+    unitCost: body.unitCost === undefined || body.unitCost === '' ? '' : nonnegativeNumber(body.unitCost, 'Unit cost'),
+    productName: product?.name || '',
+    createdBy: user.name,
+  })
+  return result
+}
+
+async function archiveStockItem(user: PublicUser, body: Record<string, unknown>) {
+  const kind = text(body.kind)
+  const sku = requiredText(body.sku, 'SKU', 100)
+  if (!['raw', 'finished'].includes(kind)) throw new ApiError(400, 'Choose a valid stock item type.')
+  return archiveWorkbookStockItem({ kind, sku, reason: text(body.reason).slice(0, 300), createdBy: user.name })
+}
+
+async function deleteUnusedStockItem(body: Record<string, unknown>) {
+  const kind = text(body.kind)
+  const sku = requiredText(body.sku, 'SKU', 100)
+  if (!['raw', 'finished'].includes(kind)) throw new ApiError(400, 'Choose a valid stock item type.')
+  return deleteUnusedWorkbookStockItem({ kind, sku })
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -340,7 +550,28 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       sendJson(response, 201, { record })
       return
     }
-    requireProductionSupervisor(user)
+    if (['addRawMaterial', 'applyStockMovement', 'archiveStockItem', 'deleteUnusedStockItem'].includes(action)) {
+      requireAdmin(user)
+      if (action === 'addRawMaterial') {
+        const material = await addRawMaterial(user, body)
+        sendJson(response, 201, { material })
+        return
+      }
+      if (action === 'applyStockMovement') {
+        const result = await applyStockMovement(data, user, body)
+        sendJson(response, 200, result)
+        return
+      }
+      if (action === 'archiveStockItem') {
+        const result = await archiveStockItem(user, body)
+        sendJson(response, 200, result)
+        return
+      }
+      const result = await deleteUnusedStockItem(body)
+      sendJson(response, 200, result)
+      return
+    }
+    requireAdmin(user)
     if (action === 'addProduct') {
       const product = await addProduct(data, body)
       sendJson(response, 201, { product })

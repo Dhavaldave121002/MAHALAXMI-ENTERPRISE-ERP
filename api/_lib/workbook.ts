@@ -163,6 +163,26 @@ export async function appendWorkbookRecord(
   await callAppsScript('appendRecord', { sheet, record, requiredHeaders, ensureColumns })
 }
 
+export async function addWorkbookRawMaterial(input: Record<string, unknown>) {
+  return callAppsScript<{ material: Record<string, unknown> }>('addRawMaterial', input)
+}
+
+export async function applyWorkbookStockMovement(input: Record<string, unknown>) {
+  return callAppsScript<{ item: Record<string, unknown>; movement: Record<string, unknown> }>('applyStockMovement', input)
+}
+
+export async function archiveWorkbookStockItem(input: Record<string, unknown>) {
+  return callAppsScript<{ item: Record<string, unknown> }>('archiveStockItem', input)
+}
+
+export async function deleteUnusedWorkbookStockItem(input: Record<string, unknown>) {
+  return callAppsScript<{ deleted: boolean; sku: string }>('deleteUnusedStockItem', input)
+}
+
+export async function recordWorkbookProduction(record: Record<string, unknown>) {
+  return callAppsScript<{ finishedGood: Record<string, unknown> }>('recordProduction', { record })
+}
+
 export function publicUser(user: WorkbookUser): PublicUser {
   return { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active }
 }
