@@ -66,11 +66,13 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'ADMIN', items: ['Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
-const deliveryChannels = ['AMAZON', 'FLIPKART', 'MEESHO']
+const deliveryChannels = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const deliveryPartnersByChannel: Record<string, string[]> = {
   AMAZON: ['AMAZON', 'AMAZON FLEX', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   FLIPKART: ['FLIPKART', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   MEESHO: ['MEESHO', 'SHREE ANJI COURIER', 'DELIVERY APP'],
+  SHOPIFY: ['SHOPIFY', 'SHREE ANJI COURIER', 'DELIVERY APP'],
+  MYNTRA: ['MYNTRA', 'SHREE ANJI COURIER', 'DELIVERY APP'],
 }
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {

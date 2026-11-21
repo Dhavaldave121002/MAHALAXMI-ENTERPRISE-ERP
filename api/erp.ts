@@ -611,7 +611,7 @@ async function applyStockMovement(data: WorkbookData, user: PublicUser, body: Re
     if (kind !== 'finished' || type !== 'Dispatch' || !salesChannel || !deliveryPartner) {
       throw new ApiError(400, 'A delivery channel and partner are required for a finished-goods dispatch.')
     }
-    if (!['AMAZON', 'FLIPKART', 'MEESHO'].includes(salesChannel)) {
+    if (!['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA'].includes(salesChannel)) {
       throw new ApiError(400, 'Choose a supported delivery channel.')
     }
     if (deliveryPartner.length > 100) throw new ApiError(400, 'Delivery partner name is too long.')
