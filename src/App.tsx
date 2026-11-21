@@ -4,7 +4,7 @@ import {
   Boxes, Building2, CircleDollarSign, ClipboardCheck,
   Factory, FileSpreadsheet, Gauge, LayoutDashboard, Menu, Package,
   RotateCcw, Search, Settings, ShoppingCart, Truck, UserCog, Users,
-  Plus, Download, Upload, Bell, MoreHorizontal, CheckCircle2, LogOut, LockKeyhole,
+  Plus, Download, Upload, Bell, CheckCircle2, LogOut, LockKeyhole,
 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import * as XLSX from 'xlsx'
@@ -119,7 +119,6 @@ export default function App() {
   const isAdminRoute = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/')
   const [module, setModule] = useState<Module>('Dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [moreOpen, setMoreOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [clock, setClock] = useState(new Date())
   const [sessionUser, setSessionUser] = useState<UserAccount | null>(null)
@@ -583,15 +582,6 @@ export default function App() {
     'Machine Operator': ['Dashboard', 'Production'],
     'Store Manager': ['Dashboard'],
   }
-  const mainModules: Record<Role, Module[]> = {
-    'Super Admin': ['Dashboard', 'Inventory', 'Production', 'Product Catalog'],
-    'Production Supervisor': ['Dashboard', 'Production'],
-    'Machine Operator': ['Dashboard', 'Production'],
-    'Store Manager': ['Dashboard'],
-  }
-  const primaryModules = mainModules[sessionUser.role].filter(item => roleModules[sessionUser.role].includes(item))
-  const otherModules = roleModules[sessionUser.role].filter(item => !primaryModules.includes(item))
-
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
       <aside className={sidebarOpen ? 'sidebar' : 'sidebar collapsed'}>
@@ -600,26 +590,20 @@ export default function App() {
           {sidebarOpen && <div><strong>Mahalaxmi</strong><span>ENTERPRISE ERP</span></div>}
         </div>
         <nav>
-          <div className="nav-section">
-            {sidebarOpen && <div className="nav-label">MAIN</div>}
-            {primaryModules.map(item => {
-              const Icon = moduleIcons[item] || Package
-              return <button key={item} className={module === item ? 'nav-item active' : 'nav-item'} onClick={() => { setModule(item); setMoreOpen(false) }}><Icon size={19} /><span>{item}</span></button>
-            })}
-            {otherModules.length > 0 && <button className={moreOpen ? 'nav-item more-toggle active' : 'nav-item more-toggle'} aria-expanded={moreOpen} onClick={() => setMoreOpen(value => !value)}><MoreHorizontal size={19} /><span>More</span></button>}
-          </div>
-        </nav>
-        {moreOpen && otherModules.length > 0 && <div className="more-menu">
-          <div className="more-menu-heading">ALL MODULES<button onClick={() => setMoreOpen(false)} aria-label="Close menu">×</button></div>
           {navSections.map(section => {
-            const items = section.items.filter(item => otherModules.includes(item))
+            const items = section.items.filter(item => roleModules[sessionUser.role].includes(item))
             if (!items.length) return null
-            return <div className="more-group" key={section.label}><span>{section.label}</span>{items.map(item => {
-              const Icon = moduleIcons[item] || Package
-              return <button key={item} className={module === item ? 'more-item active' : 'more-item'} onClick={() => { setModule(item); setMoreOpen(false) }}><Icon size={16} /><span>{item}</span></button>
-            })}</div>
+            return (
+              <div className="nav-section" key={section.label}>
+                {sidebarOpen && <div className="nav-label">{section.label}</div>}
+                {items.map(item => {
+                  const Icon = moduleIcons[item] || Package
+                  return <button key={item} className={module === item ? 'nav-item active' : 'nav-item'} onClick={() => setModule(item)}><Icon size={19} /><span>{item}</span></button>
+                })}
+              </div>
+            )
           })}
-        </div>}
+        </nav>
         <div className="sidebar-user">
           <div className="avatar">{sessionUser.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}</div>
           {sidebarOpen && <div className="user-copy"><strong>{sessionUser.name}</strong><span>{sessionUser.role}</span></div>}
@@ -702,6 +686,7 @@ function ModuleView(props: {
   const [stockFormOpen, setStockFormOpen] = useState(false)
   const [materialFormOpen, setMaterialFormOpen] = useState(false)
   const [catalogListingFilter, setCatalogListingFilter] = useState('')
+  const [catalogProductSearch, setCatalogProductSearch] = useState('')
   const [deliveryChannel, setDeliveryChannel] = useState('')
   const [deliveryPartnerChoice, setDeliveryPartnerChoice] = useState('')
   const [customDeliveryPartner, setCustomDeliveryPartner] = useState('')
@@ -1206,6 +1191,12 @@ function ModuleView(props: {
 
   if (module === 'Product Catalog') {
     const masterProducts = products.filter(product => !product.isVariant)
+    const catalogSearch = catalogProductSearch.trim().toLowerCase()
+    const filteredCatalogProducts = catalogSearch
+      ? masterProducts.filter(product =>
+        `${product.name} ${product.sku} ${product.category}`.toLowerCase().includes(catalogSearch)
+      )
+      : masterProducts
     const selectedProduct = masterProducts.find(product => product.sku === selectedCatalogMasterSku)
     const selectedVariants = selectedProduct
       ? products.filter(product => product.isVariant && product.masterSku.toLowerCase() === selectedProduct.sku.toLowerCase())
@@ -1250,14 +1241,29 @@ function ModuleView(props: {
         <div className="panel catalog-product-picker">
           <div className="panel-heading"><div><h2>1. Select product</h2><p>Its saved SKUs and marketplace listings will appear below.</p></div></div>
           <div className="catalog-picker-body">
-            <label>Product<select aria-label="Select catalog product" value={selectedCatalogMasterSku} onChange={event => {
-              setSelectedCatalogMasterSku(event.target.value)
-              setCatalogFormOpen(null)
-              setCatalogListingFilter('')
-            }} disabled={masterProducts.length === 0}>
-              <option value="">{masterProducts.length ? 'Select a product' : 'No products yet'}</option>
-              {masterProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{product.status === 'Draft' ? ' · Draft' : ''}</option>)}
-            </select></label>
+            <div className="catalog-product-controls">
+              <label>Search product
+                <div className="catalog-product-search">
+                  <Search size={15} />
+                  <input
+                    value={catalogProductSearch}
+                    onChange={event => setCatalogProductSearch(event.target.value)}
+                    placeholder="Search product name or SKU"
+                    disabled={masterProducts.length === 0}
+                  />
+                  {catalogProductSearch && <button type="button" aria-label="Clear product search" onClick={() => setCatalogProductSearch('')}>×</button>}
+                </div>
+              </label>
+              <label>Product<select aria-label="Select catalog product" value={selectedCatalogMasterSku} onChange={event => {
+                setSelectedCatalogMasterSku(event.target.value)
+                setCatalogFormOpen(null)
+                setCatalogListingFilter('')
+              }} disabled={filteredCatalogProducts.length === 0}>
+                <option value="">{masterProducts.length ? (filteredCatalogProducts.length ? 'Select a product' : 'No matching products') : 'No products yet'}</option>
+                {filteredCatalogProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{product.status === 'Draft' ? ' · Draft' : ''}</option>)}
+              </select></label>
+              {catalogSearch && <span className="catalog-search-count">{filteredCatalogProducts.length} matching product{filteredCatalogProducts.length === 1 ? '' : 's'}</span>}
+            </div>
             {selectedProduct
               ? <div className="catalog-product-summary">
                 <div><span>Master SKU</span><strong><code>{selectedProduct.sku}</code></strong></div>
