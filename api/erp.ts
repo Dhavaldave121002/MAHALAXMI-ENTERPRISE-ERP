@@ -61,7 +61,8 @@ type FinishedGood = {
 }
 type StockMovement = {
   id: string; date: string; sku: string; itemType: string; type: string; quantity: number;
-  referenceId: string; machineId: string; reason: string; openingStock: number; closingStock: number; createdBy: string
+  referenceId: string; machineId: string; reason: string; salesChannel: string; deliveryPartner: string;
+  openingStock: number; closingStock: number; createdBy: string
 }
 
 function text(value: unknown) {
@@ -184,6 +185,8 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       referenceId: text(row['Reference ID']),
       machineId: text(row['Machine ID']),
       reason: text(row.Reason),
+      salesChannel: text(row['Sales Channel']),
+      deliveryPartner: text(row['Delivery Partner']),
       openingStock: number(row['Opening Stock']),
       closingStock: number(row['Closing Stock']),
       createdBy: text(row['Created By']),
@@ -588,7 +591,18 @@ async function applyStockMovement(data: WorkbookData, user: PublicUser, body: Re
   if (quantity <= 0 || quantity > 1_000_000_000) throw new ApiError(400, 'Quantity must be greater than zero and within the supported range.')
   const reason = text(body.reason)
   const referenceId = text(body.referenceId)
+  const salesChannel = text(body.salesChannel)
+  const deliveryPartner = text(body.deliveryPartner)
   if (reason.length > 300 || referenceId.length > 100) throw new ApiError(400, 'Reason or reference is too long.')
+  if (salesChannel || deliveryPartner) {
+    if (kind !== 'finished' || type !== 'Dispatch' || !salesChannel || !deliveryPartner) {
+      throw new ApiError(400, 'A delivery channel and partner are required for a finished-goods dispatch.')
+    }
+    if (!['AMAZON', 'AMAZON FLEX', 'FLIPKART', 'MEESHO'].includes(salesChannel)) {
+      throw new ApiError(400, 'Choose a supported delivery channel.')
+    }
+    if (deliveryPartner.length > 100) throw new ApiError(400, 'Delivery partner name is too long.')
+  }
   if (kind === 'raw') {
     if (!['Purchase Inward', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Adjustment In', 'Adjustment Out'].includes(type)) {
       throw new ApiError(400, 'Choose a supported raw-material movement type.')
@@ -609,6 +623,8 @@ async function applyStockMovement(data: WorkbookData, user: PublicUser, body: Re
     kind, sku, type, quantity,
     reason: reason.slice(0, 300),
     referenceId: referenceId.slice(0, 100),
+    salesChannel,
+    deliveryPartner,
     machineId: text(body.machineId).slice(0, 100),
     unitCost: body.unitCost === undefined || body.unitCost === '' ? '' : nonnegativeNumber(body.unitCost, 'Unit cost'),
     productName: product?.name || '',

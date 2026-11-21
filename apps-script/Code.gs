@@ -3,7 +3,7 @@
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
     const ERP_FINISHED_GOODS_HEADERS = ['Product SKU', 'Product Name', 'Opening Stock', 'Production Received', 'Quality Approved', 'Rejected', 'Reserved Stock', 'Available Stock', 'Dispatched Stock', 'Returned Stock', 'Damaged Stock', 'Last Updated', 'Adjustment In', 'Adjustment Out', 'Status']
-    const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type']
+    const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner']
 
     function onOpen() {
       SpreadsheetApp.getUi()
@@ -199,6 +199,8 @@
         'Closing Stock': input.closing,
         'Created By': input.createdBy || '',
         'Item Type': input.itemType,
+        'Sales Channel': input.salesChannel || '',
+        'Delivery Partner': input.deliveryPartner || '',
       }
     }
 
@@ -294,9 +296,19 @@
         const type = String(payload.type || '')
         const reason = String(payload.reason || '').trim()
         const referenceId = String(payload.referenceId || '').trim()
+        const salesChannel = String(payload.salesChannel || '').trim()
+        const deliveryPartner = String(payload.deliveryPartner || '').trim()
         const quantity = stockNumber_(payload.quantity, 'Quantity')
         if (!sku || quantity <= 0) throw apiError_(400, 'Choose an item and enter a quantity greater than zero.')
         if (reason.length > 300 || referenceId.length > 100) throw apiError_(400, 'Reason or reference is too long.')
+        if (salesChannel || deliveryPartner) {
+          if (kind !== 'finished' || type !== 'Dispatch' || !salesChannel || !deliveryPartner) {
+            throw apiError_(400, 'A delivery channel and partner are required for a finished-goods dispatch.')
+          }
+          if (['AMAZON', 'AMAZON FLEX', 'FLIPKART', 'MEESHO'].indexOf(salesChannel) < 0 || deliveryPartner.length > 100) {
+            throw apiError_(400, 'Choose a supported delivery channel and a valid delivery partner.')
+          }
+        }
 
         const isRaw = kind === 'raw'
         if (!isRaw && kind !== 'finished') throw apiError_(400, 'Choose raw material or finished goods.')
@@ -385,6 +397,7 @@
           sku: sku, type: type, quantity: quantity, referenceId: referenceId,
           machineId: payload.machineId, reason: reason, opening: opening, closing: closing,
           createdBy: payload.createdBy, itemType: itemType,
+          salesChannel: salesChannel, deliveryPartner: deliveryPartner,
         })
         appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
         SpreadsheetApp.flush()
