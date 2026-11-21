@@ -66,12 +66,11 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'ADMIN', items: ['Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
-const deliveryChannels = ['AMAZON', 'AMAZON FLEX', 'FLIPKART', 'MEESHO']
+const deliveryChannels = ['AMAZON', 'FLIPKART', 'MEESHO']
 const deliveryPartnersByChannel: Record<string, string[]> = {
-  AMAZON: ['SHREE ANJI COURIER'],
-  'AMAZON FLEX': ['SHREE ANJI COURIER'],
-  FLIPKART: ['SHREE ANJI COURIER'],
-  MEESHO: ['SHREE ANJI COURIER'],
+  AMAZON: ['AMAZON', 'AMAZON FLEX', 'SHREE ANJI COURIER', 'DELIVERY APP'],
+  FLIPKART: ['FLIPKART', 'SHREE ANJI COURIER', 'DELIVERY APP'],
+  MEESHO: ['MEESHO', 'SHREE ANJI COURIER', 'DELIVERY APP'],
 }
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
@@ -1127,7 +1126,7 @@ function ModuleView(props: {
               {(deliveryPartnersByChannel[deliveryChannel] || []).map(partner => <option key={partner} value={partner}>{partner}</option>)}
               <option value="Other">Other courier…</option>
             </select></label>}
-            {deliveryPartnerChoice === 'Other' && <label>Courier name<input name="customDeliveryPartner" required maxLength={100} value={customDeliveryPartner} onChange={event => setCustomDeliveryPartner(event.target.value)} placeholder="Enter delivery partner name" /></label>}
+            {deliveryPartnerChoice === 'Other' && <label>Partner name<input name="customDeliveryPartner" required maxLength={100} value={customDeliveryPartner} onChange={event => setCustomDeliveryPartner(event.target.value)} placeholder="Enter delivery partner name" /></label>}
             {deliveryPartnerReady && <>
             <label>Product SKU<select name="sku" required value={deliverySku} onChange={event => setDeliverySku(event.target.value)} disabled={deliveryProducts.length === 0}>
               <option value="">{deliveryProducts.length ? 'Select product / SKU' : 'No active SKUs available'}</option>

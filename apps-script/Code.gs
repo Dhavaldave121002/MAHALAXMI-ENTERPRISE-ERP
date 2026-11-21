@@ -305,7 +305,7 @@
           if (kind !== 'finished' || type !== 'Dispatch' || !salesChannel || !deliveryPartner) {
             throw apiError_(400, 'A delivery channel and partner are required for a finished-goods dispatch.')
           }
-          if (['AMAZON', 'AMAZON FLEX', 'FLIPKART', 'MEESHO'].indexOf(salesChannel) < 0 || deliveryPartner.length > 100) {
+          if (['AMAZON', 'FLIPKART', 'MEESHO'].indexOf(salesChannel) < 0 || deliveryPartner.length > 100) {
             throw apiError_(400, 'Choose a supported delivery channel and a valid delivery partner.')
           }
         }
