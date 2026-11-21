@@ -687,6 +687,8 @@ function ModuleView(props: {
   const [materialFormOpen, setMaterialFormOpen] = useState(false)
   const [catalogListingFilter, setCatalogListingFilter] = useState('')
   const [catalogProductSearch, setCatalogProductSearch] = useState('')
+  const [catalogPlatformSearch, setCatalogPlatformSearch] = useState('')
+  const [catalogPlatform, setCatalogPlatform] = useState('')
   const [deliveryChannel, setDeliveryChannel] = useState('')
   const [deliveryPartnerChoice, setDeliveryPartnerChoice] = useState('')
   const [customDeliveryPartner, setCustomDeliveryPartner] = useState('')
@@ -842,6 +844,10 @@ function ModuleView(props: {
     event.preventDefault()
     const formElement = event.currentTarget
     const form = new FormData(formElement)
+    if (!catalogPlatform) {
+      notify('Select a marketplace platform')
+      return
+    }
     try {
       await saveMarketplaceListing({
         platform: String(form.get('platform')),
@@ -849,6 +855,8 @@ function ModuleView(props: {
         productSku: String(form.get('productSku')),
       })
       formElement.reset()
+      setCatalogPlatform('')
+      setCatalogPlatformSearch('')
       setCatalogFormOpen(null)
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Marketplace SKU could not be saved')
@@ -1197,6 +1205,8 @@ function ModuleView(props: {
         `${product.name} ${product.sku} ${product.category}`.toLowerCase().includes(catalogSearch)
       )
       : masterProducts
+    const platformSearch = catalogPlatformSearch.trim().toLowerCase()
+    const filteredPlatforms = marketplaces.filter(platform => platform.toLowerCase().includes(platformSearch))
     const selectedProduct = masterProducts.find(product => product.sku === selectedCatalogMasterSku)
     const selectedVariants = selectedProduct
       ? products.filter(product => product.isVariant && product.masterSku.toLowerCase() === selectedProduct.sku.toLowerCase())
@@ -1301,7 +1311,33 @@ function ModuleView(props: {
         {catalogFormOpen === 'listing' && selectedProduct && <form className="panel form-card" onSubmit={submitMarketplaceListing}>
           <div className="panel-heading"><div><h2>Add marketplace SKU</h2><p>Link a marketplace SKU to this product or one of its variants.</p></div></div>
           <div className="field-grid">
-            <label>Platform<select name="platform" required defaultValue=""><option value="" disabled>Select marketplace</option>{marketplaces.map(platform => <option key={platform}>{platform}</option>)}</select></label>
+            <div className="catalog-platform-picker">
+              <label>Search platform
+                <div className="catalog-platform-search">
+                  <Search size={15} />
+                  <input
+                    value={catalogPlatformSearch}
+                    onChange={event => setCatalogPlatformSearch(event.target.value)}
+                    placeholder="Search platform"
+                  />
+                  {catalogPlatformSearch && <button type="button" aria-label="Clear platform search" onClick={() => setCatalogPlatformSearch('')}>×</button>}
+                </div>
+              </label>
+              <input type="hidden" name="platform" value={catalogPlatform} />
+              <div className="catalog-platform-options" role="radiogroup" aria-label="Select marketplace platform">
+                {filteredPlatforms.map(platform => (
+                  <button
+                    key={platform}
+                    type="button"
+                    role="radio"
+                    aria-checked={catalogPlatform === platform}
+                    className={catalogPlatform === platform ? 'catalog-platform-option active' : 'catalog-platform-option'}
+                    onClick={() => setCatalogPlatform(platform)}
+                  >{platform}</button>
+                ))}
+              </div>
+              {!filteredPlatforms.length && <span className="catalog-search-count">No matching platforms</span>}
+            </div>
             <label>Product SKU<select name="productSku" required defaultValue=""><option value="" disabled>Select internal SKU</option>{selectedSkuProducts.map(product => <option key={product.sku} value={product.sku}>{product.isVariant ? 'Variant' : 'Master'} · {product.name} · {product.sku}</option>)}</select></label>
             <label>Marketplace SKU<input name="platformSku" required maxLength={100} autoComplete="off" placeholder="Enter SKU used on this marketplace" /></label>
           </div>
@@ -1350,7 +1386,11 @@ function ModuleView(props: {
             <div><h2>2. Product SKUs</h2><p>Master SKU and all variants for {selectedProduct.name}.</p></div>
             <div className="heading-actions catalog-actions">
               <button className="secondary" onClick={() => setCatalogFormOpen(open => open === 'variant' ? null : 'variant')} disabled={selectedProduct.status !== 'Active'}><Plus size={16} /> Add SKU variant</button>
-              <button className="primary" onClick={() => setCatalogFormOpen(open => open === 'listing' ? null : 'listing')} disabled={selectedProduct.status !== 'Active'}><Plus size={16} /> Add marketplace SKU</button>
+              <button className="primary" onClick={() => {
+                setCatalogPlatform('')
+                setCatalogPlatformSearch('')
+                setCatalogFormOpen(open => open === 'listing' ? null : 'listing')
+              }} disabled={selectedProduct.status !== 'Active'}><Plus size={16} /> Add marketplace SKU</button>
             </div>
           </div>
           <div className="table-card">
