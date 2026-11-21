@@ -281,6 +281,19 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       createdAt: text(row['Created At']),
     }]
   })
+  marketplaceListings.forEach(listing => {
+    const listingRow = optionalRecords(data, 'Marketplace_Listings').find(row =>
+      text(row['Listing ID']).toLowerCase() === listing.id.toLowerCase() ||
+      (text(row.Platform).toLowerCase() === listing.platform.toLowerCase()
+        && text(row['Platform SKU']).toLowerCase() === listing.platformSku.toLowerCase())
+    )
+    const listingMrp = listingRow ? number(listingRow.MRP) : 0
+    if (!listingMrp) return
+    const matched = products.find(item => item.sku.toLowerCase() === listing.productSku.toLowerCase())
+    if (matched && matched.mrp === 0) matched.mrp = listingMrp
+    const master = products.find(item => !item.isVariant && item.sku.toLowerCase() === listing.masterSku.toLowerCase())
+    if (master && master.mrp === 0) master.mrp = listingMrp
+  })
 
   return {
     products: user.role === 'Production Supervisor' || user.role === 'Super Admin' ? products : products.filter(item => item.status === 'Active'),

@@ -719,6 +719,30 @@
           target.sheet.getRange(startRow, 1, values.length, target.headers.length).setValues(values)
         }
 
+        function updateImportRows(target, rows, keyColumn) {
+          if (!rows.length || target.sheet.getLastRow() < 2) return 0
+          const keyIndex = target.headers.indexOf(keyColumn)
+          if (keyIndex < 0) return 0
+          const values = target.sheet.getRange(2, 1, target.sheet.getLastRow() - 1, target.headers.length).getValues()
+          let updated = 0
+          rows.forEach(function (record) {
+            const key = keyOf(record[keyColumn])
+            if (!key) return
+            for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
+              if (keyOf(values[rowIndex][keyIndex]) !== key) continue
+              target.headers.forEach(function (header, columnIndex) {
+                if (record[header] !== undefined && record[header] !== '') {
+                  values[rowIndex][columnIndex] = safeCellValue_(record[header])
+                }
+              })
+              updated += 1
+              break
+            }
+          })
+          if (updated) target.sheet.getRange(2, 1, values.length, target.headers.length).setValues(values)
+          return updated
+        }
+
         const inputProducts = rowsFor('products', 'Products', 5000)
         const inputVariants = rowsFor('variants', 'SKU variants', 10000)
         const inputListings = rowsFor('listings', 'Marketplace listings', 10000)
@@ -760,6 +784,10 @@
         const addedProducts = []
         const addedVariants = []
         const addedListings = []
+        const updatedProducts = []
+        const updatedVariants = []
+        const updatedListings = []
+        const skuMrpUpdates = new Map()
         const skipped = { products: 0, variants: 0, listings: 0 }
         const seenProductSkus = new Set()
         const seenProductIds = new Set()
@@ -772,10 +800,6 @@
           const idKey = keyOf(productId)
           if (seenProductSkus.has(skuKey)) throw apiError_(409, 'Duplicate product Master SKU in import: ' + masterSku)
           seenProductSkus.add(skuKey)
-          if (productSkuToMaster.has(skuKey)) {
-            skipped.products += 1
-            return
-          }
           if (seenProductIds.has(idKey) || (productIds.has(idKey) && productIds.get(idKey) !== skuKey)) {
             throw apiError_(409, 'Product ID conflicts with an existing product: ' + productId)
           }
@@ -785,16 +809,23 @@
             'Master SKU': masterSku,
             'Product Title': title,
             Category: importText(row, 'Category', 160),
-            MRP: importAmount(row.MRP, label + ' MRP'),
+            MRP: importAmount(row.MRP !== undefined ? row.MRP : (row['MRP (INR)'] !== undefined ? row['MRP (INR)'] : row['List Price']), label + ' MRP'),
             Status: importText(row, 'Status', 40) || 'Active',
             'Created Date': importText(row, 'Created Date', 100),
             'Updated Date': importText(row, 'Updated Date', 100),
             ASIN: importText(row, 'ASIN', 100),
             'Shopify Product ID': importText(row, 'Shopify Product ID', 100),
           }
+          if (productSkuToMaster.has(skuKey)) {
+            updatedProducts.push(record)
+            skipped.products += 1
+            if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
+            return
+          }
           addedProducts.push(record)
           productSkuToMaster.set(skuKey, masterSku)
           productIds.set(idKey, skuKey)
+          if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
         })
 
         const seenVariantSkus = new Set()
@@ -812,11 +843,6 @@
           if (productSkuToMaster.has(skuKey)) throw apiError_(409, 'Variant SKU conflicts with an existing master SKU: ' + variantSku)
           if (!productSkuToMaster.has(masterKey)) throw apiError_(422, 'Variant ' + variantSku + ' references a missing master product.')
           if (keyOf(productSkuToMaster.get(masterKey)) !== masterKey) throw apiError_(422, 'Variant ' + variantSku + ' references an inconsistent master SKU.')
-          if (variantSkuToMaster.has(skuKey)) {
-            if (keyOf(variantSkuToMaster.get(skuKey)) !== masterKey) throw apiError_(409, 'Existing variant SKU is linked to a different master: ' + variantSku)
-            skipped.variants += 1
-            return
-          }
           if (seenVariantIds.has(idKey) || (variantIds.has(idKey) && variantIds.get(idKey) !== skuKey)) {
             throw apiError_(409, 'Variant ID conflicts with an existing SKU: ' + variantId)
           }
@@ -834,7 +860,7 @@
             Size: importText(row, 'Size', 60),
             Color: importText(row, 'Color', 100),
             'Pack Quantity': packQuantity,
-            MRP: importAmount(row.MRP, label + ' MRP'),
+            MRP: importAmount(row.MRP !== undefined ? row.MRP : (row['MRP (INR)'] !== undefined ? row['MRP (INR)'] : row['List Price']), label + ' MRP'),
             'Selling Price': importAmount(row['Selling Price'], label + ' Selling Price'),
             Status: importText(row, 'Status', 40) || 'Active',
             'Variant Title': importText(row, 'Variant Title', 200),
@@ -842,9 +868,17 @@
             'Shopify Variant ID': importText(row, 'Shopify Variant ID', 100),
             'Shopify Inventory': importAmount(row['Shopify Inventory'], label + ' Shopify Inventory'),
           }
+          if (variantSkuToMaster.has(skuKey)) {
+            if (keyOf(variantSkuToMaster.get(skuKey)) !== masterKey) throw apiError_(409, 'Existing variant SKU is linked to a different master: ' + variantSku)
+            updatedVariants.push(record)
+            skipped.variants += 1
+            if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
+            return
+          }
           addedVariants.push(record)
           variantSkuToMaster.set(skuKey, masterSku)
           variantIds.set(idKey, skuKey)
+          if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
         })
 
         const seenListingSkus = new Set()
@@ -875,10 +909,6 @@
           if (existingIdPlatform !== undefined && existingIdPlatform !== listingKey) {
             throw apiError_(409, 'Listing ID conflicts with an existing marketplace SKU: ' + listingId)
           }
-          if (existingSkuId !== undefined || existingIdPlatform === listingKey) {
-            skipped.listings += 1
-            return
-          }
           const status = importText(row, 'Status', 40) || 'Active'
           const record = {
             'Listing ID': listingId,
@@ -890,7 +920,7 @@
             ASIN: importText(row, 'ASIN', 100),
             'Amazon Listing ID': importText(row, 'Amazon Listing ID', 100),
             'Selling Price': importAmount(row['Selling Price'], label + ' Selling Price'),
-            MRP: importAmount(row.MRP, label + ' MRP'),
+            MRP: importAmount(row.MRP !== undefined ? row.MRP : (row['MRP (INR)'] !== undefined ? row['MRP (INR)'] : row['List Price']), label + ' MRP'),
             'Fulfillment Channel': importText(row, 'Fulfillment Channel', 100),
             Status: status,
             'Variant Title': importText(row, 'Variant Title', 200),
@@ -900,9 +930,22 @@
             'Created By': String(payload.createdBy || ''),
             'Created At': new Date().toISOString(),
           }
+          if (existingSkuId !== undefined || existingIdPlatform === listingKey) {
+            updatedListings.push(record)
+            skipped.listings += 1
+            if (record.MRP !== '') {
+              skuMrpUpdates.set(productKey, record.MRP)
+              if (linkedMaster) skuMrpUpdates.set(keyOf(linkedMaster), record.MRP)
+            }
+            return
+          }
           addedListings.push(record)
           listingSkuToId.set(listingKey, idKey)
           listingIds.set(idKey, listingKey)
+          if (record.MRP !== '') {
+            skuMrpUpdates.set(productKey, record.MRP)
+            if (linkedMaster) skuMrpUpdates.set(keyOf(linkedMaster), record.MRP)
+          }
         })
 
         const totals = {
@@ -910,16 +953,32 @@
           skipped: skipped,
           backupName: '',
         }
-        if (!addedProducts.length && !addedVariants.length && !addedListings.length) return totals
+        if (!addedProducts.length && !addedVariants.length && !addedListings.length
+          && !updatedProducts.length && !updatedVariants.length && !updatedListings.length) return totals
 
         const backupState = { created: false, backupName: '' }
         createBackupOnce_(spreadsheet, backupState)
         const productTarget = ensureStockSheet_(spreadsheet, 'Products', productHeaders, backupState)
         const variantTarget = ensureStockSheet_(spreadsheet, 'SKU_Variants', variantHeaders, backupState)
         const listingTarget = ensureStockSheet_(spreadsheet, 'Marketplace_Listings', listingHeaders, backupState)
+        currentProducts.forEach(function (row) {
+          const sku = String(row['Master SKU'] || '').trim()
+          if (sku && skuMrpUpdates.has(keyOf(sku))) {
+            updatedProducts.push({ 'Master SKU': sku, MRP: skuMrpUpdates.get(keyOf(sku)) })
+          }
+        })
+        currentVariants.forEach(function (row) {
+          const sku = String(row['Variant SKU'] || '').trim()
+          if (sku && skuMrpUpdates.has(keyOf(sku))) {
+            updatedVariants.push({ 'Variant SKU': sku, MRP: skuMrpUpdates.get(keyOf(sku)) })
+          }
+        })
         appendImportRows(productTarget, addedProducts)
         appendImportRows(variantTarget, addedVariants)
         appendImportRows(listingTarget, addedListings)
+        updateImportRows(productTarget, updatedProducts, 'Master SKU')
+        updateImportRows(variantTarget, updatedVariants, 'Variant SKU')
+        updateImportRows(listingTarget, updatedListings, 'Listing ID')
         SpreadsheetApp.flush()
         totals.backupName = backupState.backupName
         return totals
