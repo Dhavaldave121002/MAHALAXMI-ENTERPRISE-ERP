@@ -74,6 +74,13 @@ const deliveryPartnersByChannel: Record<string, string[]> = {
   SHOPIFY: ['SHOPIFY DELIVERY', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   MYNTRA: ['MYNTRA DELIVERY', 'SHREE ANJI COURIER', 'DELIVERY APP'],
 }
+const deliveryMarketplacePlatforms: Record<string, string[]> = {
+  AMAZON: ['AMAZON', 'AMAZON.IN', 'AMAZON.COM'],
+  FLIPKART: ['FLIPKART'],
+  MEESHO: ['MEESHO'],
+  SHOPIFY: ['SHOPIFY'],
+  MYNTRA: ['MYNTRA'],
+}
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   Dashboard: LayoutDashboard, Production: Factory, Stitching: ClipboardCheck, 'Raw Material': Boxes,
@@ -1103,9 +1110,18 @@ function ModuleView(props: {
     const isShipping = module === 'Shipping & Delivery'
     const relevantTypes = isShipping ? ['Dispatch'] : ['Return', 'Damage']
     const relevantMovements = stockMovements.filter(movement => movement.itemType === 'Finished Goods' && relevantTypes.includes(movement.type))
+    const channelPlatforms = deliveryMarketplacePlatforms[deliveryChannel] || []
+    const channelProductSkus = new Set(marketplaceListings
+      .filter(listing =>
+        channelPlatforms.includes(listing.platform.trim().toUpperCase()) &&
+        listing.status.toLowerCase() === 'active'
+      )
+      .map(listing => listing.productSku.toLowerCase()))
     const deliveryVariantMasters = new Set(products.filter(product => product.isVariant && product.status === 'Active').map(product => product.masterSku.toLowerCase()))
     const deliveryProducts = products.filter(product =>
-      product.status === 'Active' && (product.isVariant || !deliveryVariantMasters.has(product.sku.toLowerCase()))
+      product.status === 'Active' &&
+      channelProductSkus.has(product.sku.toLowerCase()) &&
+      (product.isVariant || !deliveryVariantMasters.has(product.sku.toLowerCase()))
     )
     const selectedDeliveryProduct = deliveryProducts.find(product => product.sku === deliverySku)
     const deliveryPartnerReady = Boolean(deliveryPartnerChoice && (deliveryPartnerChoice !== 'Other' || customDeliveryPartner.trim()))
@@ -1119,6 +1135,7 @@ function ModuleView(props: {
               setDeliveryChannel(event.target.value)
               setDeliveryPartnerChoice('')
               setCustomDeliveryPartner('')
+              setDeliverySku('')
             }}>
               <option value="">Select platform first</option>
               {deliveryChannels.map(channel => <option key={channel} value={channel}>{channel}</option>)}
@@ -1131,7 +1148,7 @@ function ModuleView(props: {
             {deliveryPartnerChoice === 'Other' && <label>Partner name<input name="customDeliveryPartner" required maxLength={100} value={customDeliveryPartner} onChange={event => setCustomDeliveryPartner(event.target.value)} placeholder="Enter delivery partner name" /></label>}
             {deliveryPartnerReady && <>
             <label>Product SKU<select name="sku" required value={deliverySku} onChange={event => setDeliverySku(event.target.value)} disabled={deliveryProducts.length === 0}>
-              <option value="">{deliveryProducts.length ? 'Select product / SKU' : 'No active SKUs available'}</option>
+              <option value="">{deliveryProducts.length ? 'Select platform SKU' : 'No active SKUs for this platform'}</option>
               {deliveryProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku} · Available {product.stock}</option>)}
             </select></label>
             {selectedDeliveryProduct && <div className="delivery-stock"><span>Available stock</span><strong>{selectedDeliveryProduct.stock.toLocaleString('en-IN')} units</strong></div>}
@@ -1142,7 +1159,7 @@ function ModuleView(props: {
           </div>
           {deliveryPartnerReady && <button className="primary wide" type="submit" disabled={!canManageInventory || deliveryProducts.length === 0}>Save delivery and dispatch stock</button>}
           {!canManageInventory && <p className="local-storage-note">Only the Super Admin or Production Supervisor can record deliveries.</p>}
-          {canManageInventory && deliveryProducts.length === 0 && <p className="local-storage-note">Add an active SKU in Product Catalog before recording a delivery.</p>}
+          {canManageInventory && deliveryPartnerReady && deliveryProducts.length === 0 && <p className="local-storage-note">Add an active {deliveryChannel} marketplace listing in Product Catalog before recording a delivery for this platform.</p>}
         </form> : renderMovementForm('finished', 'Record return or damage', relevantTypes, relevantTypes[0])}
         <div className="table-card entries-table inventory-table"><MovementTable movements={relevantMovements} showDeliveryDetails={isShipping} /></div>
       </section>
