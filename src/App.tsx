@@ -226,6 +226,7 @@ export default function App() {
   const isAdminRoute = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/')
   const [module, setModule] = useState<Module>('Dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [clock, setClock] = useState(new Date())
   const [sessionUser, setSessionUser] = useState<UserAccount | null>(null)
@@ -281,6 +282,14 @@ export default function App() {
     const timer = window.setInterval(() => setClock(new Date()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMenuOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [mobileMenuOpen])
   useEffect(() => {
     let active = true
     const initializeAuthentication = async () => {
@@ -773,27 +782,33 @@ export default function App() {
           <div className="brand-mark">M</div>
           {sidebarOpen && <div><strong>Mahalaxmi</strong><span>ENTERPRISE ERP</span></div>}
         </div>
-        <nav>
+        <nav id="primary-navigation" aria-label="Primary navigation" className={mobileMenuOpen ? 'mobile-nav-open' : ''}>
           {navSections.map(section => {
             const items = section.items.filter(item => roleModules[sessionUser.role].includes(item))
             if (!items.length) return null
             return (
               <div className="nav-section" key={section.label}>
-                {sidebarOpen && <div className="nav-label">{section.label}</div>}
+                {(sidebarOpen || mobileMenuOpen) && <div className="nav-label">{section.label}</div>}
                 {items.map(item => {
                   const Icon = moduleIcons[item] || Package
-                  return <button key={item} className={module === item ? 'nav-item active' : 'nav-item'} onClick={() => setModule(item)}><Icon size={19} /><span>{item}</span></button>
+                  return <button key={item} className={module === item ? 'nav-item active' : 'nav-item'} aria-current={module === item ? 'page' : undefined} onClick={() => { setModule(item); setMobileMenuOpen(false) }}><Icon size={19} /><span>{item}</span></button>
                 })}
               </div>
             )
           })}
         </nav>
+        <button className="mobile-menu-toggle" type="button" aria-controls="primary-navigation" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen(open => !open)}>
+          <Menu size={20} />
+          <span>{mobileMenuOpen ? 'Close menu' : 'Menu'}</span>
+          <strong>{module}</strong>
+        </button>
         <div className="sidebar-user">
           <div className="avatar">{sessionUser.name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()}</div>
           {sidebarOpen && <div className="user-copy"><strong>{sessionUser.name}</strong><span>{sessionUser.role}</span></div>}
           {sidebarOpen && <button className="row-menu" onClick={logout} title="Sign out"><LogOut size={17} /></button>}
         </div>
       </aside>
+      {mobileMenuOpen && <button className="mobile-menu-backdrop" type="button" aria-label="Close navigation menu" onClick={() => setMobileMenuOpen(false)} />}
 
       <main>
         <header className="topbar">
