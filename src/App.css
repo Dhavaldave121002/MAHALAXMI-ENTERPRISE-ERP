@@ -143,7 +143,8 @@ main { min-width: 0; }.topbar { height: 72px; background: #fff; border-bottom: 1
 .ecommerce-platform-tabs button{min-height:36px;border:1px solid #e3e8ef;border-radius:18px;background:#fff;color:#667085;padding:0 14px;font-size:11px;font-weight:700;white-space:nowrap}
 .ecommerce-platform-tabs button.active{border-color:#485bd5;background:#eef2ff;color:#4058d7}
 .ecommerce-stock-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
-.ecommerce-workspace>.ecommerce-stock-summary{grid-template-columns:repeat(5,minmax(0,1fr))}
+.ecommerce-workspace>.ecommerce-stock-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
+.ecommerce-target-progress{grid-template-columns:repeat(2,minmax(0,1fr));margin:14px 0}
 .ecommerce-table-wrap{width:100%;overflow-x:auto}
 .ecommerce-table-wrap table{min-width:760px}
 .ecommerce-section .panel-heading{height:auto;min-height:64px;padding:12px 16px}
@@ -187,13 +188,14 @@ main { min-width: 0; }.topbar { height: 72px; background: #fff; border-bottom: 1
 .ecommerce-admin-reports-heading span{color:#8b95a7;font-size:9px}
 .ecommerce-admin-dashboard .ecommerce-table-wrap table{min-width:880px}
 .ecommerce-target-settings{margin:12px 0;border-top:1px solid #edf1f6}
-.ecommerce-target-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:0 14px}
+.ecommerce-target-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;padding:0 14px}
 .ecommerce-target-form{display:grid;align-content:start;gap:8px;padding:12px;border:1px solid #e8edf4;border-radius:8px;background:#fff}
 .ecommerce-target-form>strong{color:#263147;font-size:10px}
+.ecommerce-target-platforms{color:#8b95a7;font-size:9px;line-height:1.4}
 .ecommerce-target-form label{display:grid;gap:4px;color:#697386;font-size:9px;font-weight:700}
 .ecommerce-target-form input{width:100%;height:34px;border:1px solid #e3e8ef;border-radius:6px;padding:0 8px;color:#263147;font-size:11px}
 .ecommerce-target-form button{justify-self:start;min-height:32px;padding:0 10px;font-size:10px}
 .ecommerce-target-settings>.ecommerce-feedback{margin:8px 14px}
 .ecommerce-admin-dashboard button:focus-visible,.ecommerce-admin-dashboard input:focus-visible{outline:2px solid #5369d8;outline-offset:2px}
-@media(max-width:900px){.ecommerce-target-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.ecommerce-workspace>.ecommerce-stock-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:760px){.ecommerce-month-heading{align-items:flex-start;flex-direction:column}.ecommerce-month-actions{width:100%;align-items:end;justify-content:space-between;flex-wrap:wrap}.ecommerce-admin-dashboard>.ecommerce-stock-summary{padding-inline:8px}.ecommerce-target-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.ecommerce-target-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ecommerce-workspace>.ecommerce-stock-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.ecommerce-month-heading{align-items:flex-start;flex-direction:column}.ecommerce-month-actions{width:100%;align-items:end;justify-content:space-between;flex-wrap:wrap}.ecommerce-admin-dashboard>.ecommerce-stock-summary{padding-inline:8px}.ecommerce-target-grid{grid-template-columns:1fr}}

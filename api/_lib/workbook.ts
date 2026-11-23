@@ -9,6 +9,18 @@ const USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password
 
 export type UserRole = typeof USER_ROLES[number]
 export type EcommercePlatform = typeof ECOMMERCE_PLATFORMS[number]
+export type EcommerceExecutiveTarget = {
+  executiveId: string
+  executiveName: string
+  platforms: EcommercePlatform[]
+  dailyTarget: number
+  monthlyTarget: number
+}
+export type EcommerceTargetSettings = {
+  dailyTarget?: number
+  monthlyTarget?: number
+  executives?: EcommerceExecutiveTarget[]
+}
 export type WorkbookUser = {
   id: string
   name: string
@@ -223,17 +235,18 @@ export async function listWorkbookEcommerceLabels(user: SessionBoundInput, platf
 }
 
 export async function listWorkbookEcommerceTargets(user: SessionBoundInput) {
-  return callAppsScript<{ targets: Partial<Record<EcommercePlatform, number>> }>(
+  return callAppsScript<{ targets: EcommerceTargetSettings }>(
     'getEcommerceTargets',
     sessionBoundPayload(user),
   )
 }
 
 export async function setWorkbookEcommerceTarget(input: SessionBoundInput & {
-  platform: EcommercePlatform
-  target: number
+  executiveId: string
+  dailyTarget: number
+  monthlyTarget: number
 }) {
-  return callAppsScript<{ platform: EcommercePlatform; target: number }>(
+  return callAppsScript<{ executiveId: string; dailyTarget: number; monthlyTarget: number }>(
     'setEcommerceTarget',
     { ...input, ...sessionBoundPayload(input) },
   )

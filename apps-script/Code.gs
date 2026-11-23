@@ -5,7 +5,8 @@
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
-    const ERP_ECOMMERCE_TARGET_PROPERTY_PREFIX = 'ERP_ECOMMERCE_DAILY_TARGET_'
+    const ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_DAILY_TARGET_'
+    const ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_'
     const ERP_WORKBOOK_CACHE_SECONDS = 10
     const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
@@ -126,9 +127,9 @@
         case 'listEcommerceReports':
           return listEcommerceReports_(spreadsheet, payload)
         case 'getEcommerceTargets':
-          return getEcommerceTargets_(payload)
+          return getEcommerceTargets_(spreadsheet, payload)
         case 'setEcommerceTarget':
-          return setEcommerceTarget_(payload)
+          return setEcommerceTarget_(spreadsheet, payload)
         case 'appendRecord':
           return appendRecord_(spreadsheet, payload)
         case 'addMarketplaceListing':
@@ -1133,41 +1134,76 @@
       return { reports: reports }
     }
 
-    function getEcommerceTargets_(payload) {
-      const role = String(payload.sessionUserRole || '')
-      if (['E-commerce Executive', 'Production Supervisor', 'Super Admin'].indexOf(role) < 0) {
-        throw apiError_(403, 'This account cannot view e-commerce targets.')
+    function ecommerceExecutiveTarget_(properties, executiveId) {
+      const dailyValue = properties.getProperty(ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX + executiveId)
+      const monthlyValue = properties.getProperty(ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX + executiveId)
+      const dailyTarget = dailyValue === null ? 0 : Number(dailyValue)
+      const monthlyTarget = monthlyValue === null ? 0 : Number(monthlyValue)
+      if (!Number.isInteger(dailyTarget) || dailyTarget < 0 || dailyTarget > 100000 ||
+          !Number.isInteger(monthlyTarget) || monthlyTarget < 0 || monthlyTarget > 100000) {
+        throw apiError_(500, 'The saved order target for this executive is invalid.')
       }
-      const assignedPlatforms = Array.isArray(payload.sessionUserPlatforms) ? payload.sessionUserPlatforms : []
-      const platforms = role === 'E-commerce Executive'
-        ? assignedPlatforms.filter(function (platform) { return ERP_ECOMMERCE_PLATFORMS.indexOf(platform) >= 0 })
-        : ERP_ECOMMERCE_PLATFORMS
-      const properties = PropertiesService.getScriptProperties()
-      const targets = {}
-      platforms.forEach(function (platform) {
-        const stored = properties.getProperty(ERP_ECOMMERCE_TARGET_PROPERTY_PREFIX + platform)
-        const target = stored === null ? 0 : Number(stored)
-        if (!Number.isInteger(target) || target < 0 || target > 100000) {
-          throw apiError_(500, 'The saved daily target for ' + platform + ' is invalid.')
-        }
-        targets[platform] = target
-      })
-      return { targets: targets }
+      return { dailyTarget: dailyTarget, monthlyTarget: monthlyTarget }
     }
 
-    function setEcommerceTarget_(payload) {
-      if (payload.sessionUserRole !== 'Super Admin') {
-        throw apiError_(403, 'Only the Super Admin can set marketplace daily targets.')
+    function getEcommerceTargets_(spreadsheet, payload) {
+      const role = String(payload.sessionUserRole || '')
+      if (role !== 'E-commerce Executive' && role !== 'Super Admin') {
+        throw apiError_(403, 'This account cannot view e-commerce targets.')
       }
-      const platform = String(payload.platform || '').trim().toUpperCase()
-      const target = payload.target
-      if (ERP_ECOMMERCE_PLATFORMS.indexOf(platform) < 0) throw apiError_(400, 'Choose a valid marketplace platform.')
-      if (typeof target !== 'number' || !Number.isInteger(target) || target < 0 || target > 100000) {
-        throw apiError_(400, 'Daily order target must be a whole number from 0 to 100,000.')
+      const properties = PropertiesService.getScriptProperties()
+      if (role === 'E-commerce Executive') {
+        const executiveId = String(payload.sessionUserId || '').trim()
+        if (!/^[A-Za-z0-9_-]{1,120}$/.test(executiveId)) throw apiError_(401, 'Sign in again before viewing targets.')
+        return { targets: ecommerceExecutiveTarget_(properties, executiveId) }
+      }
+
+      const executives = readSheetRecords_(spreadsheet, 'Users').filter(function (row) {
+        const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+        return active && String(row.Role || '').trim() === 'E-commerce Executive'
+      }).map(function (row) {
+        const executiveId = String(row['User ID'] || '').trim()
+        const target = ecommerceExecutiveTarget_(properties, executiveId)
+        const platforms = String(row['Assigned Platforms'] || '').split(',').map(function (platform) {
+          return platform.trim().toUpperCase()
+        }).filter(function (platform) {
+          return ERP_ECOMMERCE_PLATFORMS.indexOf(platform) >= 0
+        })
+        return {
+          executiveId: executiveId,
+          executiveName: String(row.Name || '').trim(),
+          platforms: platforms,
+          dailyTarget: target.dailyTarget,
+          monthlyTarget: target.monthlyTarget,
+        }
+      })
+      return { targets: { executives: executives } }
+    }
+
+    function setEcommerceTarget_(spreadsheet, payload) {
+      if (payload.sessionUserRole !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can set executive order targets.')
+      }
+      const executiveId = String(payload.executiveId || '').trim()
+      const dailyTarget = payload.dailyTarget
+      const monthlyTarget = payload.monthlyTarget
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(executiveId)) throw apiError_(400, 'Choose a valid E-commerce Executive account.')
+      const executive = readSheetRecords_(spreadsheet, 'Users').find(function (row) {
+        const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+        return active && String(row['User ID'] || '').trim() === executiveId &&
+          String(row.Role || '').trim() === 'E-commerce Executive'
+      })
+      if (!executive) throw apiError_(404, 'The selected active E-commerce Executive account was not found.')
+      if (typeof dailyTarget !== 'number' || !Number.isInteger(dailyTarget) || dailyTarget < 0 || dailyTarget > 100000 ||
+          typeof monthlyTarget !== 'number' || !Number.isInteger(monthlyTarget) || monthlyTarget < 0 || monthlyTarget > 100000) {
+        throw apiError_(400, 'Daily and monthly order targets must be whole numbers from 0 to 100,000.')
       }
       return withWriteLock_(function () {
-        PropertiesService.getScriptProperties().setProperty(ERP_ECOMMERCE_TARGET_PROPERTY_PREFIX + platform, String(target))
-        return { platform: platform, target: target }
+        const properties = {}
+        properties[ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX + executiveId] = String(dailyTarget)
+        properties[ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX + executiveId] = String(monthlyTarget)
+        PropertiesService.getScriptProperties().setProperties(properties, false)
+        return { executiveId: executiveId, dailyTarget: dailyTarget, monthlyTarget: monthlyTarget }
       })
     }
 

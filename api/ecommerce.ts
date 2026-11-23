@@ -129,10 +129,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     requireWorkspaceRole(user)
 
     if (request.method === 'GET') {
+      const targetRequest = user.role === 'Super Admin' || user.role === 'E-commerce Executive'
+        ? listWorkbookEcommerceTargets(user)
+        : Promise.resolve({ targets: {} })
       const [data, labelResult, targetResult] = await Promise.all([
         getWorkbookData(),
         listWorkbookEcommerceLabels(user),
-        listWorkbookEcommerceTargets(user),
+        targetRequest,
       ])
       sendJson(response, 200, { ...workspaceData(data, user), labels: labelResult.labels, targets: targetResult.targets })
       return
@@ -140,18 +143,22 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     const body = await readJsonBody(request)
     const action = text(body.action)
-    const platform = requirePlatform(body.platform)
-    requirePlatformAccess(user, platform)
 
     if (action === 'setTarget') {
-      if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can set marketplace daily targets.')
-      if (typeof body.target !== 'number' || !Number.isInteger(body.target) || body.target < 0 || body.target > 100000) {
-        throw new ApiError(400, 'Daily order target must be a whole number from 0 to 100,000.')
+      if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can set executive order targets.')
+      const executiveId = requireText(body.executiveId, 'E-commerce Executive account', 120)
+      const { dailyTarget, monthlyTarget } = body
+      if (typeof dailyTarget !== 'number' || !Number.isInteger(dailyTarget) || dailyTarget < 0 || dailyTarget > 100000 ||
+          typeof monthlyTarget !== 'number' || !Number.isInteger(monthlyTarget) || monthlyTarget < 0 || monthlyTarget > 100000) {
+        throw new ApiError(400, 'Daily and monthly order targets must be whole numbers from 0 to 100,000.')
       }
-      const result = await setWorkbookEcommerceTarget({ id: user.id, role: user.role, platform, target: body.target })
+      const result = await setWorkbookEcommerceTarget({ id: user.id, role: user.role, executiveId, dailyTarget, monthlyTarget })
       sendJson(response, 200, result)
       return
     }
+
+    const platform = requirePlatform(body.platform)
+    requirePlatformAccess(user, platform)
 
     if (action === 'updateSku') {
       if (user.role !== 'E-commerce Executive' && user.role !== 'Super Admin') {

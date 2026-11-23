@@ -43,9 +43,11 @@ type UserAccount = { id: string; name: string; username: string; role: Role; act
 type EcommerceListing = { id: string; platform: EcommercePlatform; platformSku: string; productSku: string; productName: string; availableStock: number; stockStatus: string; status: string }
 type EcommerceMovement = { id: string; date: string; platform: EcommercePlatform; orderNumber: string; type: string; sku: string; quantity: number; reason: string }
 type EcommerceLabel = { id: string; platform: EcommercePlatform; orderNumber: string; fileName: string; uploadedAt: string; uploadedBy: string }
-type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[]; targets: Partial<Record<EcommercePlatform, number>> }
+type EcommerceExecutiveTarget = { executiveId: string; executiveName: string; platforms: EcommercePlatform[]; dailyTarget: number; monthlyTarget: number }
+type EcommerceTargetData = { dailyTarget?: number; monthlyTarget?: number; executives?: EcommerceExecutiveTarget[] }
+type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[]; targets: EcommerceTargetData }
 type EcommerceDailyReport = { id: string; date: string; platform: EcommercePlatform; userName: string; completed: string; pending: string; issues: string; updatedAt: string }
-type EcommercePlatformSummary = { platform: EcommercePlatform; dailyTarget: number; monthlyTarget: number; achievementPercent: number | null; dispatchedOrders: number; dispatchedUnits: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
+type EcommercePlatformSummary = { platform: EcommercePlatform; dispatchedOrders: number; dispatchedUnits: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
@@ -155,10 +157,9 @@ function monthForTimestamp(value: string) {
   return `${part('year')}-${part('month')}`
 }
 
-function daysInMonth(month: string) {
-  const [year, monthNumber] = month.split('-').map(Number)
-  if (!Number.isInteger(year) || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) return 0
-  return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
+function dateForTimestamp(value: string) {
+  const date = new Date(value)
+  return value && !Number.isNaN(date.getTime()) ? indiaDateKey(date) : ''
 }
 
 function summarizeEcommercePlatform(
@@ -166,7 +167,6 @@ function summarizeEcommercePlatform(
   movements: EcommerceMovement[],
   reports: EcommerceDailyReport[],
   month: string,
-  dailyTarget = 0,
 ): EcommercePlatformSummary {
   const rows = movements.filter(item => item.platform === platform && monthForTimestamp(item.date) === month)
   const rowsOfType = (type: string) => rows.filter(item => item.type === type)
@@ -174,14 +174,9 @@ function summarizeEcommercePlatform(
   const dispatched = rowsOfType('Dispatch')
   const returned = rowsOfType('Return')
   const damaged = rowsOfType('Damage')
-  const dispatchedOrders = uniqueOrders(dispatched)
-  const monthlyTarget = dailyTarget * daysInMonth(month)
   return {
     platform,
-    dailyTarget,
-    monthlyTarget,
-    achievementPercent: monthlyTarget > 0 ? Math.round((dispatchedOrders / monthlyTarget) * 100) : null,
-    dispatchedOrders,
+    dispatchedOrders: uniqueOrders(dispatched),
     dispatchedUnits: dispatched.reduce((total, item) => total + item.quantity, 0),
     returnedOrders: uniqueOrders(returned),
     returnedUnits: returned.reduce((total, item) => total + item.quantity, 0),
@@ -189,6 +184,22 @@ function summarizeEcommercePlatform(
     damagedUnits: damaged.reduce((total, item) => total + item.quantity, 0),
     dailyReports: reports.filter(report => report.platform === platform && report.date.slice(0, 7) === month).length,
   }
+}
+
+function countAssignedDispatchedOrders(
+  movements: EcommerceMovement[],
+  platforms: EcommercePlatform[],
+  period: (movement: EcommerceMovement) => boolean,
+) {
+  const assignedPlatforms = new Set(platforms)
+  return new Set(movements
+    .filter(item => item.type === 'Dispatch' && assignedPlatforms.has(item.platform) && period(item))
+    .map(item => `${item.platform}:${item.orderNumber.trim().toLowerCase()}`)
+    .filter(order => !order.endsWith(':'))).size
+}
+
+function achievementPercent(actual: number, target: number) {
+  return target > 0 ? Math.round((actual / target) * 100) : null
 }
 
 function shiftDateKey(dateKey: string, days: number) {
@@ -2103,9 +2114,9 @@ function ModuleView(props: {
 function EcommerceMonthlyDashboard() {
   const [data, setData] = useState<EcommerceWorkspaceData | null>(null)
   const [reports, setReports] = useState<EcommerceDailyReport[]>([])
-  const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({})
+  const [targetDrafts, setTargetDrafts] = useState<Record<string, { daily: string; monthly: string }>>({})
   const [selectedMonth, setSelectedMonth] = useState(() => indiaMonthKey())
-  const [savingTarget, setSavingTarget] = useState<EcommercePlatform | null>(null)
+  const [savingTarget, setSavingTarget] = useState<string | null>(null)
   const [targetMessage, setTargetMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -2118,7 +2129,10 @@ function EcommerceMonthlyDashboard() {
     ]).then(([workspace, reportResult]) => {
       if (!active) return
       setData(workspace)
-      setTargetDrafts(Object.fromEntries(ecommercePlatforms.map(platform => [platform, String(workspace.targets[platform] ?? 0)])))
+      setTargetDrafts(Object.fromEntries((workspace.targets.executives || []).map(executive => [
+        executive.executiveId,
+        { daily: String(executive.dailyTarget), monthly: String(executive.monthlyTarget) },
+      ])))
       setReports(reportResult.reports)
       setError('')
     }).catch(requestError => {
@@ -2130,33 +2144,55 @@ function EcommerceMonthlyDashboard() {
   }, [])
 
   const summaries = ecommercePlatforms.map(platform =>
-    summarizeEcommercePlatform(platform, data?.movements || [], reports, selectedMonth, data?.targets[platform] ?? 0),
+    summarizeEcommercePlatform(platform, data?.movements || [], reports, selectedMonth),
   )
+  const executiveSummaries = (data?.targets.executives || []).map(executive => {
+    const ordersToday = countAssignedDispatchedOrders(data?.movements || [], executive.platforms, item => dateForTimestamp(item.date) === indiaDateKey())
+    const ordersThisMonth = countAssignedDispatchedOrders(data?.movements || [], executive.platforms, item => monthForTimestamp(item.date) === selectedMonth)
+    return {
+      ...executive,
+      ordersToday,
+      ordersThisMonth,
+      dailyAchievement: achievementPercent(ordersToday, executive.dailyTarget),
+      monthlyAchievement: achievementPercent(ordersThisMonth, executive.monthlyTarget),
+    }
+  })
   const monthlyReports = reports.filter(report => report.date.slice(0, 7) === selectedMonth)
   const orderCount = summaries.reduce((total, item) => total + item.dispatchedOrders, 0)
   const dispatchedUnits = summaries.reduce((total, item) => total + item.dispatchedUnits, 0)
   const returnedOrders = summaries.reduce((total, item) => total + item.returnedOrders, 0)
   const damagedUnits = summaries.reduce((total, item) => total + item.damagedUnits, 0)
 
-  const saveDailyTarget = async (platform: EcommercePlatform) => {
-    const rawTarget = targetDrafts[platform] ?? ''
-    const target = Number(rawTarget)
-    if (!rawTarget.trim() || !Number.isInteger(target) || target < 0 || target > 100000) {
-      setTargetMessage('Enter a whole-number daily target from 0 to 100,000.')
+  const saveExecutiveTarget = async (executive: EcommerceExecutiveTarget) => {
+    const draft = targetDrafts[executive.executiveId]
+    const dailyTarget = Number(draft?.daily ?? '')
+    const monthlyTarget = Number(draft?.monthly ?? '')
+    if (!draft?.daily.trim() || !draft.monthly.trim() ||
+        !Number.isInteger(dailyTarget) || dailyTarget < 0 || dailyTarget > 100000 ||
+        !Number.isInteger(monthlyTarget) || monthlyTarget < 0 || monthlyTarget > 100000) {
+      setTargetMessage('Enter whole-number daily and monthly targets from 0 to 100,000.')
       return
     }
-    setSavingTarget(platform)
+    setSavingTarget(executive.executiveId)
     setTargetMessage('')
     try {
-      const result = await apiFetch<{ platform: EcommercePlatform; target: number }>('/api/ecommerce', {
+      const result = await apiFetch<{ executiveId: string; dailyTarget: number; monthlyTarget: number }>('/api/ecommerce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'setTarget', platform, target }),
+        body: JSON.stringify({ action: 'setTarget', executiveId: executive.executiveId, dailyTarget, monthlyTarget }),
       })
-      setData(current => current ? { ...current, targets: { ...current.targets, [platform]: result.target } } : current)
-      setTargetMessage(`${platform} daily target saved.`)
+      setData(current => current ? {
+        ...current,
+        targets: {
+          ...current.targets,
+          executives: current.targets.executives?.map(item => item.executiveId === result.executiveId
+            ? { ...item, dailyTarget: result.dailyTarget, monthlyTarget: result.monthlyTarget }
+            : item),
+        },
+      } : current)
+      setTargetMessage(`${executive.executiveName} daily and monthly targets saved.`)
     } catch (requestError) {
-      setTargetMessage(requestError instanceof Error ? requestError.message : 'Daily target could not be saved.')
+      setTargetMessage(requestError instanceof Error ? requestError.message : 'Executive targets could not be saved.')
     } finally {
       setSavingTarget(null)
     }
@@ -2166,10 +2202,7 @@ function EcommerceMonthlyDashboard() {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaries.map(item => ({
       Platform: item.platform,
-      'Daily Order Target': item.dailyTarget,
-      'Monthly Order Target': item.monthlyTarget,
       'Orders Dispatched': item.dispatchedOrders,
-      'Target Achievement (%)': item.achievementPercent ?? '',
       'Units Dispatched': item.dispatchedUnits,
       'Return Orders': item.returnedOrders,
       'Return Units': item.returnedUnits,
@@ -2177,6 +2210,16 @@ function EcommerceMonthlyDashboard() {
       'Damaged Units': item.damagedUnits,
       'Daily Reports': item.dailyReports,
     }))), 'Platform Summary')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(executiveSummaries.map(item => ({
+      Executive: item.executiveName,
+      Platforms: item.platforms.join(', '),
+      'Daily Target': item.dailyTarget,
+      'Orders Today': item.ordersToday,
+      'Daily Achievement (%)': item.dailyAchievement ?? '',
+      'Monthly Target': item.monthlyTarget,
+      'Orders This Month': item.ordersThisMonth,
+      'Monthly Achievement (%)': item.monthlyAchievement ?? '',
+    }))), 'Executive Targets')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthlyReports.map(report => ({
       Date: report.date,
       Executive: report.userName,
@@ -2206,16 +2249,25 @@ function EcommerceMonthlyDashboard() {
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returned orders</span><strong>{returnedOrders}</strong><small>{selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon purple"><ClipboardCheck size={20} /></div><div className="stat-body"><span>Executive reports / damaged units</span><strong>{monthlyReports.length} / {damagedUnits.toLocaleString('en-IN')}</strong><small>{selectedMonth}</small></div></div>
         </div>
-        <section className="ecommerce-target-settings" aria-label="Daily marketplace order targets">
-          <div className="ecommerce-admin-reports-heading"><strong>Daily order targets</strong><span>Set the per-platform target; monthly target uses calendar days.</span></div>
-          <div className="ecommerce-target-grid">{ecommercePlatforms.map(platform => <form key={platform} className="ecommerce-target-form" onSubmit={event => { event.preventDefault(); void saveDailyTarget(platform) }}>
-            <strong>{platform}</strong>
-            <label>Orders / day (0 = no target)<input type="number" min="0" max="100000" step="1" value={targetDrafts[platform] ?? '0'} onChange={event => setTargetDrafts(current => ({ ...current, [platform]: event.target.value }))} /></label>
-            <button className="secondary" type="submit" disabled={savingTarget !== null}>{savingTarget === platform ? 'Saving…' : 'Save target'}</button>
-          </form>)}</div>
+        <section className="ecommerce-target-settings" aria-label="E-commerce Executive targets">
+          <div className="ecommerce-admin-reports-heading"><strong>Executive order targets</strong><span>Set daily and monthly targets per active account.</span></div>
+          <p className="ecommerce-metric-note">Actuals count unique dispatched order numbers from the ERP ledger across each executive’s assigned platforms. No marketplace API is used.</p>
+          {executiveSummaries.length === 0 ? <div className="empty-state"><Users size={22} /><strong>No active E-commerce Executive accounts</strong><span>Create an executive account and assign platforms to set targets.</span></div> : <>
+            <div className="ecommerce-target-grid">{executiveSummaries.map(executive => {
+              const draft = targetDrafts[executive.executiveId] || { daily: String(executive.dailyTarget), monthly: String(executive.monthlyTarget) }
+              return <form key={executive.executiveId} className="ecommerce-target-form" onSubmit={event => { event.preventDefault(); void saveExecutiveTarget(executive) }}>
+                <strong>{executive.executiveName}</strong>
+                <span className="ecommerce-target-platforms">{executive.platforms.length ? executive.platforms.join(' · ') : 'No platforms assigned'}</span>
+                <label>Orders per day<input type="number" min="0" max="100000" step="1" value={draft.daily} onChange={event => setTargetDrafts(current => ({ ...current, [executive.executiveId]: { ...(current[executive.executiveId] || draft), daily: event.target.value } }))} /></label>
+                <label>Orders per month<input type="number" min="0" max="100000" step="1" value={draft.monthly} onChange={event => setTargetDrafts(current => ({ ...current, [executive.executiveId]: { ...(current[executive.executiveId] || draft), monthly: event.target.value } }))} /></label>
+                <button className="secondary" type="submit" disabled={savingTarget !== null}>{savingTarget === executive.executiveId ? 'Saving…' : 'Save targets'}</button>
+              </form>
+            })}</div>
+            <div className="ecommerce-table-wrap"><table><thead><tr><th>Executive</th><th>Assigned platforms</th><th>Daily target</th><th>Orders today</th><th>Daily achievement</th><th>Monthly target</th><th>Orders this month</th><th>Monthly achievement</th></tr></thead><tbody>{executiveSummaries.map(executive => <tr key={executive.executiveId}><td><strong>{executive.executiveName}</strong></td><td>{executive.platforms.join(', ') || '—'}</td><td>{executive.dailyTarget}</td><td>{executive.ordersToday}</td><td>{executive.dailyAchievement === null ? '—' : `${executive.dailyAchievement}%`}</td><td>{executive.monthlyTarget}</td><td>{executive.ordersThisMonth}</td><td>{executive.monthlyAchievement === null ? '—' : `${executive.monthlyAchievement}%`}</td></tr>)}</tbody></table></div>
+          </>}
           <p className="ecommerce-feedback" role="status" aria-live="polite">{targetMessage}</p>
         </section>
-        <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Daily target</th><th>Monthly target</th><th>Orders dispatched</th><th>Target achievement</th><th>Units</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th><th>Daily reports</th></tr></thead><tbody>{summaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dailyTarget}</td><td>{summary.monthlyTarget.toLocaleString('en-IN')}</td><td>{summary.dispatchedOrders}</td><td>{summary.achievementPercent === null ? '—' : `${summary.achievementPercent}%`}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td><td>{summary.dailyReports}</td></tr>)}</tbody></table></div>
+        <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th><th>Daily reports</th></tr></thead><tbody>{summaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td><td>{summary.dailyReports}</td></tr>)}</tbody></table></div>
         <div className="ecommerce-admin-reports">
           <div className="ecommerce-admin-reports-heading"><strong>{selectedMonth} executive daily reports</strong><span>{monthlyReports.length} submissions</span></div>
           {monthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No reports submitted this month</strong></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead><tbody>{monthlyReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
@@ -2270,9 +2322,16 @@ function EcommerceWorkspace({
   const uniqueStock = new Map(listings.map(listing => [listing.productSku.toLowerCase(), listing.availableStock]))
   const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
   const monthlySummaries = (data?.platforms || []).map(platform =>
-    summarizeEcommercePlatform(platform, data?.movements || [], [], selectedMonth, data?.targets[platform] ?? 0),
+    summarizeEcommercePlatform(platform, data?.movements || [], [], selectedMonth),
   )
   const selectedSummary = monthlySummaries.find(summary => summary.platform === selectedPlatform)
+  const todayKey = indiaDateKey()
+  const dailyTarget = data?.targets.dailyTarget ?? 0
+  const monthlyTarget = data?.targets.monthlyTarget ?? 0
+  const ordersToday = countAssignedDispatchedOrders(data?.movements || [], data?.platforms || [], item => dateForTimestamp(item.date) === todayKey)
+  const ordersThisMonth = countAssignedDispatchedOrders(data?.movements || [], data?.platforms || [], item => monthForTimestamp(item.date) === selectedMonth)
+  const dailyAchievement = achievementPercent(ordersToday, dailyTarget)
+  const monthlyAchievement = achievementPercent(ordersThisMonth, monthlyTarget)
   const page = module === 'E-commerce Workspace'
     ? user.role === 'E-commerce Executive' ? 'overview' : 'all'
     : module === 'E-commerce Stock' ? 'stock'
@@ -2428,15 +2487,18 @@ function EcommerceWorkspace({
           </div>
           <div className="ecommerce-platform-tags">{data.platforms.map(platform => <span className="ecommerce-platform-tag" key={platform}>{platform}</span>)}</div>
           <p className="ecommerce-metric-note">Dispatched orders are counted by unique order number; the ledger does not track delivery confirmation.</p>
-          <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Daily target</th><th>Monthly target</th><th>Orders dispatched</th><th>Target achievement</th><th>Units dispatched</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dailyTarget}</td><td>{summary.monthlyTarget.toLocaleString('en-IN')}</td><td>{summary.dispatchedOrders}</td><td>{summary.achievementPercent === null ? '—' : `${summary.achievementPercent}%`}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td></tr>)}</tbody></table></div>
+          <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units dispatched</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td></tr>)}</tbody></table></div>
         </section>}
+        {showOverview && user.role === 'E-commerce Executive' && <div className="stats-grid ecommerce-target-progress">
+          <div className="stat-card"><div className="stat-icon blue"><Target size={20} /></div><div className="stat-body"><span>Today · dispatched orders / daily target</span><strong>{ordersToday} / {dailyTarget || '—'}</strong><small>{dailyAchievement === null ? 'Daily target not set' : `${dailyAchievement}% of daily target`}</small></div></div>
+          <div className="stat-card"><div className="stat-icon green"><BarChart3 size={20} /></div><div className="stat-body"><span>{selectedMonth} · orders / monthly target</span><strong>{ordersThisMonth} / {monthlyTarget || '—'}</strong><small>{monthlyAchievement === null ? 'Monthly target not set' : `${monthlyAchievement}% of monthly target`}</small></div></div>
+        </div>}
         {showStock && <div className="ecommerce-platform-tabs" role="tablist" aria-label="Assigned marketplace platforms">
           {data.platforms.map(platform => <button key={platform} type="button" role="tab" aria-selected={selectedPlatform === platform} className={selectedPlatform === platform ? 'active' : ''} onClick={() => { setSelectedPlatform(platform); setListingSearch(''); setActionMessage('') }}>{platform}</button>)}
         </div>}
         {showStock && <div className="stats-grid ecommerce-stock-summary">
           <div className="stat-card"><div className="stat-icon blue"><Boxes size={20} /></div><div className="stat-body"><span>Available stock</span><strong>{Array.from(uniqueStock.values()).reduce((total, stock) => total + stock, 0).toLocaleString('en-IN')}</strong><small>Across {listings.length} assigned listings</small></div></div>
           <div className="stat-card"><div className="stat-icon green"><Truck size={20} /></div><div className="stat-body"><span>Orders dispatched this month</span><strong>{selectedSummary?.dispatchedOrders || 0}</strong><small>{selectedSummary?.dispatchedUnits || 0} units · {selectedMonth}</small></div></div>
-          <div className="stat-card"><div className="stat-icon purple"><Target size={20} /></div><div className="stat-body"><span>Daily order target</span><strong>{selectedSummary?.dailyTarget ?? 0}</strong><small>{selectedSummary?.monthlyTarget.toLocaleString('en-IN') ?? 0} monthly · {selectedSummary?.achievementPercent === null || selectedSummary?.achievementPercent === undefined ? '—' : `${selectedSummary.achievementPercent}%`} achieved</small></div></div>
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returns / damage this month</span><strong>{(selectedSummary?.returnedOrders || 0) + (selectedSummary?.damagedOrders || 0)}</strong><small>Order events · {selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Stored privately</small></div></div>
         </div>}
