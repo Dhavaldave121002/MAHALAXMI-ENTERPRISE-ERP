@@ -181,7 +181,7 @@ export async function importWorkbookMarketplaceCatalog(input: {
 }
 
 export async function addWorkbookRawMaterial(input: Record<string, unknown>) {
-  return callAppsScript<{ material: Record<string, unknown> }>('addRawMaterial', input)
+  return callAppsScript<{ material: Record<string, unknown>; movement: Record<string, unknown> | null }>('addRawMaterial', input)
 }
 
 export async function applyWorkbookStockMovement(input: Record<string, unknown>) {
@@ -197,7 +197,7 @@ export async function deleteUnusedWorkbookStockItem(input: Record<string, unknow
 }
 
 export async function recordWorkbookProduction(record: Record<string, unknown>) {
-  return callAppsScript<{ finishedGood: Record<string, unknown> }>('recordProduction', { record })
+  return callAppsScript<{ finishedGood: Record<string, unknown>; movement: Record<string, unknown> | null }>('recordProduction', { record })
 }
 
 export function publicUser(user: WorkbookUser): PublicUser {

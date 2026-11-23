@@ -141,6 +141,77 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return result as T
 }
 
+function recordText(record: Record<string, unknown>, key: string) {
+  return String(record[key] ?? '')
+}
+
+function recordNumber(record: Record<string, unknown>, key: string) {
+  const value = Number(record[key] ?? 0)
+  return Number.isFinite(value) ? value : 0
+}
+
+function toFinishedGood(record: Record<string, unknown>): FinishedGood {
+  const sku = recordText(record, 'Product SKU')
+  return {
+    sku,
+    name: recordText(record, 'Product Name') || sku,
+    openingStock: recordNumber(record, 'Opening Stock'),
+    productionReceived: recordNumber(record, 'Production Received'),
+    qualityApproved: recordNumber(record, 'Quality Approved'),
+    rejected: recordNumber(record, 'Rejected'),
+    reservedStock: recordNumber(record, 'Reserved Stock'),
+    availableStock: recordNumber(record, 'Available Stock'),
+    dispatchedStock: recordNumber(record, 'Dispatched Stock'),
+    returnedStock: recordNumber(record, 'Returned Stock'),
+    damagedStock: recordNumber(record, 'Damaged Stock'),
+    adjustmentIn: recordNumber(record, 'Adjustment In'),
+    adjustmentOut: recordNumber(record, 'Adjustment Out'),
+    status: recordText(record, 'Status') || 'Active',
+  }
+}
+
+function toRawMaterial(record: Record<string, unknown>): RawMaterial {
+  return {
+    id: recordText(record, 'Material ID'),
+    sku: recordText(record, 'Material SKU'),
+    name: recordText(record, 'Material Name'),
+    unit: recordText(record, 'Unit'),
+    openingStock: recordNumber(record, 'Opening Stock'),
+    purchaseInward: recordNumber(record, 'Purchase Inward'),
+    supplier: recordText(record, 'Supplier'),
+    issued: recordNumber(record, 'Material Issued'),
+    machineConsumption: recordNumber(record, 'Machine Consumption'),
+    stitchingConsumption: recordNumber(record, 'Stitching Consumption'),
+    wastage: recordNumber(record, 'Wastage'),
+    adjustmentIn: recordNumber(record, 'Adjustment In'),
+    adjustmentOut: recordNumber(record, 'Adjustment Out'),
+    closingStock: recordNumber(record, 'Closing Stock'),
+    reorderLevel: recordNumber(record, 'Reorder Level'),
+    averageUnitCost: recordNumber(record, 'Average Unit Cost'),
+    stockValue: recordNumber(record, 'Stock Value'),
+    status: recordText(record, 'Status') || 'Active',
+  }
+}
+
+function toStockMovement(record: Record<string, unknown>): StockMovement {
+  return {
+    id: recordText(record, 'Movement ID'),
+    date: recordText(record, 'Date/Time'),
+    sku: recordText(record, 'SKU'),
+    itemType: recordText(record, 'Item Type'),
+    type: recordText(record, 'Movement Type'),
+    quantity: recordNumber(record, 'Quantity'),
+    referenceId: recordText(record, 'Reference ID'),
+    machineId: recordText(record, 'Machine ID'),
+    reason: recordText(record, 'Reason'),
+    salesChannel: recordText(record, 'Sales Channel'),
+    deliveryPartner: recordText(record, 'Delivery Partner'),
+    openingStock: recordNumber(record, 'Opening Stock'),
+    closingStock: recordNumber(record, 'Closing Stock'),
+    createdBy: recordText(record, 'Created By'),
+  }
+}
+
 export default function App() {
   const isAdminRoute = window.location.pathname === '/admin' || window.location.pathname.startsWith('/admin/')
   const [module, setModule] = useState<Module>('Dashboard')
@@ -164,27 +235,39 @@ export default function App() {
   const [audit, setAudit] = useState<string[]>(() => readStored('erp-audit', ['Workbook connection pending', 'System initialized']))
   const [toast, setToast] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const workbookRefreshInFlight = useRef<Promise<void> | null>(null)
+  const workbookLastRefreshAt = useRef(0)
   const [workbookMeta, setWorkbookMeta] = useState({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
 
   const refreshWorkbook = useCallback(async () => {
-    const data = await apiFetch<{
-      products: Product[]
-      marketplaceListings: MarketplaceListing[]
-      machines: Machine[]
-      production: Production[]
-      rawMaterials: RawMaterial[]
-      finishedGoods: FinishedGood[]
-      stockMovements: StockMovement[]
-      workbookMeta: { loaded: boolean; name: string; sheetCount: number }
-    }>('/api/erp')
-    setProducts(data.products)
-    setMarketplaceListings(data.marketplaceListings)
-    setMachines(data.machines)
-    setProduction(data.production)
-    setRawMaterials(data.rawMaterials)
-    setFinishedGoods(data.finishedGoods)
-    setStockMovements(data.stockMovements)
-    setWorkbookMeta(data.workbookMeta)
+    if (workbookRefreshInFlight.current) return workbookRefreshInFlight.current
+    const request = (async () => {
+      const data = await apiFetch<{
+        products: Product[]
+        marketplaceListings: MarketplaceListing[]
+        machines: Machine[]
+        production: Production[]
+        rawMaterials: RawMaterial[]
+        finishedGoods: FinishedGood[]
+        stockMovements: StockMovement[]
+        workbookMeta: { loaded: boolean; name: string; sheetCount: number }
+      }>('/api/erp')
+      setProducts(data.products)
+      setMarketplaceListings(data.marketplaceListings)
+      setMachines(data.machines)
+      setProduction(data.production)
+      setRawMaterials(data.rawMaterials)
+      setFinishedGoods(data.finishedGoods)
+      setStockMovements(data.stockMovements)
+      setWorkbookMeta(data.workbookMeta)
+      workbookLastRefreshAt.current = Date.now()
+    })()
+    workbookRefreshInFlight.current = request
+    try {
+      await request
+    } finally {
+      if (workbookRefreshInFlight.current === request) workbookRefreshInFlight.current = null
+    }
   }, [])
 
   useEffect(() => localStorage.setItem('erp-audit', JSON.stringify(audit)), [audit])
@@ -197,20 +280,15 @@ export default function App() {
     const initializeAuthentication = async () => {
       try {
         const statusResponse = await fetch('/api/auth/status', { cache: 'no-store' })
-        const statusData = await statusResponse.json() as { error?: string; configured?: boolean; needsAdminSetup?: boolean }
+        const statusData = await statusResponse.json() as { error?: string; configured?: boolean; needsAdminSetup?: boolean; user?: UserAccount | null }
         if (!statusResponse.ok || !statusData.configured) throw new Error(statusData.error || 'Google Sheets Apps Script is not configured.')
         if (!active) return
         setNeedsAdminSetup(Boolean(statusData.needsAdminSetup))
-        setAuthStatus('ready')
-
-        const sessionResponse = await fetch('/api/auth/me', { cache: 'no-store' })
-        if (sessionResponse.ok) {
-          const sessionData = await sessionResponse.json() as { user?: UserAccount }
-          if (active && sessionData.user) {
-            setSessionUser(sessionData.user)
-            setModule('Dashboard')
-          }
+        if (statusData.user) {
+          setSessionUser(statusData.user)
+          setModule('Dashboard')
         }
+        setAuthStatus('ready')
       } catch (error) {
         if (!active) return
         setAuthStatus('unavailable')
@@ -251,21 +329,20 @@ export default function App() {
       return () => { active = false }
     }
     const refresh = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - workbookLastRefreshAt.current < 30_000) return
       void refreshWorkbook()
         .catch(error => {
           if (active) setToast(error instanceof Error ? error.message : 'Could not load the shared workbook')
         })
     }
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') refresh()
-    }
     refresh()
     window.addEventListener('focus', refresh)
-    document.addEventListener('visibilitychange', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refresh)
     return () => {
       active = false
       window.removeEventListener('focus', refresh)
-      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refresh)
     }
   }, [sessionUser, refreshWorkbook])
 
@@ -302,6 +379,7 @@ export default function App() {
       body: JSON.stringify({ action: 'addProduct', ...input }),
     })
     setProducts(prev => [...prev.filter(item => item.sku.toLowerCase() !== result.product.sku.toLowerCase()), result.product])
+    workbookLastRefreshAt.current = Date.now()
     log(`Added product ${result.product.sku}`)
     notify('Product saved to the shared workbook')
     return result.product
@@ -314,6 +392,7 @@ export default function App() {
       body: JSON.stringify({ action: 'addVariant', ...input }),
     })
     setProducts(prev => [...prev.filter(item => item.sku.toLowerCase() !== result.product.sku.toLowerCase()), result.product])
+    workbookLastRefreshAt.current = Date.now()
     log(`Added SKU ${result.product.sku} to ${result.product.masterSku}`)
     notify('SKU saved to the shared workbook')
     return result.product
@@ -326,6 +405,7 @@ export default function App() {
       body: JSON.stringify({ action: 'addMarketplaceListing', ...input }),
     })
     setMarketplaceListings(prev => [result.listing, ...prev.filter(item => item.id !== result.listing.id)])
+    workbookLastRefreshAt.current = Date.now()
     log(`Added ${result.listing.platform} listing SKU ${result.listing.platformSku}`)
     notify('Marketplace SKU saved to the shared workbook')
     return result.listing
@@ -355,54 +435,93 @@ export default function App() {
       body: JSON.stringify({ action: 'addMachine', ...input }),
     })
     setMachines(prev => [...prev, result.machine])
+    workbookLastRefreshAt.current = Date.now()
     log(`Added ${result.machine.id}: ${result.machine.name}`)
     notify(`${result.machine.id} saved to the shared workbook`)
     return result.machine
   }
 
   const saveProduction = async (input: Omit<Production, 'id' | 'createdBy' | 'product'> & { product: string }) => {
-    const result = await apiFetch<{ record: Production & { finishedGood?: FinishedGood } }>('/api/erp', {
+    const result = await apiFetch<{ record: Production & { finishedGood?: FinishedGood; stockMovement?: StockMovement | null } }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'addProduction', ...input }),
     })
     setProduction(prev => [result.record, ...prev.filter(item => item.id !== result.record.id)])
-    await refreshWorkbook()
+    const finishedGood = result.record.finishedGood
+    if (finishedGood) {
+      setFinishedGoods(prev => [finishedGood, ...prev.filter(item => item.sku.toLowerCase() !== finishedGood.sku.toLowerCase())])
+      setProducts(prev => prev.map(item => item.sku.toLowerCase() === finishedGood.sku.toLowerCase()
+        ? { ...item, stock: finishedGood.availableStock }
+        : item))
+    }
+    const stockMovement = result.record.stockMovement
+    if (stockMovement) {
+      setStockMovements(prev => [stockMovement, ...prev.filter(item => item.id !== stockMovement.id)])
+    }
+    workbookLastRefreshAt.current = Date.now()
     log(`Recorded production ${result.record.actual} units for ${result.record.sku}`)
     notify('Production entry saved to the shared workbook')
     return result.record
   }
 
   const saveRawMaterial = async (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => {
-    const result = await apiFetch<{ material: RawMaterial }>('/api/erp', {
+    const result = await apiFetch<{ material: RawMaterial; movement: StockMovement | null }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'addRawMaterial', ...input }),
     })
-    await refreshWorkbook()
+    setRawMaterials(prev => [result.material, ...prev.filter(item => item.sku.toLowerCase() !== result.material.sku.toLowerCase())])
+    const movement = result.movement
+    if (movement) {
+      setStockMovements(prev => [movement, ...prev.filter(item => item.id !== movement.id)])
+    }
+    workbookLastRefreshAt.current = Date.now()
     log(`Added raw material ${result.material.sku}`)
     notify('Raw material saved to the shared workbook')
     return result.material
   }
 
   const applyStockMovement = async (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string }) => {
-    await apiFetch<{ item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
+    const result = await apiFetch<{ item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'applyStockMovement', ...input }),
     })
-    await refreshWorkbook()
+    const movement = toStockMovement(result.movement)
+    if (input.kind === 'finished') {
+      const item = toFinishedGood(result.item)
+      setFinishedGoods(prev => [item, ...prev.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
+      setProducts(prev => prev.map(product => product.sku.toLowerCase() === item.sku.toLowerCase()
+        ? { ...product, stock: item.availableStock }
+        : product))
+    } else {
+      const item = toRawMaterial(result.item)
+      setRawMaterials(prev => [item, ...prev.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
+    }
+    setStockMovements(prev => [movement, ...prev.filter(existing => existing.id !== movement.id)])
+    workbookLastRefreshAt.current = Date.now()
     log(`${input.type} · ${input.sku} · ${input.quantity}`)
     notify('Stock movement saved to the ledger')
   }
 
   const archiveStockItem = async (kind: 'raw' | 'finished', sku: string) => {
-    await apiFetch('/api/erp', {
+    const result = await apiFetch<{ item: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'archiveStockItem', kind, sku }),
     })
-    await refreshWorkbook()
+    if (kind === 'finished') {
+      const item = toFinishedGood(result.item)
+      setFinishedGoods(prev => [item, ...prev.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
+      setProducts(prev => prev.map(product => product.sku.toLowerCase() === item.sku.toLowerCase()
+        ? { ...product, status: 'Draft' }
+        : product))
+    } else {
+      const item = toRawMaterial(result.item)
+      setRawMaterials(prev => [item, ...prev.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
+    }
+    workbookLastRefreshAt.current = Date.now()
     log(`Archived ${sku}`)
     notify('Item archived; its stock history was retained')
   }
@@ -413,7 +532,9 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'deleteUnusedStockItem', kind, sku }),
     })
-    await refreshWorkbook()
+    if (kind === 'finished') setFinishedGoods(prev => prev.filter(item => item.sku.toLowerCase() !== sku.toLowerCase()))
+    else setRawMaterials(prev => prev.filter(item => item.sku.toLowerCase() !== sku.toLowerCase()))
+    workbookLastRefreshAt.current = Date.now()
     log(`Deleted unused item ${sku}`)
     notify('Unused item deleted')
   }
@@ -1152,7 +1273,7 @@ function ModuleView(props: {
       <section>
         <div className="page-heading"><div><p>FINISHED GOODS · {isShipping ? 'DISPATCH' : 'RETURNS'}</p><h1>{module}</h1></div></div>
         {isShipping ? <form className="panel form-card delivery-form" onSubmit={submitDelivery}>
-          <div className="panel-heading"><div><h2>Create delivery</h2><p>Select the sales channel, courier, and SKU before dispatching stock.</p></div></div>
+          <div className="panel-heading"><div><h2>Create delivery</h2><p>Select the sales channel, courier, and SKU. Record deliveries even when stock is short; the balance will be negative until inventory is received.</p></div></div>
           <div className="field-grid">
             <label>Platform / channel<select name="salesChannel" required value={deliveryChannel} onChange={event => {
               setDeliveryChannel(event.target.value)

@@ -65,6 +65,25 @@ type StockMovement = {
   openingStock: number; closingStock: number; createdBy: string
 }
 
+function stockMovementFromRecord(row: Record<string, unknown>): StockMovement {
+  return {
+    id: text(row['Movement ID']),
+    date: text(row['Date/Time']),
+    sku: text(row.SKU),
+    itemType: text(row['Item Type']),
+    type: text(row['Movement Type']),
+    quantity: number(row.Quantity),
+    referenceId: text(row['Reference ID']),
+    machineId: text(row['Machine ID']),
+    reason: text(row.Reason),
+    salesChannel: text(row['Sales Channel']),
+    deliveryPartner: text(row['Delivery Partner']),
+    openingStock: number(row['Opening Stock']),
+    closingStock: number(row['Closing Stock']),
+    createdBy: text(row['Created By']),
+  }
+}
+
 function text(value: unknown) {
   return String(value ?? '').trim()
 }
@@ -262,37 +281,35 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       createdBy,
     }]
   })
+  const productBySku = new Map<string, CatalogItem>()
+  products.forEach(item => {
+    if (!productBySku.has(item.sku.toLowerCase())) productBySku.set(item.sku.toLowerCase(), item)
+  })
   const marketplaceListings: MarketplaceListing[] = optionalRecords(data, 'Marketplace_Listings').flatMap(row => {
     const id = text(row['Listing ID'])
     const platform = text(row.Platform)
     const platformSku = text(row['Platform SKU'])
     const productSku = text(row['Product SKU'])
     if (!platformSku || !productSku) return []
-    const product = products.find(item => item.sku.toLowerCase() === productSku.toLowerCase())
+    const product = productBySku.get(productSku.toLowerCase())
+    const masterSku = text(row['Master SKU']) || product?.masterSku || productSku
+    const listingMrp = number(row.MRP)
+    if (listingMrp) {
+      if (product && product.mrp === 0) product.mrp = listingMrp
+      const master = productBySku.get(masterSku.toLowerCase())
+      if (master && !master.isVariant && master.mrp === 0) master.mrp = listingMrp
+    }
     return [{
       id: id || `${platform}:${platformSku}`,
       platform,
       platformSku,
       productSku,
-      masterSku: text(row['Master SKU']) || product?.masterSku || productSku,
+      masterSku,
       productName: text(row['Product Name']) || product?.name || productSku,
       status: text(row.Status) || 'Active',
       createdBy: text(row['Created By']),
       createdAt: text(row['Created At']),
     }]
-  })
-  marketplaceListings.forEach(listing => {
-    const listingRow = optionalRecords(data, 'Marketplace_Listings').find(row =>
-      text(row['Listing ID']).toLowerCase() === listing.id.toLowerCase() ||
-      (text(row.Platform).toLowerCase() === listing.platform.toLowerCase()
-        && text(row['Platform SKU']).toLowerCase() === listing.platformSku.toLowerCase())
-    )
-    const listingMrp = listingRow ? number(listingRow.MRP) : 0
-    if (!listingMrp) return
-    const matched = products.find(item => item.sku.toLowerCase() === listing.productSku.toLowerCase())
-    if (matched && matched.mrp === 0) matched.mrp = listingMrp
-    const master = products.find(item => !item.isVariant && item.sku.toLowerCase() === listing.masterSku.toLowerCase())
-    if (master && master.mrp === 0) master.mrp = listingMrp
   })
 
   return {
@@ -561,6 +578,7 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
       adjustmentOut: number(stockResult.finishedGood['Adjustment Out']),
       status: text(stockResult.finishedGood.Status) || 'Active',
     } satisfies FinishedGood,
+    stockMovement: stockResult.movement ? stockMovementFromRecord(stockResult.movement) : null,
   }
 }
 
@@ -576,7 +594,7 @@ async function addRawMaterial(user: PublicUser, body: Record<string, unknown>) {
     sku, name, unit, openingStock, reorderLevel, unitCost, supplier, createdBy: user.name,
   })
   const material = result.material
-  return {
+  const mappedMaterial: RawMaterial = {
     id: text(material['Material ID']),
     sku: text(material['Material SKU']),
     name: text(material['Material Name']),
@@ -595,10 +613,14 @@ async function addRawMaterial(user: PublicUser, body: Record<string, unknown>) {
     averageUnitCost: number(material['Average Unit Cost']),
     stockValue: number(material['Stock Value']),
     status: text(material.Status) || 'Active',
-  } satisfies RawMaterial
+  }
+  return {
+    material: mappedMaterial,
+    movement: result.movement ? stockMovementFromRecord(result.movement) : null,
+  }
 }
 
-async function applyStockMovement(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
+async function applyStockMovement(user: PublicUser, body: Record<string, unknown>) {
   const kind = text(body.kind)
   const sku = requiredText(body.sku, 'SKU', 100)
   const type = requiredText(body.type, 'Movement type', 40)
@@ -630,10 +652,6 @@ async function applyStockMovement(data: WorkbookData, user: PublicUser, body: Re
   } else {
     throw new ApiError(400, 'Choose raw material or finished goods.')
   }
-  const product = kind === 'finished'
-    ? getSnapshot(data, user).products.find(item => item.sku.toLowerCase() === sku.toLowerCase())
-    : undefined
-  if (kind === 'finished' && !product) throw new ApiError(404, 'Choose an active SKU from the master workbook.')
   const result = await applyWorkbookStockMovement({
     kind, sku, type, quantity,
     reason: reason.slice(0, 300),
@@ -642,7 +660,6 @@ async function applyStockMovement(data: WorkbookData, user: PublicUser, body: Re
     deliveryPartner,
     machineId: text(body.machineId).slice(0, 100),
     unitCost: body.unitCost === undefined || body.unitCost === '' ? '' : nonnegativeNumber(body.unitCost, 'Unit cost'),
-    productName: product?.name || '',
     createdBy: user.name,
   })
   return result
@@ -669,64 +686,77 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return
   }
   try {
-    const data = await getWorkbookData()
-    const users = readUsers(data.sheets.Users || [])
-    const user = await getSessionUser(request, users)
     if (request.method === 'GET') {
+      const data = await getWorkbookData()
+      const users = readUsers(data.sheets.Users || [])
+      const user = await getSessionUser(request, users)
       sendJson(response, 200, getSnapshot(data, user))
       return
     }
 
     const body = await readJsonBody(request)
     const action = text(body.action)
+    const snapshotActions = ['addProduction', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine']
+    const data = snapshotActions.includes(action) ? await getWorkbookData() : undefined
+    const user = await getSessionUser(request, data ? readUsers(data.sheets.Users || []) : undefined)
+
     if (action === 'addProduction') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for production validation.')
       const record = await addProduction(data, user, body)
       sendJson(response, 201, { record })
       return
     }
-    if (['addRawMaterial', 'applyStockMovement', 'archiveStockItem', 'deleteUnusedStockItem'].includes(action)) {
+    if (action === 'addRawMaterial') {
       requireSupervisorOrAdmin(user)
-      if (action === 'addRawMaterial') {
-        const material = await addRawMaterial(user, body)
-        sendJson(response, 201, { material })
-        return
-      }
-      if (action === 'applyStockMovement') {
-        const result = await applyStockMovement(data, user, body)
-        sendJson(response, 200, result)
-        return
-      }
-      if (action === 'archiveStockItem') {
-        const result = await archiveStockItem(user, body)
-        sendJson(response, 200, result)
-        return
-      }
+      const result = await addRawMaterial(user, body)
+      sendJson(response, 201, result)
+      return
+    }
+    if (action === 'applyStockMovement') {
+      requireSupervisorOrAdmin(user)
+      const result = await applyStockMovement(user, body)
+      sendJson(response, 200, result)
+      return
+    }
+    if (action === 'archiveStockItem') {
+      requireSupervisorOrAdmin(user)
+      const result = await archiveStockItem(user, body)
+      sendJson(response, 200, result)
+      return
+    }
+    if (action === 'deleteUnusedStockItem') {
+      requireSupervisorOrAdmin(user)
       const result = await deleteUnusedStockItem(body)
       sendJson(response, 200, result)
       return
     }
+    if (action === 'importMarketplaceWorkbook') {
+      requireSupervisorOrAdmin(user)
+      const result = await importMarketplaceWorkbook(user, body)
+      sendJson(response, 200, { result })
+      return
+    }
     requireSupervisorOrAdmin(user)
     if (action === 'addProduct') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for product validation.')
       const product = await addProduct(data, body)
       sendJson(response, 201, { product })
       return
     }
     if (action === 'addVariant') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for SKU validation.')
       const product = await addVariant(data, body)
       sendJson(response, 201, { product })
       return
     }
     if (action === 'addMarketplaceListing') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for listing validation.')
       const listing = await addMarketplaceListing(data, user, body)
       sendJson(response, 201, { listing })
       return
     }
-    if (action === 'importMarketplaceWorkbook') {
-      const result = await importMarketplaceWorkbook(user, body)
-      sendJson(response, 200, { result })
-      return
-    }
     if (action === 'addMachine') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for machine validation.')
       const machine = await addMachine(data, body)
       sendJson(response, 201, { machine })
       return

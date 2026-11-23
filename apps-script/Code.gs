@@ -156,6 +156,30 @@
       return 0
     }
 
+    function findCatalogProductName_(spreadsheet, sku) {
+      const target = String(sku || '').trim().toLowerCase()
+      if (!target) return ''
+      const products = readSheetRecords_(spreadsheet, 'Products')
+      const master = products.find(function (row) {
+        return String(row['Master SKU'] || '').trim().toLowerCase() === target
+          && String(row.Status || '').trim().toLowerCase() === 'active'
+      })
+      if (master) return String(master['Product Title'] || sku).trim()
+
+      const variant = readSheetRecords_(spreadsheet, 'SKU_Variants').find(function (row) {
+        return String(row['Variant SKU'] || '').trim().toLowerCase() === target
+          && String(row.Status || '').trim().toLowerCase() === 'active'
+      })
+      if (!variant) return ''
+      const masterSku = String(variant['Master SKU'] || '').trim()
+      const parent = products.find(function (row) {
+        return String(row['Master SKU'] || '').trim().toLowerCase() === masterSku.toLowerCase()
+          && String(row.Status || '').trim().toLowerCase() === 'active'
+      })
+      if (!parent) return ''
+      return String(parent && parent['Product Title'] || masterSku || sku).trim()
+    }
+
     function readStockRow_(sheet, headers, rowNumber) {
       if (!rowNumber) return null
       const values = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0]
@@ -278,14 +302,15 @@
         }
         createBackupOnce_(spreadsheet, backupState)
         appendStockRow_(raw.sheet, raw.headers, material)
+        let movement = null
         if (opening > 0) {
-          appendStockMovement_(spreadsheet, stockMovementRecord_({
+          movement = appendStockMovement_(spreadsheet, stockMovementRecord_({
             sku: sku, type: 'Opening Stock', quantity: opening, opening: 0, closing: opening,
             itemType: 'Raw Material', reason: 'Initial stock balance', createdBy: payload.createdBy,
           }), backupState)
         }
         SpreadsheetApp.flush()
-        return { material: material }
+        return { material: material, movement: movement }
       })
     }
 
@@ -312,6 +337,8 @@
 
         const isRaw = kind === 'raw'
         if (!isRaw && kind !== 'finished') throw apiError_(400, 'Choose raw material or finished goods.')
+        const catalogProductName = isRaw ? '' : findCatalogProductName_(spreadsheet, sku)
+        if (!isRaw && !catalogProductName) throw apiError_(404, 'Choose an active SKU from the master workbook.')
         const sheetName = isRaw ? 'Raw_Materials' : 'Finished_Goods'
         const itemType = isRaw ? 'Raw Material' : 'Finished Goods'
         const headers = isRaw ? ERP_RAW_MATERIAL_HEADERS : ERP_FINISHED_GOODS_HEADERS
@@ -321,9 +348,9 @@
         const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
         const rowNumber = findStockRow_(stockSheet.sheet, stockSheet.headers, key, sku)
         let item = readStockRow_(stockSheet.sheet, stockSheet.headers, rowNumber)
-        if (!item && !isRaw && ['Opening Stock', 'Adjustment In'].indexOf(type) >= 0 && String(payload.productName || '').trim()) {
+        if (!item && !isRaw && (['Opening Stock', 'Adjustment In'].indexOf(type) >= 0 || (type === 'Dispatch' && salesChannel && deliveryPartner))) {
           item = {
-            'Product SKU': sku, 'Product Name': String(payload.productName).trim(),
+            'Product SKU': sku, 'Product Name': catalogProductName,
             'Opening Stock': 0, 'Production Received': 0, 'Quality Approved': 0, Rejected: 0,
             'Reserved Stock': 0, 'Available Stock': 0, 'Dispatched Stock': 0, 'Returned Stock': 0,
             'Damaged Stock': 0, 'Adjustment In': 0, 'Adjustment Out': 0, Status: 'Active',
@@ -381,7 +408,7 @@
           const mapping = fields[type]
           if (!mapping) throw apiError_(400, 'Choose a supported finished-goods movement type.')
           closing += mapping[1] * quantity
-          if (closing < 0) throw apiError_(409, 'This movement would make available stock negative.')
+          if (closing < 0 && !(type === 'Dispatch' && salesChannel && deliveryPartner)) throw apiError_(409, 'This movement would make available stock negative.')
           const updatedValue = stockNumber_(item[mapping[0]], mapping[0]) + mapping[2] * quantity
           if (updatedValue < 0) throw apiError_(409, 'You cannot release more units than are currently reserved.')
           item[mapping[0]] = updatedValue
@@ -519,8 +546,9 @@
         if (rowNumber) updateStockRow_(finished.sheet, finished.headers, rowNumber, item)
         else appendStockRow_(finished.sheet, finished.headers, item)
         const approved = actual - rejected
+        let movement = null
         if (approved > 0) {
-          const movement = stockMovementRecord_({
+          movement = stockMovementRecord_({
             sku: sku, type: 'Production Received', quantity: approved,
             referenceId: String(record['Production ID'] || ''),
             reason: 'Production complete; rejected quantity: ' + rejected,
@@ -530,7 +558,7 @@
           appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
         }
         SpreadsheetApp.flush()
-        return { finishedGood: item }
+        return { finishedGood: item, movement: movement }
       })
     }
 
