@@ -403,16 +403,25 @@
         const referenceId = String(payload.referenceId || '').trim()
         const salesChannel = String(payload.salesChannel || '').trim()
         const deliveryPartner = String(payload.deliveryPartner || '').trim()
+        const linkToDispatch = payload.linkToDispatch === true
+        const linkedOrderReturn = linkToDispatch && kind === 'finished' && ['Return', 'Damage'].indexOf(type) >= 0
         const quantity = stockNumber_(payload.quantity, 'Quantity')
         if (!sku || quantity <= 0) throw apiError_(400, 'Choose an item and enter a quantity greater than zero.')
         if (reason.length > 300 || referenceId.length > 100) throw apiError_(400, 'Reason or reference is too long.')
+        if (payload.linkToDispatch !== undefined && typeof payload.linkToDispatch !== 'boolean') {
+          throw apiError_(400, 'Choose whether this return is linked to a dispatched order.')
+        }
+        if (linkToDispatch && (!linkedOrderReturn || !referenceId || !salesChannel || deliveryPartner)) {
+          throw apiError_(400, 'A linked return requires a finished-goods order, platform, and order number.')
+        }
         if (salesChannel || deliveryPartner) {
-          if (kind !== 'finished' || type !== 'Dispatch' || !salesChannel || !deliveryPartner) {
-            throw apiError_(400, 'A delivery channel and partner are required for a finished-goods dispatch.')
+          if (kind !== 'finished' || (!linkedOrderReturn && type !== 'Dispatch') || (type === 'Dispatch' && (!salesChannel || !deliveryPartner))) {
+            throw apiError_(400, 'A supported platform is required for dispatches and linked returns.')
           }
           if (['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA'].indexOf(salesChannel) < 0 || deliveryPartner.length > 100) {
             throw apiError_(400, 'Choose a supported delivery channel and a valid delivery partner.')
           }
+          if (type === 'Dispatch' && !referenceId) throw apiError_(400, 'Enter the marketplace order number to enable order-linked returns.')
         }
 
         const isRaw = kind === 'raw'
@@ -439,13 +448,36 @@
         if (!item) throw apiError_(404, 'Stock item was not found. Add the material or product first.')
         if (String(item.Status || 'Active').toLowerCase() === 'archived') throw apiError_(409, 'This item is archived and cannot receive stock movements.')
 
-        if (referenceId && movementSheet.sheet.getLastRow() >= 2) {
-          const movementRows = readSheetRecords_(spreadsheet, 'Stock_Movement')
-          if (movementRows.some(function (row) {
+        if (referenceId) {
+          const movementRows = movementSheet.sheet.getLastRow() >= 2
+            ? readSheetRecords_(spreadsheet, 'Stock_Movement')
+            : []
+          const matchingReference = movementRows.filter(function (row) {
             return String(row['Item Type'] || '') === itemType
               && String(row.SKU || '').trim().toLowerCase() === sku.toLowerCase()
               && String(row['Reference ID'] || '').trim().toLowerCase() === referenceId.toLowerCase()
-          })) throw apiError_(409, 'That reference was already used for this stock item.')
+          })
+          if (linkedOrderReturn) {
+            const dispatch = matchingReference.find(function (row) {
+              return String(row['Movement Type'] || '') === 'Dispatch'
+                && String(row['Sales Channel'] || '') === salesChannel
+            })
+            if (!dispatch) throw apiError_(404, 'The selected platform order was not found in the dispatch ledger.')
+            const alreadyReturnedOrDamaged = matchingReference.filter(function (row) {
+              return ['Return', 'Damage'].indexOf(String(row['Movement Type'] || '')) >= 0
+                && (!String(row['Sales Channel'] || '') || String(row['Sales Channel'] || '') === salesChannel)
+            }).reduce(function (total, row) {
+              return total + stockNumber_(row.Quantity, 'Recorded return quantity')
+            }, 0)
+            const dispatchedQuantity = stockNumber_(dispatch.Quantity, 'Dispatched quantity')
+            if (alreadyReturnedOrDamaged + quantity > dispatchedQuantity) {
+              throw apiError_(409, 'Return and damage quantities cannot exceed the remaining quantity from this order.')
+            }
+          } else if (matchingReference.some(function (row) {
+            return type !== 'Dispatch' || !salesChannel || !String(row['Sales Channel'] || '') || String(row['Sales Channel'] || '') === salesChannel
+          })) {
+            throw apiError_(409, 'That reference was already used for this stock item.')
+          }
         }
 
         const opening = isRaw ? rawClosingStock_(item) : finishedAvailableStock_(item)
@@ -487,11 +519,16 @@
           }
           const mapping = fields[type]
           if (!mapping) throw apiError_(400, 'Choose a supported finished-goods movement type.')
-          closing += mapping[1] * quantity
-          if (closing < 0) throw apiError_(409, 'This movement would make available stock negative.')
-          const updatedValue = stockNumber_(item[mapping[0]], mapping[0]) + mapping[2] * quantity
-          if (updatedValue < 0) throw apiError_(409, 'You cannot release more units than are currently reserved.')
-          item[mapping[0]] = updatedValue
+          if (linkedOrderReturn && type === 'Damage') {
+            item['Returned Stock'] = stockNumber_(item['Returned Stock'], 'Returned stock') + quantity
+            item['Damaged Stock'] = stockNumber_(item['Damaged Stock'], 'Damaged stock') + quantity
+          } else {
+            closing += mapping[1] * quantity
+            if (closing < 0) throw apiError_(409, 'This movement would make available stock negative.')
+            const updatedValue = stockNumber_(item[mapping[0]], mapping[0]) + mapping[2] * quantity
+            if (updatedValue < 0) throw apiError_(409, 'You cannot release more units than are currently reserved.')
+            item[mapping[0]] = updatedValue
+          }
           item['Available Stock'] = finishedAvailableStock_(item)
           item['Last Updated'] = new Date().toISOString()
         }

@@ -546,7 +546,7 @@ export default function App() {
     return result.material
   }
 
-  const applyStockMovement = async (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string }) => {
+  const applyStockMovement = async (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string; linkToDispatch?: boolean }) => {
     const result = await apiFetch<{ item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -910,7 +910,7 @@ function ModuleView(props: {
   importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => Promise<MarketplaceImportResult>;
   saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
   saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
-  applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string }) => Promise<void>;
+  applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string; linkToDispatch?: boolean }) => Promise<void>;
   initializeZeroFinishedStock: () => Promise<void>; zeroStockInitializationBusy: boolean;
   archiveStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
   deleteUnusedStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
@@ -935,6 +935,8 @@ function ModuleView(props: {
   const [deliveryPartnerChoice, setDeliveryPartnerChoice] = useState('')
   const [customDeliveryPartner, setCustomDeliveryPartner] = useState('')
   const [deliverySku, setDeliverySku] = useState('')
+  const [returnChannel, setReturnChannel] = useState('')
+  const [returnDispatchId, setReturnDispatchId] = useState('')
   const [productionDate, setProductionDate] = useState(() => indiaDateKey(clock))
   const [productionBlockChoice, setProductionBlockChoice] = useState('')
   const [marketplaceImportPreview, setMarketplaceImportPreview] = useState<MarketplaceImportRows | null>(null)
@@ -1158,6 +1160,35 @@ function ModuleView(props: {
     }
   }
 
+  const submitOrderReturn = async (event: React.FormEvent<HTMLFormElement>, dispatch: StockMovement, remainingQuantity: number) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const type = String(form.get('type') || '')
+    const quantity = Number(form.get('quantity'))
+    if (!['Return', 'Damage'].includes(type) || !Number.isInteger(quantity) || quantity <= 0 || quantity > remainingQuantity) {
+      notify('Choose Return or Damage and enter a whole quantity within the remaining shipped quantity.')
+      return
+    }
+    try {
+      await applyStockMovement({
+        kind: 'finished',
+        sku: dispatch.sku,
+        type,
+        quantity,
+        referenceId: dispatch.referenceId,
+        machineId: '',
+        reason: String(form.get('reason') || ''),
+        salesChannel: dispatch.salesChannel,
+        linkToDispatch: true,
+      })
+      formElement.reset()
+      setReturnDispatchId('')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Order return or damage could not be saved')
+    }
+  }
+
   const submitDelivery = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formElement = event.currentTarget
@@ -1349,6 +1380,28 @@ function ModuleView(props: {
     const isShipping = module === 'Shipping & Delivery'
     const relevantTypes = isShipping ? ['Dispatch'] : ['Return', 'Damage']
     const relevantMovements = stockMovements.filter(movement => movement.itemType === 'Finished Goods' && relevantTypes.includes(movement.type))
+    const returnableDispatches = stockMovements
+      .filter(movement =>
+        movement.itemType === 'Finished Goods' &&
+        movement.type === 'Dispatch' &&
+        movement.referenceId.trim() &&
+        deliveryChannels.includes(movement.salesChannel)
+      )
+      .map(dispatch => {
+        const alreadyProcessed = stockMovements
+          .filter(movement =>
+            movement.itemType === 'Finished Goods' &&
+            ['Return', 'Damage'].includes(movement.type) &&
+            movement.sku.toLowerCase() === dispatch.sku.toLowerCase() &&
+            movement.referenceId.trim().toLowerCase() === dispatch.referenceId.trim().toLowerCase() &&
+            (!movement.salesChannel || movement.salesChannel === dispatch.salesChannel)
+          )
+          .reduce((total, movement) => total + movement.quantity, 0)
+        return { ...dispatch, remainingQuantity: Math.max(0, dispatch.quantity - alreadyProcessed) }
+      })
+      .filter(dispatch => dispatch.remainingQuantity > 0)
+    const platformReturnDispatches = returnableDispatches.filter(dispatch => dispatch.salesChannel === returnChannel)
+    const selectedReturnDispatch = platformReturnDispatches.find(dispatch => dispatch.id === returnDispatchId)
     const channelPlatforms = deliveryMarketplacePlatforms[deliveryChannel] || []
     const channelProductSkus = new Set(marketplaceListings
       .filter(listing =>
@@ -1392,15 +1445,49 @@ function ModuleView(props: {
             </select></label>
             {selectedDeliveryProduct && <div className="delivery-stock"><span>Available stock</span><strong>{selectedDeliveryProduct.stock.toLocaleString('en-IN')} units</strong></div>}
             <label>Quantity<input name="quantity" type="number" min="1" step="1" required /></label>
-            <label>Order / shipment reference<input name="referenceId" maxLength={100} placeholder="Order ID or shipment reference" /></label>
+            <label>Order / shipment reference<input name="referenceId" maxLength={100} required placeholder="Marketplace order number (required for returns)" /></label>
             <label className="delivery-note">Delivery notes<input name="reason" maxLength={300} placeholder="Optional delivery note" /></label>
             </>}
           </div>
           {deliveryPartnerReady && <button className="primary wide" type="submit" disabled={!canManageInventory || deliveryProducts.length === 0}>Save delivery and dispatch stock</button>}
           {!canManageInventory && <p className="local-storage-note">Only the Super Admin or Production Supervisor can record deliveries.</p>}
           {canManageInventory && deliveryPartnerReady && deliveryProducts.length === 0 && <p className="local-storage-note">Add an active {deliveryChannel} marketplace listing in Product Catalog before recording a delivery for this platform.</p>}
-        </form> : renderMovementForm('finished', 'Record return or damage', relevantTypes, relevantTypes[0])}
-        <div className="table-card entries-table inventory-table"><MovementTable movements={relevantMovements} showDeliveryDetails={isShipping} /></div>
+        </form> : <>
+          <form className="panel form-card return-order-form" onSubmit={event => {
+            event.preventDefault()
+            if (selectedReturnDispatch) void submitOrderReturn(event, selectedReturnDispatch, selectedReturnDispatch.remainingQuantity)
+          }}>
+            <div className="panel-heading"><div><h2>Record an order return or damage</h2><p>Choose the sales platform and a shipped order. Return and damaged quantities are limited to the dispatched quantity. Returns add sellable stock; damaged returns do not.</p></div></div>
+            <div className="field-grid">
+              <label>Platform / channel<select required value={returnChannel} onChange={event => {
+                setReturnChannel(event.target.value)
+                setReturnDispatchId('')
+              }}>
+                <option value="">Select platform first</option>
+                {deliveryChannels.map(channel => <option key={channel} value={channel}>{channel}</option>)}
+              </select></label>
+              <label>Shipped order / SKU<select required value={returnDispatchId} disabled={!returnChannel || platformReturnDispatches.length === 0} onChange={event => setReturnDispatchId(event.target.value)}>
+                <option value="">{!returnChannel ? 'Select platform first' : platformReturnDispatches.length ? 'Select order number and SKU' : 'No returnable orders for this platform'}</option>
+                {platformReturnDispatches.map(dispatch => {
+                  const productName = products.find(product => product.sku.toLowerCase() === dispatch.sku.toLowerCase())?.name || dispatch.sku
+                  return <option key={dispatch.id} value={dispatch.id}>{dispatch.referenceId} · {productName} · {dispatch.sku} · {dispatch.remainingQuantity} remaining</option>
+                })}
+              </select></label>
+              {selectedReturnDispatch && <div className="delivery-stock"><span>{selectedReturnDispatch.referenceId} · {selectedReturnDispatch.sku}</span><strong>{selectedReturnDispatch.remainingQuantity} of {selectedReturnDispatch.quantity} shipped units still available for return or damage</strong></div>}
+              <label>Return status<select name="type" required defaultValue="Return"><option value="Return">Returned to sellable stock</option><option value="Damage">Returned damaged / not sellable</option></select></label>
+              <label>Quantity<input name="quantity" type="number" min="1" step="1" max={selectedReturnDispatch?.remainingQuantity || undefined} required disabled={!selectedReturnDispatch} /></label>
+              <label className="delivery-note">Notes<input name="reason" maxLength={300} placeholder="Optional reason or condition details" /></label>
+            </div>
+            <button className="primary wide" type="submit" disabled={!canManageInventory || !selectedReturnDispatch}>Save order return / damage</button>
+            {!canManageInventory && <p className="local-storage-note">Only the Super Admin or Production Supervisor can record returns or damage.</p>}
+            {canManageInventory && returnChannel && platformReturnDispatches.length === 0 && <p className="local-storage-note">No returnable shipped orders are recorded for {returnChannel}. Older deliveries without an order number can still be entered manually below.</p>}
+          </form>
+          <details className="panel return-manual-entry">
+            <summary>Use existing manual stock-movement entry</summary>
+            {renderMovementForm('finished', 'Record manual return or damage', relevantTypes, relevantTypes[0])}
+          </details>
+        </>}
+        <div className="table-card entries-table inventory-table"><MovementTable movements={relevantMovements} showDeliveryDetails /></div>
       </section>
     )
   }

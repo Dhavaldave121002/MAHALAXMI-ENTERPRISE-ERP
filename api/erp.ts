@@ -634,15 +634,24 @@ async function applyStockMovement(user: PublicUser, body: Record<string, unknown
   const referenceId = text(body.referenceId)
   const salesChannel = text(body.salesChannel)
   const deliveryPartner = text(body.deliveryPartner)
+  const linkToDispatch = body.linkToDispatch === true
   if (reason.length > 300 || referenceId.length > 100) throw new ApiError(400, 'Reason or reference is too long.')
+  if (body.linkToDispatch !== undefined && typeof body.linkToDispatch !== 'boolean') {
+    throw new ApiError(400, 'Choose whether this return is linked to a dispatched order.')
+  }
+  if (linkToDispatch && (kind !== 'finished' || !['Return', 'Damage'].includes(type) || !referenceId || !salesChannel || deliveryPartner)) {
+    throw new ApiError(400, 'A linked return requires a finished-goods order, platform, and order number.')
+  }
   if (salesChannel || deliveryPartner) {
-    if (kind !== 'finished' || type !== 'Dispatch' || !salesChannel || !deliveryPartner) {
-      throw new ApiError(400, 'A delivery channel and partner are required for a finished-goods dispatch.')
+    const linkedOrderReturn = linkToDispatch && ['Return', 'Damage'].includes(type)
+    if (kind !== 'finished' || (type !== 'Dispatch' && !linkedOrderReturn) || (type === 'Dispatch' && !deliveryPartner)) {
+      throw new ApiError(400, 'A supported platform is required for dispatches and linked returns.')
     }
     if (!['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA'].includes(salesChannel)) {
       throw new ApiError(400, 'Choose a supported delivery channel.')
     }
     if (deliveryPartner.length > 100) throw new ApiError(400, 'Delivery partner name is too long.')
+    if (type === 'Dispatch' && !referenceId) throw new ApiError(400, 'Enter the marketplace order number to enable order-linked returns.')
   }
   if (kind === 'raw') {
     if (!['Purchase Inward', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Adjustment In', 'Adjustment Out'].includes(type)) {
@@ -662,6 +671,7 @@ async function applyStockMovement(user: PublicUser, body: Record<string, unknown
     referenceId: referenceId.slice(0, 100),
     salesChannel,
     deliveryPartner,
+    linkToDispatch,
     machineId: text(body.machineId).slice(0, 100),
     unitCost: body.unitCost === undefined || body.unitCost === '' ? '' : nonnegativeNumber(body.unitCost, 'Unit cost'),
     createdBy: user.name,
