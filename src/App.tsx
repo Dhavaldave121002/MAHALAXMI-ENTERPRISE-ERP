@@ -38,7 +38,7 @@ type MarketplaceImportResult = {
 type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
 type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean }
-type Machine = { id: string; name: string; type: string; department: string; operator: string; status: string }
+type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
   supplier: string; issued: number; machineConsumption: number; stitchingConsumption: number;
@@ -1191,8 +1191,9 @@ function ModuleView(props: {
 
   if (module === 'Machines') {
     const exportMachines = () => {
+      const rows = machines.map(({ id, name, type, operator, status }) => ({ id, name, type, operator, status }))
       const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(machines), 'Machines')
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Machines')
       XLSX.writeFile(workbook, `Mahalaxmi-Machines-${indiaDateKey()}.xlsx`)
       notify('Machine list downloaded as a new workbook')
     }
@@ -1210,7 +1211,6 @@ function ModuleView(props: {
         await saveMachine({
           name,
           type: String(form.get('type')),
-          department: String(form.get('department')),
           operator: String(form.get('operator')),
           status: String(form.get('status')),
         })
@@ -1227,13 +1227,12 @@ function ModuleView(props: {
           <div className="field-grid">
             <label>Machine name<input name="name" required placeholder="e.g. Cutting machine" /></label>
             <label>Machine type<input name="type" placeholder="Type" /></label>
-            <label>Department<input name="department" placeholder="Department" /></label>
             <label>Operator<input name="operator" placeholder="Operator name" /></label>
             <label>Status<select name="status"><option>Idle</option><option>Running</option><option>Maintenance</option></select></label>
           </div>
           <button className="primary wide" type="submit"><Plus size={17} /> Add machine</button>
         </form>}
-        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Department</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.department || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>The Super Admin or Production Supervisor can add machines.</span></div>}</div>
+        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>The Super Admin or Production Supervisor can add machines.</span></div>}</div>
       </section>
     )
   }
@@ -1820,7 +1819,7 @@ function DashboardView({
           <section className="panel">
             <div className="panel-heading"><div><h2>Machine status</h2><p>{machines.length} configured in the workbook</p></div></div>
             <div className="machine-summary"><div><strong>{machineStatusCount('running')}</strong><span>Running</span></div><div><strong>{machineStatusCount('idle')}</strong><span>Idle</span></div><div><strong>{machineStatusCount('maintenance')}</strong><span>Maintenance</span></div></div>
-            <div className="machine-list">{machines.slice(0, 4).map(machine => <div className="machine-row" key={machine.id}><div className="machine-icon"><Gauge size={17} /></div><div><strong>{machine.id}</strong><span>{machine.name || machine.department || 'Machine'}</span></div><b className={machine.status.toLowerCase() === 'maintenance' ? 'warning' : ''}>{machine.status}</b></div>)}</div>
+            <div className="machine-list">{machines.slice(0, 4).map(machine => <div className="machine-row" key={machine.id}><div className="machine-icon"><Gauge size={17} /></div><div><strong>{machine.id}</strong><span>{machine.name || 'Machine'}</span></div><b className={machine.status.toLowerCase() === 'maintenance' ? 'warning' : ''}>{machine.status}</b></div>)}</div>
             {machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machine records</strong><span>Ask the Super Admin or Production Supervisor to configure machines.</span></div>}
           </section>
         ) : role === 'Machine Operator' ? (

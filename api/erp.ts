@@ -46,7 +46,7 @@ type MarketplaceListing = {
 }
 
 const MARKETPLACES = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
-type Machine = { id: string; name: string; type: string; department: string; operator: string; status: string }
+type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy: string }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
@@ -242,7 +242,6 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       id,
       name: text(row['Machine Name']),
       type: text(row['Machine Type']),
-      department: text(row.Department),
       operator: text(row.Operator),
       status: text(row.Status) || 'Idle',
     }]
@@ -480,7 +479,6 @@ async function addMachine(data: WorkbookData, body: Record<string, unknown>) {
     id: `Machine ${String(nextId).padStart(2, '0')}`,
     name,
     type: text(body.type).slice(0, 80),
-    department: text(body.department).slice(0, 80),
     operator: text(body.operator).slice(0, 100),
     status: text(body.status) || 'Idle',
   }
@@ -489,10 +487,9 @@ async function addMachine(data: WorkbookData, body: Record<string, unknown>) {
     'Machine ID': machine.id,
     'Machine Name': machine.name,
     'Machine Type': machine.type,
-    Department: machine.department,
     Operator: machine.operator,
     Status: machine.status,
-  }, ['Machine ID', 'Machine Name', 'Machine Type', 'Department', 'Operator', 'Status'])
+  }, ['Machine ID', 'Machine Name', 'Machine Type', 'Operator', 'Status'])
   return machine
 }
 
