@@ -1,5 +1,5 @@
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
-import { handleApiError, sendJson } from './_lib/http.js'
+import { ApiError, handleApiError, sendJson } from './_lib/http.js'
 import { getSessionUser, requireAdmin } from './_lib/session.js'
 import { listUsers, listWorkbookEcommerceReports } from './_lib/workbook.js'
 
@@ -12,9 +12,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     const users = await listUsers()
     const user = await getSessionUser(request, users)
-    requireAdmin(user)
+    if (user.role === 'Super Admin') requireAdmin(user)
+    else if (user.role !== 'E-commerce Executive') throw new ApiError(403, 'Only an E-commerce Executive or Super Admin can view daily reports.')
     const result = await listWorkbookEcommerceReports(user)
-    const reports = result.reports.map(report => ({
+    const visibleReports = user.role === 'Super Admin'
+      ? result.reports
+      : result.reports.filter(report => String(report.userId || '') === user.id)
+    const reports = visibleReports.map(report => ({
       id: String(report.id || ''),
       date: String(report.date || ''),
       platform: String(report.platform || ''),

@@ -1110,7 +1110,11 @@
     }
 
     function listEcommerceReports_(spreadsheet, payload) {
-      if (payload.sessionUserRole !== 'Super Admin') throw apiError_(403, 'Only the Super Admin can view E-commerce Executive daily reports.')
+      const role = String(payload.sessionUserRole || '')
+      if (role !== 'Super Admin' && role !== 'E-commerce Executive') {
+        throw apiError_(403, 'Only an E-commerce Executive or Super Admin can view daily reports.')
+      }
+      const sessionUserId = String(payload.sessionUserId || '')
       const folder = getEcommerceReportFolder_(false)
       if (!folder) return { reports: [] }
       const reports = []
@@ -1128,6 +1132,7 @@
             ERP_ECOMMERCE_PLATFORMS.indexOf(report.platform) < 0) {
           throw apiError_(500, 'A stored daily report has an unsupported format.')
         }
+        if (role === 'E-commerce Executive' && String(report.userId || '') !== sessionUserId) continue
         reports.push(report)
       }
       reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })

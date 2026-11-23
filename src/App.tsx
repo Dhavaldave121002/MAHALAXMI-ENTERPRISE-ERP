@@ -2292,8 +2292,9 @@ function EcommerceWorkspace({
   const [listingSearch, setListingSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [reportHistoryError, setReportHistoryError] = useState('')
   const [actionMessage, setActionMessage] = useState('')
-  const [reportSavedAt, setReportSavedAt] = useState<{ date: string; updatedAt: string; platform: EcommercePlatform } | null>(null)
+  const [ownReports, setOwnReports] = useState<EcommerceDailyReport[]>([])
   const [busy, setBusy] = useState(false)
   const [editingListingId, setEditingListingId] = useState('')
   const [platformSkuDraft, setPlatformSkuDraft] = useState('')
@@ -2304,12 +2305,24 @@ function EcommerceWorkspace({
       setData(result)
       setError('')
       setSelectedPlatform(current => result.platforms.includes(current) ? current : result.platforms[0] || 'AMAZON')
+      if (user.role === 'E-commerce Executive') {
+        try {
+          const reportResult = await apiFetch<{ reports: EcommerceDailyReport[] }>('/api/ecommerce-reports')
+          setOwnReports(reportResult.reports)
+          setReportHistoryError('')
+        } catch (requestError) {
+          setReportHistoryError(requestError instanceof Error ? requestError.message : 'Saved reports could not be loaded.')
+        }
+      } else {
+        setOwnReports([])
+        setReportHistoryError('')
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'E-commerce workspace could not be loaded.')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [user.role])
 
   useEffect(() => { void reload() }, [reload])
 
@@ -2320,6 +2333,7 @@ function EcommerceWorkspace({
   })
   const movements = data?.movements.filter(movement => movement.platform === selectedPlatform) || []
   const labels = data?.labels.filter(label => label.platform === selectedPlatform) || []
+  const latestOwnReport = ownReports.find(report => report.platform === selectedPlatform)
   const uniqueStock = new Map(listings.map(listing => [listing.productSku.toLowerCase(), listing.availableStock]))
   const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
   const monthlySummaries = (data?.platforms || []).map(platform =>
@@ -2421,7 +2435,7 @@ function EcommerceWorkspace({
     setBusy(true)
     setActionMessage('')
     try {
-      const result = await apiFetch<{ report: { date: string; updatedAt: string; platform: EcommercePlatform } }>('/api/ecommerce', {
+      const result = await apiFetch<{ report: EcommerceDailyReport }>('/api/ecommerce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2432,7 +2446,8 @@ function EcommerceWorkspace({
           issues: form.get('issues'),
         }),
       })
-      setReportSavedAt(result.report)
+      setOwnReports(current => [result.report, ...current.filter(report => report.id !== result.report.id)])
+      setReportHistoryError('')
       formElement.reset()
       setActionMessage('Daily report saved.')
     } catch (requestError) {
@@ -2521,8 +2536,17 @@ function EcommerceWorkspace({
           </section>}
           {showReport && <section className="panel ecommerce-section">
             <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per platform each day; new submissions update today’s report.</p></div></div>
+            {reportHistoryError && <p className="ecommerce-error" role="alert">{reportHistoryError}</p>}
             <form className="ecommerce-form" onSubmit={event => void submitDailyReport(event)}><label>Completed work<textarea name="completed" required maxLength={3000} rows={4} /></label><label>Pending work<textarea name="pending" maxLength={3000} rows={3} /></label><label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} /></label><button className="primary" type="submit" disabled={busy}><CheckCircle2 size={15} /> Submit daily report</button></form>
-            {reportSavedAt?.platform === selectedPlatform && <p className="ecommerce-report-saved" role="status">Report date: {formatIndiaDate(reportSavedAt.date)} · Last submitted/updated: {formatIndiaDateTime(reportSavedAt.updatedAt)}</p>}
+            <section className="ecommerce-report-saved" aria-label="Daily report status">
+              <p>Report date today: {formatIndiaDate(indiaDateKey())}</p>
+              {latestOwnReport ? <>
+                <strong>Latest saved: {formatIndiaDate(latestOwnReport.date)} · Last submitted/updated: {formatIndiaDateTime(latestOwnReport.updatedAt)}</strong>
+                <p><b>Completed:</b> {latestOwnReport.completed}</p>
+                <p><b>Pending:</b> {latestOwnReport.pending || '—'}</p>
+                <p><b>Issues / notes:</b> {latestOwnReport.issues || '—'}</p>
+              </> : <p>No report has been saved for {selectedPlatform} yet.</p>}
+            </section>
           </section>}
         </div>}
         <p className="ecommerce-feedback" role="status" aria-live="polite">{actionMessage}</p>
