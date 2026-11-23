@@ -82,9 +82,9 @@ const deliveryMarketplacePlatforms: Record<string, string[]> = {
   MYNTRA: ['MYNTRA'],
 }
 const productionBlocks = [
-  { name: 'Block 1', time: '09:30 AM – 12:30 PM' },
-  { name: 'Block 2', time: '01:00 PM – 04:00 PM' },
-  { name: 'Block 3', time: '04:20 PM – 07:00 PM' },
+  { name: 'Block 1', time: '09:30 AM – 12:30 PM', startMinute: 9 * 60 + 30, endMinute: 12 * 60 + 30 },
+  { name: 'Block 2', time: '01:00 PM – 04:00 PM', startMinute: 13 * 60, endMinute: 16 * 60 },
+  { name: 'Block 3', time: '04:20 PM – 07:00 PM', startMinute: 16 * 60 + 20, endMinute: 19 * 60 },
 ]
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
@@ -109,6 +109,19 @@ function indiaDateKey(date = new Date()) {
     month: '2-digit',
     day: '2-digit',
   }).format(date)
+}
+
+function currentProductionBlock(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const hour = Number(parts.find(part => part.type === 'hour')?.value)
+  const minute = Number(parts.find(part => part.type === 'minute')?.value)
+  const timeInMinutes = hour * 60 + minute
+  return productionBlocks.find(block => timeInMinutes >= block.startMinute && timeInMinutes < block.endMinute)
 }
 
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -657,7 +670,7 @@ export default function App() {
               exportExcel={exportExcel}
             />
           ) : (
-            <ModuleView module={module} products={products} marketplaceListings={marketplaceListings} production={production} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
+            <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
               saveProduction={saveProduction} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log} setModule={setModule}
@@ -672,7 +685,7 @@ export default function App() {
 }
 
 function ModuleView(props: {
-  module: Module; products: Product[]; marketplaceListings: MarketplaceListing[]; production: Production[];
+  module: Module; clock: Date; products: Product[]; marketplaceListings: MarketplaceListing[]; production: Production[];
   rawMaterials: RawMaterial[]; finishedGoods: FinishedGood[]; stockMovements: StockMovement[]; audit: string[]; search: string;
   workbookMeta: { loaded: boolean; name: string; sheetCount: number };
   setSearch: (v: string) => void; exportExcel: () => void;
@@ -693,7 +706,7 @@ function ModuleView(props: {
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
   allowedModules: Module[]
 }) {
-  const { module, products, marketplaceListings, production, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveRawMaterial, applyStockMovement, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
+  const { module, clock, products, marketplaceListings, production, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveRawMaterial, applyStockMovement, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
   const [catalogFormOpen, setCatalogFormOpen] = useState<'product' | 'variant' | 'listing' | null>(null)
   const [selectedCatalogMasterSku, setSelectedCatalogMasterSku] = useState('')
   const [stockFormOpen, setStockFormOpen] = useState(false)
@@ -706,6 +719,8 @@ function ModuleView(props: {
   const [deliveryPartnerChoice, setDeliveryPartnerChoice] = useState('')
   const [customDeliveryPartner, setCustomDeliveryPartner] = useState('')
   const [deliverySku, setDeliverySku] = useState('')
+  const [productionDate, setProductionDate] = useState(() => indiaDateKey(clock))
+  const [productionBlockChoice, setProductionBlockChoice] = useState('')
   const [marketplaceImportPreview, setMarketplaceImportPreview] = useState<MarketplaceImportRows | null>(null)
   const [marketplaceImportFileName, setMarketplaceImportFileName] = useState('')
   const [marketplaceImportError, setMarketplaceImportError] = useState('')
@@ -808,6 +823,8 @@ function ModuleView(props: {
         actual,
         rejected,
       })
+      setProductionDate(indiaDateKey(clock))
+      setProductionBlockChoice('')
       formElement.reset()
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Production entry could not be saved')
@@ -1462,8 +1479,10 @@ function ModuleView(props: {
   }
 
   if (module === 'Production') {
-    const today = indiaDateKey()
+    const today = indiaDateKey(clock)
     const month = today.slice(0, 7)
+    const autoProductionBlock = productionDate === today ? currentProductionBlock(clock) : undefined
+    const selectedProductionBlock = autoProductionBlock?.name || productionBlockChoice
     const variantMasters = new Set(products.filter(product => product.isVariant && product.status === 'Active').map(product => product.masterSku.toLowerCase()))
     const activeProducts = products.filter(product =>
       product.status === 'Active' && (product.isVariant || !variantMasters.has(product.sku.toLowerCase()))
@@ -1503,13 +1522,21 @@ function ModuleView(props: {
           <form className="panel form-card" onSubmit={submitProduction}>
             <div className="panel-heading"><div><h2>Quick production entry</h2><p>Record actual quantities by machine</p></div></div>
             <div className="field-grid">
-              <label>Date<input name="date" type="date" required defaultValue={today} /></label>
+              <label>Date<input name="date" type="date" required value={productionDate} onChange={event => {
+                setProductionDate(event.target.value)
+                setProductionBlockChoice('')
+              }} /></label>
               <label>Machine<select name="machine" required disabled={availableMachines.length === 0}><option value="">Select machine</option>{availableMachines.map(machine => <option key={machine.id} value={machine.id}>{machine.id}{machine.name ? ` — ${machine.name}` : ''}</option>)}</select></label>
-              <label>Production block<select name="block" required defaultValue=""><option value="">Select time block</option>{productionBlocks.map(block => <option key={block.name} value={block.name}>{block.name} · {block.time}</option>)}</select></label>
+              <label>Production block<select name={autoProductionBlock ? undefined : 'block'} required value={selectedProductionBlock} disabled={Boolean(autoProductionBlock)} onChange={event => setProductionBlockChoice(event.target.value)}><option value="">Select time block</option>{productionBlocks.map(block => <option key={block.name} value={block.name}>{block.name} · {block.time}</option>)}</select>{autoProductionBlock && <input type="hidden" name="block" value={autoProductionBlock.name} />}</label>
               <label>Product + SKU<select name="sku" required disabled={activeProducts.length === 0}><option value="">Select product and SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{[product.size, product.color].filter(Boolean).length ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
               <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
               <label>Rejected quantity<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /></label>
             </div>
+            {autoProductionBlock
+              ? <p className="local-storage-note">Automatically selected from current India time: {autoProductionBlock.name} ({autoProductionBlock.time}).</p>
+              : productionDate === today
+                ? <p className="local-storage-note">Current India time is outside a production block or during a break. Select the block manually for this entry.</p>
+                : <p className="local-storage-note">For a different production date, select the block manually.</p>}
             {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin or Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask the Super Admin or Production Supervisor to add a machine.' : ''}</p>}
             <button className="primary wide" type="submit" disabled={activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> Save production record</button>
           </form>
