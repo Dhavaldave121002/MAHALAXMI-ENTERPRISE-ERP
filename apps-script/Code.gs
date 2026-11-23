@@ -105,7 +105,7 @@
         case 'getWorkbookData':
           return getWorkbookData_(spreadsheet)
         case 'getUsers':
-          return { users: readCachedSheetRecords_(spreadsheet, 'Users') }
+          return { users: readSheetRecords_(spreadsheet, 'Users') }
         case 'createInitialAdmin':
           return createInitialAdmin_(spreadsheet, payload.user)
         case 'appendUser':

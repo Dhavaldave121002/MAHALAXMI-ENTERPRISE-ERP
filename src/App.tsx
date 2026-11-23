@@ -1963,6 +1963,15 @@ function ModuleView(props: {
 
   if (module === 'User Management') {
     if (sessionUser.role !== 'Super Admin') return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Only the Super Admin can manage users.</span></div></section>
+    const refreshUsers = async () => {
+      try {
+        const result = await apiFetch<{ users: UserAccount[] }>('/api/users')
+        setUsers(result.users)
+        notify(`${result.users.length} user accounts loaded`)
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'User accounts could not be refreshed')
+      }
+    }
     const exportUsers = () => {
       const safeRows = users.map(({ id, name, username, role, active, platforms }) => ({ ID: id, Name: name, Username: username, Role: role, Platforms: platforms.join(', '), Status: active ? 'Active' : 'Inactive' }))
       const workbook = XLSX.utils.book_new()
@@ -2022,7 +2031,7 @@ function ModuleView(props: {
     }
     return (
       <section>
-        <div className="page-heading"><div><p>ADMINISTRATION</p><h1>User Management</h1></div><button className="secondary" onClick={exportUsers}><Download size={16} /> Export users</button></div>
+        <div className="page-heading"><div><p>ADMINISTRATION</p><h1>User Management</h1></div><div className="heading-actions"><button className="secondary" onClick={() => void refreshUsers()}><RotateCcw size={16} /> Refresh users</button><button className="secondary" onClick={exportUsers}><Download size={16} /> Export users</button></div></div>
         <div className="form-grid">
           <form className="panel form-card" onSubmit={createUser}>
             <div className="panel-heading"><div><h2>Create account</h2><p>Assign a role and secure login</p></div></div>
