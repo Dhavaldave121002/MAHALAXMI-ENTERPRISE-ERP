@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse } from '../_lib/http.js'
 import { ApiError, handleApiError, sendJson } from '../_lib/http.js'
 import { getSessionSecret, getWorkbookData, listUsers, readUsers, type PublicUser } from '../_lib/workbook.js'
-import { getSessionUser, hasSignedSession } from '../_lib/session.js'
+import { getSessionUser, hasSignedSession, refreshSessionCookie } from '../_lib/session.js'
 import { getSnapshot } from '../erp.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -20,6 +20,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     } catch (error) {
       if (!(error instanceof ApiError) || error.statusCode !== 401) throw error
     }
+    if (user) refreshSessionCookie(response, request, user, data?.capabilities?.sessionBoundWrites === true)
     sendJson(response, 200, {
       configured: true,
       needsAdminSetup: !hasAdmin,

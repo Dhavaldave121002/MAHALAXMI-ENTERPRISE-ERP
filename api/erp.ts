@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
-import { getSessionUser, requireSupervisorOrAdmin } from './_lib/session.js'
+import { getSessionClaims, getSessionUser, refreshSessionCookie, requireSupervisorOrAdmin } from './_lib/session.js'
 import {
   addWorkbookMarketplaceListing,
   addWorkbookRawMaterial,
@@ -699,6 +699,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       const data = await getWorkbookData()
       const users = readUsers(data.sheets.Users || [])
       const user = await getSessionUser(request, users)
+      refreshSessionCookie(response, request, user, data.capabilities?.sessionBoundWrites === true)
       sendJson(response, 200, getSnapshot(data, user))
       return
     }
@@ -706,8 +707,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const body = await readJsonBody(request)
     const action = text(body.action)
     const snapshotActions = ['addProduction', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine']
+    const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook']
     const data = snapshotActions.includes(action) ? await getWorkbookData() : undefined
-    const user = await getSessionUser(request, data ? readUsers(data.sheets.Users || []) : undefined)
+    const user = data
+      ? await getSessionUser(request, readUsers(data.sheets.Users || []))
+      : sessionBoundActions.includes(action)
+        ? getSessionClaims(request) || await getSessionUser(request)
+        : await getSessionUser(request)
 
     if (action === 'addProduction') {
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for production validation.')

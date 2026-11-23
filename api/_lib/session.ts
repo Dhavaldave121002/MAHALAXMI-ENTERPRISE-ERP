@@ -1,12 +1,19 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './http.js'
 import { ApiError } from './http.js'
-import { getSessionSecret, listUsers, publicUser, type PublicUser, type WorkbookUser } from './workbook.js'
+import { getSessionSecret, isUserRole, listUsers, publicUser, type PublicUser, type UserRole, type WorkbookUser } from './workbook.js'
 
 const SESSION_COOKIE = 'mahalaxmi_session'
 const SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 30
 
-type SessionPayload = { userId: string; expiresAt: number }
+type SessionPayload = {
+  userId: string
+  expiresAt: number
+  name?: string
+  username?: string
+  role?: UserRole
+  sessionBoundWrites?: boolean
+}
 
 function sign(value: string) {
   return createHmac('sha256', getSessionSecret()).update(value).digest('base64url')
@@ -21,13 +28,29 @@ function getCookie(request: ApiRequest, name: string) {
   return ''
 }
 
-export function setSessionCookie(response: ApiResponse, userId: string) {
-  const expiresAt = Date.now() + SESSION_LIFETIME_SECONDS * 1000
-  const payload: SessionPayload = { userId, expiresAt }
+function writeSessionCookie(response: ApiResponse, user: PublicUser, expiresAt: number, sessionBoundWrites: boolean) {
+  const payload: SessionPayload = {
+    userId: user.id,
+    expiresAt,
+    name: user.name,
+    username: user.username,
+    role: user.role,
+    sessionBoundWrites,
+  }
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
   const token = `${encoded}.${sign(encoded)}`
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
-  response.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_LIFETIME_SECONDS}${secure}`)
+  const maxAge = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
+  response.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`)
+}
+
+export function setSessionCookie(response: ApiResponse, user: PublicUser) {
+  writeSessionCookie(response, user, Date.now() + SESSION_LIFETIME_SECONDS * 1000, false)
+}
+
+export function refreshSessionCookie(response: ApiResponse, request: ApiRequest, user: PublicUser, sessionBoundWrites: boolean) {
+  const payload = readSessionPayload(request)
+  writeSessionCookie(response, user, payload.expiresAt, sessionBoundWrites)
 }
 
 export function clearSessionCookie(response: ApiResponse) {
@@ -55,6 +78,12 @@ function readSessionPayload(request: ApiRequest): SessionPayload {
   if (typeof payload.userId !== 'string' || typeof payload.expiresAt !== 'number' || payload.expiresAt <= Date.now()) {
     throw new ApiError(401, 'Your session has expired. Please sign in again.')
   }
+  if (payload.role !== undefined && !isUserRole(payload.role)) {
+    throw new ApiError(401, 'Your session is invalid. Please sign in again.')
+  }
+  if (payload.sessionBoundWrites !== undefined && typeof payload.sessionBoundWrites !== 'boolean') {
+    throw new ApiError(401, 'Your session is invalid. Please sign in again.')
+  }
   return payload
 }
 
@@ -74,6 +103,18 @@ export async function getSessionUser(request: ApiRequest, users?: WorkbookUser[]
   const user = accounts.find(item => item.id === payload.userId && item.active)
   if (!user) throw new ApiError(401, 'This account is inactive or no longer exists.')
   return publicUser(user)
+}
+
+export function getSessionClaims(request: ApiRequest): PublicUser | null {
+  const payload = readSessionPayload(request)
+  if (!payload.sessionBoundWrites || !payload.name || !payload.username || !payload.role) return null
+  return {
+    id: payload.userId,
+    name: payload.name,
+    username: payload.username,
+    role: payload.role,
+    active: true,
+  }
 }
 
 export function requireAdmin(user: PublicUser) {

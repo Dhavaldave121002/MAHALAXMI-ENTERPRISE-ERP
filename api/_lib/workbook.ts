@@ -18,11 +18,13 @@ export type WorkbookUser = {
   createdAt: string
 }
 export type PublicUser = Pick<WorkbookUser, 'id' | 'name' | 'username' | 'role' | 'active'>
+export type WorkbookCapabilities = { sessionBoundWrites?: boolean }
 export type WorkbookData = {
   name: string
   sheetCount: number
   sheetNames: string[]
   sheets: Record<string, Record<string, unknown>[]>
+  capabilities?: WorkbookCapabilities
 }
 
 function getAppsScriptConfiguration() {

@@ -23,7 +23,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const adminRole: UserRole = 'Super Admin'
     const admin = newUser({ id: randomUUID(), name, username, role: adminRole, ...credentials })
     await createInitialAdmin(admin)
-    setSessionCookie(response, admin.id)
+    setSessionCookie(response, admin)
     sendJson(response, 201, { user: { id: admin.id, name: admin.name, username: admin.username, role: admin.role, active: true } })
   } catch (error) {
     handleApiError(response, error, 'Initial admin setup')

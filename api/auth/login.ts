@@ -23,7 +23,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (scope === 'admin' && user.role !== 'Super Admin') {
       throw new ApiError(403, 'The /admin login is only for the Super Admin.')
     }
-    setSessionCookie(response, user.id)
+    setSessionCookie(response, user)
     sendJson(response, 200, { user: { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active } })
   } catch (error) {
     handleApiError(response, error, 'Login')

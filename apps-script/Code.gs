@@ -2,6 +2,8 @@
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
     const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook']
+    const ERP_WORKBOOK_CACHE_SECONDS = 10
+    const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
     const ERP_FINISHED_GOODS_HEADERS = ['Product SKU', 'Product Name', 'Opening Stock', 'Production Received', 'Quality Approved', 'Rejected', 'Reserved Stock', 'Available Stock', 'Dispatched Stock', 'Returned Stock', 'Damaged Stock', 'Last Updated', 'Adjustment In', 'Adjustment Out', 'Status']
     const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner']
@@ -58,6 +60,13 @@
           payload.createdBy = user.name
         }
         const data = dispatch_(spreadsheet, request.action, payload)
+        if (request.action !== 'getWorkbookData' && request.action !== 'getUsers') {
+          try {
+            invalidateWorkbookCache_(spreadsheet)
+          } catch (error) {
+            Logger.log('Workbook cache invalidation failed after ' + request.action + ': ' + String(error))
+          }
+        }
         return jsonOutput_({ ok: true, data: data })
       } catch (error) {
         return jsonOutput_({
@@ -86,7 +95,7 @@
         case 'getWorkbookData':
           return getWorkbookData_(spreadsheet)
         case 'getUsers':
-          return { users: readSheetRecords_(spreadsheet, 'Users') }
+          return { users: readCachedSheetRecords_(spreadsheet, 'Users') }
         case 'createInitialAdmin':
           return createInitialAdmin_(spreadsheet, payload.user)
         case 'appendUser':
@@ -119,13 +128,15 @@
     function getWorkbookData_(spreadsheet) {
       const sheets = {}
       ERP_DATA_SHEETS.forEach(function (name) {
-        sheets[name] = readSheetRecords_(spreadsheet, name)
+        sheets[name] = readCachedSheetRecords_(spreadsheet, name)
       })
+      const actualSheets = spreadsheet.getSheets()
       return {
         name: spreadsheet.getName(),
-        sheetCount: spreadsheet.getSheets().length,
-        sheetNames: spreadsheet.getSheets().map(function (sheet) { return sheet.getName() }),
+        sheetCount: actualSheets.length,
+        sheetNames: actualSheets.map(function (sheet) { return sheet.getName() }),
         sheets: sheets,
+        capabilities: { sessionBoundWrites: true },
       }
     }
 
@@ -144,6 +155,54 @@
         })
         return record
       })
+    }
+
+    function workbookCacheKey_(spreadsheet, name) {
+      return 'ERP_WORKBOOK_V1_' + spreadsheet.getId() + '_' + name
+    }
+
+    function readCachedSheetRecords_(spreadsheet, name) {
+      const cache = CacheService.getScriptCache()
+      const key = workbookCacheKey_(spreadsheet, name)
+      let cached
+      try {
+        cached = cache.get(key)
+      } catch (error) {
+        Logger.log('Workbook cache read failed for ' + name + ': ' + String(error))
+        return readSheetRecords_(spreadsheet, name)
+      }
+      if (cached !== null) {
+        try {
+          const records = JSON.parse(cached)
+          if (Array.isArray(records)) return records
+          Logger.log('Ignoring invalid ERP workbook cache entry for ' + name + '.')
+        } catch (error) {
+          Logger.log('Ignoring invalid ERP workbook cache entry for ' + name + ': ' + String(error))
+        }
+        try {
+          cache.remove(key)
+        } catch (error) {
+          Logger.log('Could not remove invalid ERP workbook cache entry for ' + name + ': ' + String(error))
+        }
+      }
+
+      const records = readSheetRecords_(spreadsheet, name)
+      const serialized = JSON.stringify(records)
+      if (Utilities.newBlob(serialized).getBytes().length <= ERP_WORKBOOK_CACHE_MAX_BYTES) {
+        try {
+          cache.put(key, serialized, ERP_WORKBOOK_CACHE_SECONDS)
+        } catch (error) {
+          Logger.log('Workbook cache write failed for ' + name + ': ' + String(error))
+        }
+      }
+      return records
+    }
+
+    function invalidateWorkbookCache_(spreadsheet) {
+      const keys = ERP_DATA_SHEETS.map(function (name) {
+        return workbookCacheKey_(spreadsheet, name)
+      })
+      CacheService.getScriptCache().removeAll(keys)
     }
 
     function ensureStockSheet_(spreadsheet, name, requiredHeaders, backupState) {
