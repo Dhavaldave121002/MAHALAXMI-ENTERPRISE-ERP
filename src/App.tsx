@@ -113,12 +113,54 @@ function readStored<T>(key: string, fallback: T): T {
 }
 
 function indiaDateKey(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
+  const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Kolkata',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
+  }).formatToParts(date)
+  const part = (type: string) => parts.find(item => item.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function shiftDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12))
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
+function formatIndiaDate(dateKey: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey)
+  if (!match) return dateKey
+  const [, year, month, day] = match
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12))
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
   }).format(date)
+}
+
+function formatIndiaWeekday(dateKey: string) {
+  const date = new Date(`${dateKey}T12:00:00Z`)
+  return new Intl.DateTimeFormat('en-IN', { weekday: 'short', timeZone: 'UTC' }).format(date)
+}
+
+function formatIndiaDateTime(value: string) {
+  const date = new Date(value)
+  if (!value || Number.isNaN(date.getTime())) return value || '—'
+  const parts = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(date)
+  const part = (type: string) => parts.find(item => item.type === type)?.value || ''
+  return `${part('day')} ${part('month')} ${part('year')}, ${part('hour')}:${part('minute')} ${part('dayPeriod')} IST`
 }
 
 function currentProductionBlock(date: Date) {
@@ -369,7 +411,7 @@ export default function App() {
   }, [sessionUser, refreshWorkbook])
 
   const notify = (message: string) => { setToast(message); setTimeout(() => setToast(''), 2600) }
-  const log = (message: string) => setAudit(prev => [`${new Date().toLocaleString()} — ${message}`, ...prev])
+  const log = (message: string) => setAudit(prev => [`${formatIndiaDateTime(new Date().toISOString())} — ${message}`, ...prev])
 
   const globalSearchResults = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -759,11 +801,9 @@ export default function App() {
   }
 
   const productionChart = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date()
-    date.setDate(date.getDate() - (6 - index))
-    const key = indiaDateKey(date)
+    const key = shiftDateKey(indiaDateKey(clock), index - 6)
     return {
-      name: new Intl.DateTimeFormat('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' }).format(date),
+      date: key,
       qty: production.filter(row => row.date === key).reduce((sum, row) => sum + row.actual, 0),
     }
   })
@@ -837,6 +877,7 @@ export default function App() {
               users={users}
               products={products}
               production={production}
+              today={indiaDateKey(clock)}
               machines={machines}
               productionChart={productionChart}
               setModule={setModule}
@@ -1691,7 +1732,7 @@ function ModuleView(props: {
     }
     return (
       <section>
-        <div className="page-heading"><div><p>FACTORY · {today}</p><h1>Production</h1></div><div className="heading-actions"><button className="secondary" onClick={exportDailyReport}><Download size={17} /> Daily Excel</button><button className="primary" onClick={exportMonthlyReport}><FileSpreadsheet size={17} /> Monthly Excel</button></div></div>
+        <div className="page-heading"><div><p>FACTORY · {formatIndiaDate(today)}</p><h1>Production</h1></div><div className="heading-actions"><button className="secondary" onClick={exportDailyReport}><Download size={17} /> Daily Excel</button><button className="primary" onClick={exportMonthlyReport}><FileSpreadsheet size={17} /> Monthly Excel</button></div></div>
         <div className="form-grid">
           <form className="panel form-card" onSubmit={submitProduction}>
             <div className="panel-heading"><div><h2>Quick production entry</h2><p>Record actual quantities by machine</p></div></div>
@@ -1699,7 +1740,7 @@ function ModuleView(props: {
               <label>Date<input name="date" type="date" required value={productionDate} onChange={event => {
                 setProductionDate(event.target.value)
                 setProductionBlockChoice('')
-              }} /></label>
+              }} /><small className="field-hint">India date: {formatIndiaDate(productionDate)}</small></label>
               <label>Machine<select name="machine" required disabled={availableMachines.length === 0}><option value="">Select machine</option>{availableMachines.map(machine => <option key={machine.id} value={machine.id}>{machine.id}{machine.name ? ` — ${machine.name}` : ''}</option>)}</select></label>
               <label>Production block<select name={autoProductionBlock ? undefined : 'block'} required value={selectedProductionBlock} disabled={Boolean(autoProductionBlock)} onChange={event => setProductionBlockChoice(event.target.value)}><option value="">Select time block</option>{productionBlocks.map(block => <option key={block.name} value={block.name}>{block.name} · {block.time}</option>)}</select>{autoProductionBlock && <input type="hidden" name="block" value={autoProductionBlock.name} />}</label>
               <label>Product + SKU<select name="sku" required disabled={activeProducts.length === 0}><option value="">Select product and SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{[product.size, product.color].filter(Boolean).length ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
@@ -1720,7 +1761,7 @@ function ModuleView(props: {
             <div className="break-note"><AlertTriangle size={16} /> Break time is not counted as production time.</div>
           </div>
         </div>
-        <div className="table-card entries-table"><table><thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{visibleProduction.map(row => <tr key={row.id}><td>{row.date}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{row.createdBy || '—'}</td></tr>)}</tbody></table>{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
+        <div className="table-card entries-table"><table><thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{visibleProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{row.createdBy || '—'}</td></tr>)}</tbody></table>{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
       </section>
     )
   }
@@ -1843,7 +1884,7 @@ function MovementTable({ movements, showDeliveryDetails = false }: { movements: 
     <>
       <table aria-label="Stock movement history"><thead><tr><th>Date / time</th><th>Item</th><th>SKU</th><th>Movement</th><th>Quantity</th><th>Balance</th>{showDeliveryDetails && <><th>Channel</th><th>Delivery partner</th></>}<th>Reference</th><th>Reason</th><th>Entered by</th></tr></thead><tbody>
         {movements.map(movement => <tr key={movement.id}>
-          <td>{movement.date ? movement.date.replace('T', ' ').slice(0, 19) : '—'}</td>
+          <td>{formatIndiaDateTime(movement.date)}</td>
           <td>{movement.itemType || '—'}</td>
           <td><code>{movement.sku}</code></td>
           <td>{movement.type}</td>
@@ -1866,14 +1907,15 @@ type DashboardViewProps = {
   users: UserAccount[]
   products: Product[]
   production: Production[]
+  today: string
   machines: Machine[]
-  productionChart: { name: string; qty: number }[]
+  productionChart: { date: string; qty: number }[]
   setModule: (module: Module) => void
   exportExcel: () => void
 }
 
 function DashboardView({
-  role, user, users, products, production, machines, productionChart, setModule, exportExcel,
+  role, user, users, products, production, today, machines, productionChart, setModule, exportExcel,
 }: DashboardViewProps) {
   if (role === 'Store Manager') {
     return (
@@ -1883,7 +1925,6 @@ function DashboardView({
       </section>
     )
   }
-  const today = indiaDateKey()
   const todayProduction = production.filter(row => row.date === today)
   const todayUnits = todayProduction.reduce((sum, row) => sum + row.actual, 0)
   const todayRejected = todayProduction.reduce((sum, row) => sum + row.rejected, 0)
@@ -1978,8 +2019,8 @@ function DashboardView({
       <div className="dashboard-grid">
         <section className="panel production-panel">
           <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Factory production' : role === 'Super Admin' ? 'Factory production' : 'My production overview'}</h2><p>Actual output over the last 7 days</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
-          <div className="chart-stat"><strong>{production.reduce((sum, row) => sum + row.actual, 0)}</strong><span><ArrowUpRight size={14} /> 7 days</span></div>
-          <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
+          <div className="chart-stat"><strong>{productionChart.reduce((sum, day) => sum + day.qty, 0)}</strong><span><ArrowUpRight size={14} /> 7 days</span></div>
+          <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" interval={0} tickFormatter={value => formatIndiaWeekday(String(value))} axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip labelFormatter={label => `${formatIndiaWeekday(String(label))}, ${formatIndiaDate(String(label))}`} /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
         </section>
 
         {role === 'Super Admin' ? (
@@ -2014,7 +2055,7 @@ function DashboardView({
         <section className="panel">
           <div className="panel-heading"><div><h2>{role === 'Production Supervisor' || role === 'Super Admin' ? 'Recent factory production' : 'My recent production'}</h2><p>{role === 'Production Supervisor' || role === 'Super Admin' ? 'Latest entries across the team' : 'Your latest saved entries'}</p></div></div>
           {recentProduction.length ? (
-            <div className="dashboard-table"><table><thead><tr><th>Date</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{recentProduction.map(row => <tr key={row.id}><td>{row.date}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{role === 'Production Supervisor' || role === 'Super Admin' ? row.createdBy || '—' : user.name}</td></tr>)}</tbody></table></div>
+            <div className="dashboard-table"><table><thead><tr><th>Date</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{recentProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{role === 'Production Supervisor' || role === 'Super Admin' ? row.createdBy || '—' : user.name}</td></tr>)}</tbody></table></div>
           ) : <div className="empty-state"><Factory size={24} /><strong>No production entries yet</strong><span>Saved entries will appear here.</span></div>}
         </section>
         <section className="panel">
