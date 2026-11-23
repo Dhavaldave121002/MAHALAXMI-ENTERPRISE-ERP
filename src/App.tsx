@@ -3,7 +3,7 @@ import {
   AlertTriangle, Archive, ArrowUpRight, BarChart3,
   Boxes, Building2, CircleDollarSign, ClipboardCheck,
   Factory, FileSpreadsheet, Gauge, LayoutDashboard, Menu, Package,
-  RotateCcw, Search, Settings, ShoppingCart, Truck, UserCog, Users,
+  RotateCcw, Search, Settings, ShoppingCart, Target, Truck, UserCog, Users,
   Plus, Download, Upload, Bell, CheckCircle2, LogOut, LockKeyhole,
 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -42,9 +42,9 @@ type UserAccount = { id: string; name: string; username: string; role: Role; act
 type EcommerceListing = { id: string; platform: EcommercePlatform; platformSku: string; productSku: string; productName: string; availableStock: number; stockStatus: string; status: string }
 type EcommerceMovement = { id: string; date: string; platform: EcommercePlatform; orderNumber: string; type: string; sku: string; quantity: number; reason: string }
 type EcommerceLabel = { id: string; platform: EcommercePlatform; orderNumber: string; fileName: string; uploadedAt: string; uploadedBy: string }
-type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[] }
+type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[]; targets: Partial<Record<EcommercePlatform, number>> }
 type EcommerceDailyReport = { id: string; date: string; platform: EcommercePlatform; userName: string; completed: string; pending: string; issues: string; updatedAt: string }
-type EcommercePlatformSummary = { platform: EcommercePlatform; dispatchedOrders: number; dispatchedUnits: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
+type EcommercePlatformSummary = { platform: EcommercePlatform; dailyTarget: number; monthlyTarget: number; achievementPercent: number | null; dispatchedOrders: number; dispatchedUnits: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
@@ -151,11 +151,18 @@ function monthForTimestamp(value: string) {
   return `${part('year')}-${part('month')}`
 }
 
+function daysInMonth(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number)
+  if (!Number.isInteger(year) || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) return 0
+  return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
+}
+
 function summarizeEcommercePlatform(
   platform: EcommercePlatform,
   movements: EcommerceMovement[],
   reports: EcommerceDailyReport[],
   month: string,
+  dailyTarget = 0,
 ): EcommercePlatformSummary {
   const rows = movements.filter(item => item.platform === platform && monthForTimestamp(item.date) === month)
   const rowsOfType = (type: string) => rows.filter(item => item.type === type)
@@ -163,9 +170,14 @@ function summarizeEcommercePlatform(
   const dispatched = rowsOfType('Dispatch')
   const returned = rowsOfType('Return')
   const damaged = rowsOfType('Damage')
+  const dispatchedOrders = uniqueOrders(dispatched)
+  const monthlyTarget = dailyTarget * daysInMonth(month)
   return {
     platform,
-    dispatchedOrders: uniqueOrders(dispatched),
+    dailyTarget,
+    monthlyTarget,
+    achievementPercent: monthlyTarget > 0 ? Math.round((dispatchedOrders / monthlyTarget) * 100) : null,
+    dispatchedOrders,
     dispatchedUnits: dispatched.reduce((total, item) => total + item.quantity, 0),
     returnedOrders: uniqueOrders(returned),
     returnedUnits: returned.reduce((total, item) => total + item.quantity, 0),
@@ -2083,7 +2095,10 @@ function ModuleView(props: {
 function EcommerceMonthlyDashboard() {
   const [data, setData] = useState<EcommerceWorkspaceData | null>(null)
   const [reports, setReports] = useState<EcommerceDailyReport[]>([])
+  const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({})
   const [selectedMonth, setSelectedMonth] = useState(() => indiaMonthKey())
+  const [savingTarget, setSavingTarget] = useState<EcommercePlatform | null>(null)
+  const [targetMessage, setTargetMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -2095,6 +2110,7 @@ function EcommerceMonthlyDashboard() {
     ]).then(([workspace, reportResult]) => {
       if (!active) return
       setData(workspace)
+      setTargetDrafts(Object.fromEntries(ecommercePlatforms.map(platform => [platform, String(workspace.targets[platform] ?? 0)])))
       setReports(reportResult.reports)
       setError('')
     }).catch(requestError => {
@@ -2106,7 +2122,7 @@ function EcommerceMonthlyDashboard() {
   }, [])
 
   const summaries = ecommercePlatforms.map(platform =>
-    summarizeEcommercePlatform(platform, data?.movements || [], reports, selectedMonth),
+    summarizeEcommercePlatform(platform, data?.movements || [], reports, selectedMonth, data?.targets[platform] ?? 0),
   )
   const monthlyReports = reports.filter(report => report.date.slice(0, 7) === selectedMonth)
   const orderCount = summaries.reduce((total, item) => total + item.dispatchedOrders, 0)
@@ -2114,11 +2130,38 @@ function EcommerceMonthlyDashboard() {
   const returnedOrders = summaries.reduce((total, item) => total + item.returnedOrders, 0)
   const damagedUnits = summaries.reduce((total, item) => total + item.damagedUnits, 0)
 
+  const saveDailyTarget = async (platform: EcommercePlatform) => {
+    const rawTarget = targetDrafts[platform] ?? ''
+    const target = Number(rawTarget)
+    if (!rawTarget.trim() || !Number.isInteger(target) || target < 0 || target > 100000) {
+      setTargetMessage('Enter a whole-number daily target from 0 to 100,000.')
+      return
+    }
+    setSavingTarget(platform)
+    setTargetMessage('')
+    try {
+      const result = await apiFetch<{ platform: EcommercePlatform; target: number }>('/api/ecommerce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'setTarget', platform, target }),
+      })
+      setData(current => current ? { ...current, targets: { ...current.targets, [platform]: result.target } } : current)
+      setTargetMessage(`${platform} daily target saved.`)
+    } catch (requestError) {
+      setTargetMessage(requestError instanceof Error ? requestError.message : 'Daily target could not be saved.')
+    } finally {
+      setSavingTarget(null)
+    }
+  }
+
   const exportMonthlyReport = () => {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaries.map(item => ({
       Platform: item.platform,
+      'Daily Order Target': item.dailyTarget,
+      'Monthly Order Target': item.monthlyTarget,
       'Orders Dispatched': item.dispatchedOrders,
+      'Target Achievement (%)': item.achievementPercent ?? '',
       'Units Dispatched': item.dispatchedUnits,
       'Return Orders': item.returnedOrders,
       'Return Units': item.returnedUnits,
@@ -2155,7 +2198,16 @@ function EcommerceMonthlyDashboard() {
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returned orders</span><strong>{returnedOrders}</strong><small>{selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon purple"><ClipboardCheck size={20} /></div><div className="stat-body"><span>Executive reports / damaged units</span><strong>{monthlyReports.length} / {damagedUnits.toLocaleString('en-IN')}</strong><small>{selectedMonth}</small></div></div>
         </div>
-        <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th><th>Daily reports</th></tr></thead><tbody>{summaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td><td>{summary.dailyReports}</td></tr>)}</tbody></table></div>
+        <section className="ecommerce-target-settings" aria-label="Daily marketplace order targets">
+          <div className="ecommerce-admin-reports-heading"><strong>Daily order targets</strong><span>Set the per-platform target; monthly target uses calendar days.</span></div>
+          <div className="ecommerce-target-grid">{ecommercePlatforms.map(platform => <form key={platform} className="ecommerce-target-form" onSubmit={event => { event.preventDefault(); void saveDailyTarget(platform) }}>
+            <strong>{platform}</strong>
+            <label>Orders / day (0 = no target)<input type="number" min="0" max="100000" step="1" value={targetDrafts[platform] ?? '0'} onChange={event => setTargetDrafts(current => ({ ...current, [platform]: event.target.value }))} /></label>
+            <button className="secondary" type="submit" disabled={savingTarget !== null}>{savingTarget === platform ? 'Saving…' : 'Save target'}</button>
+          </form>)}</div>
+          <p className="ecommerce-feedback" role="status" aria-live="polite">{targetMessage}</p>
+        </section>
+        <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Daily target</th><th>Monthly target</th><th>Orders dispatched</th><th>Target achievement</th><th>Units</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th><th>Daily reports</th></tr></thead><tbody>{summaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dailyTarget}</td><td>{summary.monthlyTarget.toLocaleString('en-IN')}</td><td>{summary.dispatchedOrders}</td><td>{summary.achievementPercent === null ? '—' : `${summary.achievementPercent}%`}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td><td>{summary.dailyReports}</td></tr>)}</tbody></table></div>
         <div className="ecommerce-admin-reports">
           <div className="ecommerce-admin-reports-heading"><strong>{selectedMonth} executive daily reports</strong><span>{monthlyReports.length} submissions</span></div>
           {monthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No reports submitted this month</strong></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead><tbody>{monthlyReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
@@ -2197,7 +2249,7 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
   const uniqueStock = new Map(listings.map(listing => [listing.productSku.toLowerCase(), listing.availableStock]))
   const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
   const monthlySummaries = (data?.platforms || []).map(platform =>
-    summarizeEcommercePlatform(platform, data?.movements || [], [], selectedMonth),
+    summarizeEcommercePlatform(platform, data?.movements || [], [], selectedMonth, data?.targets[platform] ?? 0),
   )
   const selectedSummary = monthlySummaries.find(summary => summary.platform === selectedPlatform)
 
@@ -2321,6 +2373,7 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
   return (
     <section className="ecommerce-workspace">
       <div className="page-heading"><div><p>PLATFORM OPERATIONS</p><h1>E-commerce Workspace</h1><span className="catalog-intro">Platform access is verified on the server for stock, orders, SKU updates, labels, and reports.</span></div><button className="secondary" onClick={() => { setLoading(true); void reload() }} disabled={loading}><RotateCcw size={16} /> Refresh</button></div>
+      <nav className="ecommerce-quick-links" aria-label="E-commerce workspace shortcuts"><a className="secondary" href="#ecommerce-shipping-labels"><FileSpreadsheet size={16} /> Shipping Labels</a></nav>
       {error && <div className="ecommerce-error" role="alert">{error}</div>}
       {loading && !data && <div className="panel empty-state">Loading assigned platform data…</div>}
       {data && <>
@@ -2331,7 +2384,7 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
           </div>
           <div className="ecommerce-platform-tags">{data.platforms.map(platform => <span className="ecommerce-platform-tag" key={platform}>{platform}</span>)}</div>
           <p className="ecommerce-metric-note">Dispatched orders are counted by unique order number; the ledger does not track delivery confirmation.</p>
-          <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units dispatched</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td></tr>)}</tbody></table></div>
+          <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Daily target</th><th>Monthly target</th><th>Orders dispatched</th><th>Target achievement</th><th>Units dispatched</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dailyTarget}</td><td>{summary.monthlyTarget.toLocaleString('en-IN')}</td><td>{summary.dispatchedOrders}</td><td>{summary.achievementPercent === null ? '—' : `${summary.achievementPercent}%`}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td></tr>)}</tbody></table></div>
         </section>
         <div className="ecommerce-platform-tabs" role="tablist" aria-label="Assigned marketplace platforms">
           {data.platforms.map(platform => <button key={platform} type="button" role="tab" aria-selected={selectedPlatform === platform} className={selectedPlatform === platform ? 'active' : ''} onClick={() => { setSelectedPlatform(platform); setActionMessage('') }}>{platform}</button>)}
@@ -2339,8 +2392,9 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
         <div className="stats-grid ecommerce-stock-summary">
           <div className="stat-card"><div className="stat-icon blue"><Boxes size={20} /></div><div className="stat-body"><span>Available stock</span><strong>{Array.from(uniqueStock.values()).reduce((total, stock) => total + stock, 0).toLocaleString('en-IN')}</strong><small>Across {listings.length} assigned listings</small></div></div>
           <div className="stat-card"><div className="stat-icon green"><Truck size={20} /></div><div className="stat-body"><span>Orders dispatched this month</span><strong>{selectedSummary?.dispatchedOrders || 0}</strong><small>{selectedSummary?.dispatchedUnits || 0} units · {selectedMonth}</small></div></div>
+          <div className="stat-card"><div className="stat-icon purple"><Target size={20} /></div><div className="stat-body"><span>Daily order target</span><strong>{selectedSummary?.dailyTarget ?? 0}</strong><small>{selectedSummary?.monthlyTarget.toLocaleString('en-IN') ?? 0} monthly · {selectedSummary?.achievementPercent === null || selectedSummary?.achievementPercent === undefined ? '—' : `${selectedSummary.achievementPercent}%`} achieved</small></div></div>
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returns / damage this month</span><strong>{(selectedSummary?.returnedOrders || 0) + (selectedSummary?.damagedOrders || 0)}</strong><small>Order events · {selectedMonth}</small></div></div>
-          <div className="stat-card"><div className="stat-icon purple"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Stored privately</small></div></div>
+          <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Stored privately</small></div></div>
         </div>
         <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>{selectedPlatform} stock and SKUs</h2><p>Only listings linked to this platform are shown.</p></div></div>
@@ -2351,7 +2405,7 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
           {movements.length === 0 ? <div className="empty-state"><Truck size={24} /><strong>No platform orders yet</strong><span>Platform dispatches and linked returns will appear here.</span></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Order number</th><th>Type</th><th>Product SKU</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>{movements.map(item => <tr key={item.id}><td>{formatIndiaDateTime(item.date)}</td><td><code>{item.orderNumber}</code></td><td>{item.type}</td><td><code>{item.sku}</code></td><td>{item.quantity}</td><td>{item.reason || '—'}</td></tr>)}</tbody></table></div>}
         </section>
         <div className="ecommerce-panels">
-          <section className="panel ecommerce-section">
+          <section className="panel ecommerce-section" id="ecommerce-shipping-labels">
             <div className="panel-heading"><div><h2>Shipping labels</h2><p>PDFs are stored in private Drive and downloaded through this signed-in account.</p></div></div>
             {canEdit && <form className="ecommerce-form" onSubmit={event => void uploadLabel(event)}><label>Marketplace order number<input name="orderNumber" required maxLength={120} /></label><label>Label PDF<input name="label" type="file" accept="application/pdf,.pdf" required /></label><small>PDF only · maximum 3 MB</small><button className="primary" type="submit" disabled={busy}><Upload size={15} /> Upload label</button></form>}
             {labels.length === 0 ? <div className="empty-state"><FileSpreadsheet size={24} /><strong>No labels for {selectedPlatform}</strong><span>Uploaded shipping labels will be listed here.</span></div> : <div className="ecommerce-label-list">{labels.map(label => <div className="ecommerce-label-row" key={label.id}><div><strong>{label.orderNumber}</strong><span>{label.fileName} · {formatIndiaDateTime(label.uploadedAt)}</span></div><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLabel(label)}><Download size={15} /> Download</button></div>)}</div>}

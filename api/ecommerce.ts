@@ -6,7 +6,9 @@ import {
   getWorkbookData,
   listUsers,
   listWorkbookEcommerceLabels,
+  listWorkbookEcommerceTargets,
   readSheetRecords,
+  setWorkbookEcommerceTarget,
   updateWorkbookMarketplaceSku,
   uploadWorkbookEcommerceLabel,
   submitWorkbookEcommerceReport,
@@ -127,11 +129,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     requireWorkspaceRole(user)
 
     if (request.method === 'GET') {
-      const [data, labelResult] = await Promise.all([
+      const [data, labelResult, targetResult] = await Promise.all([
         getWorkbookData(),
         listWorkbookEcommerceLabels(user),
+        listWorkbookEcommerceTargets(user),
       ])
-      sendJson(response, 200, { ...workspaceData(data, user), labels: labelResult.labels })
+      sendJson(response, 200, { ...workspaceData(data, user), labels: labelResult.labels, targets: targetResult.targets })
       return
     }
 
@@ -139,6 +142,16 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const action = text(body.action)
     const platform = requirePlatform(body.platform)
     requirePlatformAccess(user, platform)
+
+    if (action === 'setTarget') {
+      if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can set marketplace daily targets.')
+      if (typeof body.target !== 'number' || !Number.isInteger(body.target) || body.target < 0 || body.target > 100000) {
+        throw new ApiError(400, 'Daily order target must be a whole number from 0 to 100,000.')
+      }
+      const result = await setWorkbookEcommerceTarget({ id: user.id, role: user.role, platform, target: body.target })
+      sendJson(response, 200, result)
+      return
+    }
 
     if (action === 'updateSku') {
       if (user.role !== 'E-commerce Executive' && user.role !== 'Super Admin') {

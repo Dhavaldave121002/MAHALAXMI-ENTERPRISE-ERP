@@ -222,6 +222,23 @@ export async function listWorkbookEcommerceLabels(user: SessionBoundInput, platf
   }>('listEcommerceLabels', { ...sessionBoundPayload(user), platform })
 }
 
+export async function listWorkbookEcommerceTargets(user: SessionBoundInput) {
+  return callAppsScript<{ targets: Partial<Record<EcommercePlatform, number>> }>(
+    'getEcommerceTargets',
+    sessionBoundPayload(user),
+  )
+}
+
+export async function setWorkbookEcommerceTarget(input: SessionBoundInput & {
+  platform: EcommercePlatform
+  target: number
+}) {
+  return callAppsScript<{ platform: EcommercePlatform; target: number }>(
+    'setEcommerceTarget',
+    { ...input, ...sessionBoundPayload(input) },
+  )
+}
+
 export async function downloadWorkbookEcommerceLabel(user: SessionBoundInput, fileId: string) {
   return callAppsScript<{ fileName: string; base64: string }>('downloadEcommerceLabel', {
     ...sessionBoundPayload(user),

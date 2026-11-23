@@ -1,10 +1,11 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports']
+    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget']
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
+    const ERP_ECOMMERCE_TARGET_PROPERTY_PREFIX = 'ERP_ECOMMERCE_DAILY_TARGET_'
     const ERP_WORKBOOK_CACHE_SECONDS = 10
     const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
@@ -35,7 +36,7 @@
       PropertiesService.getScriptProperties().setProperties({
         ERP_SPREADSHEET_ID: spreadsheet.getId(),
         ERP_API_SECRET: secret,
-      }, true)
+      }, false)
       ui.alert('ERP API access configured for this spreadsheet.')
     }
 
@@ -65,7 +66,7 @@
           payload.sessionUserPlatforms = user.platforms
         }
         const data = dispatch_(spreadsheet, request.action, payload)
-        if (['getWorkbookData', 'getUsers', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports'].indexOf(request.action) < 0) {
+        if (['getWorkbookData', 'getUsers', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -124,6 +125,10 @@
           return submitEcommerceReport_(spreadsheet, payload)
         case 'listEcommerceReports':
           return listEcommerceReports_(spreadsheet, payload)
+        case 'getEcommerceTargets':
+          return getEcommerceTargets_(payload)
+        case 'setEcommerceTarget':
+          return setEcommerceTarget_(payload)
         case 'appendRecord':
           return appendRecord_(spreadsheet, payload)
         case 'addMarketplaceListing':
@@ -1126,6 +1131,44 @@
       }
       reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })
       return { reports: reports }
+    }
+
+    function getEcommerceTargets_(payload) {
+      const role = String(payload.sessionUserRole || '')
+      if (['E-commerce Executive', 'Production Supervisor', 'Super Admin'].indexOf(role) < 0) {
+        throw apiError_(403, 'This account cannot view e-commerce targets.')
+      }
+      const assignedPlatforms = Array.isArray(payload.sessionUserPlatforms) ? payload.sessionUserPlatforms : []
+      const platforms = role === 'E-commerce Executive'
+        ? assignedPlatforms.filter(function (platform) { return ERP_ECOMMERCE_PLATFORMS.indexOf(platform) >= 0 })
+        : ERP_ECOMMERCE_PLATFORMS
+      const properties = PropertiesService.getScriptProperties()
+      const targets = {}
+      platforms.forEach(function (platform) {
+        const stored = properties.getProperty(ERP_ECOMMERCE_TARGET_PROPERTY_PREFIX + platform)
+        const target = stored === null ? 0 : Number(stored)
+        if (!Number.isInteger(target) || target < 0 || target > 100000) {
+          throw apiError_(500, 'The saved daily target for ' + platform + ' is invalid.')
+        }
+        targets[platform] = target
+      })
+      return { targets: targets }
+    }
+
+    function setEcommerceTarget_(payload) {
+      if (payload.sessionUserRole !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can set marketplace daily targets.')
+      }
+      const platform = String(payload.platform || '').trim().toUpperCase()
+      const target = payload.target
+      if (ERP_ECOMMERCE_PLATFORMS.indexOf(platform) < 0) throw apiError_(400, 'Choose a valid marketplace platform.')
+      if (typeof target !== 'number' || !Number.isInteger(target) || target < 0 || target > 100000) {
+        throw apiError_(400, 'Daily order target must be a whole number from 0 to 100,000.')
+      }
+      return withWriteLock_(function () {
+        PropertiesService.getScriptProperties().setProperty(ERP_ECOMMERCE_TARGET_PROPERTY_PREFIX + platform, String(target))
+        return { platform: platform, target: target }
+      })
     }
 
     function setUserActive_(spreadsheet, userId, active) {
