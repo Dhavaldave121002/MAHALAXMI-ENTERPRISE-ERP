@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse } from '../_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from '../_lib/http.js'
 import { setSessionCookie } from '../_lib/session.js'
-import { getSessionSecret, listUsers, verifyPassword } from '../_lib/workbook.js'
+import { getSessionSecret, listUsers, publicUser, verifyPassword } from '../_lib/workbook.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'POST') {
@@ -24,7 +24,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       throw new ApiError(403, 'The /admin login is only for the Super Admin.')
     }
     setSessionCookie(response, user)
-    sendJson(response, 200, { user: { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active } })
+    sendJson(response, 200, { user: publicUser(user) })
   } catch (error) {
     handleApiError(response, error, 'Login')
   }

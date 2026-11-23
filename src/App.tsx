@@ -12,7 +12,7 @@ import './App.css'
 
 type Module = 'Dashboard' | 'Factory' | 'Production' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
-  'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'Machines' | 'Quality Control' | 'Employees' |
+  'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'Machines' | 'Quality Control' | 'Employees' |
   'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs'
 
 type Product = {
@@ -36,8 +36,15 @@ type MarketplaceImportResult = {
   backupName: string
 }
 type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
-type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator'
-type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean }
+type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator' | 'E-commerce Executive'
+type EcommercePlatform = 'AMAZON' | 'FLIPKART' | 'MEESHO' | 'SHOPIFY' | 'MYNTRA'
+type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean; platforms: EcommercePlatform[] }
+type EcommerceListing = { id: string; platform: EcommercePlatform; platformSku: string; productSku: string; productName: string; availableStock: number; stockStatus: string; status: string }
+type EcommerceMovement = { id: string; date: string; platform: EcommercePlatform; orderNumber: string; type: string; sku: string; quantity: number; reason: string }
+type EcommerceLabel = { id: string; platform: EcommercePlatform; orderNumber: string; fileName: string; uploadedAt: string; uploadedBy: string }
+type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[] }
+type EcommerceDailyReport = { id: string; date: string; platform: EcommercePlatform; userName: string; completed: string; pending: string; issues: string; updatedAt: string }
+type EcommercePlatformSummary = { platform: EcommercePlatform; dispatchedOrders: number; dispatchedUnits: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
@@ -71,12 +78,13 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Stitching', 'Quality Control'] as Module[] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
-  { label: 'SALES', items: ['Orders', 'Shipping & Delivery', 'Returns & RTO'] },
+  { label: 'SALES', items: ['Orders', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
 const deliveryChannels = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
+const ecommercePlatforms: EcommercePlatform[] = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const deliveryPartnersByChannel: Record<string, string[]> = {
   AMAZON: ['AMAZON', 'AMAZON FLEX', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   FLIPKART: ['FLIPKART', 'SHREE ANJI COURIER', 'DELIVERY APP'],
@@ -104,12 +112,16 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   'Shipping & Delivery': Truck, 'Returns & RTO': RotateCcw, Machines: Gauge,
   'Quality Control': ClipboardCheck, Employees: Users, Suppliers: Building2,
   Accounts: CircleDollarSign, Reports: BarChart3, 'Excel Management': FileSpreadsheet,
-  'User Management': UserCog, Settings, 'Audit Logs': Archive,
+  'User Management': UserCog, Settings, 'Audit Logs': Archive, 'E-commerce Workspace': ShoppingCart,
   Factory: Factory,
 } as Record<Module, typeof LayoutDashboard>
 
 function readStored<T>(key: string, fallback: T): T {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback } catch { return fallback }
+}
+
+function landingModuleForRole(role: Role): Module {
+  return role === 'E-commerce Executive' ? 'E-commerce Workspace' : 'Dashboard'
 }
 
 function indiaDateKey(date = new Date()) {
@@ -121,6 +133,46 @@ function indiaDateKey(date = new Date()) {
   }).formatToParts(date)
   const part = (type: string) => parts.find(item => item.type === type)?.value || ''
   return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function indiaMonthKey(date = new Date()) {
+  return indiaDateKey(date).slice(0, 7)
+}
+
+function monthForTimestamp(value: string) {
+  const date = new Date(value)
+  if (!value || Number.isNaN(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(date)
+  const part = (type: string) => parts.find(item => item.type === type)?.value || ''
+  return `${part('year')}-${part('month')}`
+}
+
+function summarizeEcommercePlatform(
+  platform: EcommercePlatform,
+  movements: EcommerceMovement[],
+  reports: EcommerceDailyReport[],
+  month: string,
+): EcommercePlatformSummary {
+  const rows = movements.filter(item => item.platform === platform && monthForTimestamp(item.date) === month)
+  const rowsOfType = (type: string) => rows.filter(item => item.type === type)
+  const uniqueOrders = (items: EcommerceMovement[]) => new Set(items.map(item => item.orderNumber.trim().toLowerCase()).filter(Boolean)).size
+  const dispatched = rowsOfType('Dispatch')
+  const returned = rowsOfType('Return')
+  const damaged = rowsOfType('Damage')
+  return {
+    platform,
+    dispatchedOrders: uniqueOrders(dispatched),
+    dispatchedUnits: dispatched.reduce((total, item) => total + item.quantity, 0),
+    returnedOrders: uniqueOrders(returned),
+    returnedUnits: returned.reduce((total, item) => total + item.quantity, 0),
+    damagedOrders: uniqueOrders(damaged),
+    damagedUnits: damaged.reduce((total, item) => total + item.quantity, 0),
+    dailyReports: reports.filter(report => report.platform === platform && report.date.slice(0, 7) === month).length,
+  }
 }
 
 function shiftDateKey(dateKey: string, days: number) {
@@ -349,7 +401,7 @@ export default function App() {
         setNeedsAdminSetup(Boolean(statusData.needsAdminSetup))
         if (statusData.user) {
           setSessionUser(statusData.user)
-          setModule('Dashboard')
+          setModule(landingModuleForRole(statusData.user.role))
           if (statusData.workbook) applyWorkbookSnapshot(statusData.workbook)
         }
         setAuthStatus('ready')
@@ -700,7 +752,7 @@ export default function App() {
         body: JSON.stringify({ username, password, scope: isAdminRoute ? 'admin' : 'team' }),
       })
       setSessionUser(result.user)
-      setModule('Dashboard')
+      setModule(landingModuleForRole(result.user.role))
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : 'Login failed')
     }
@@ -800,8 +852,12 @@ export default function App() {
     return <main className="login-page"><section className="login-card"><div className="login-heading"><p>ADMIN AREA</p><h1>Admin login required</h1><span className="login-description">This account is assigned to {sessionUser.role}. Sign out, then use the Super Admin credentials at /admin.</span></div><button className="primary wide" onClick={() => void logout()}>Sign out</button><a className="login-route-link" href="/">Go to team workspace</a></section></main>
   }
 
+  const todayKey = indiaDateKey(clock)
+  const weekday = new Date(`${todayKey}T12:00:00Z`).getUTCDay()
+  const mondayOffset = weekday === 0 ? -6 : 1 - weekday
+  const weekStart = shiftDateKey(todayKey, mondayOffset)
   const productionChart = Array.from({ length: 7 }, (_, index) => {
-    const key = shiftDateKey(indiaDateKey(clock), index - 6)
+    const key = shiftDateKey(weekStart, index)
     return {
       date: key,
       qty: production.filter(row => row.date === key).reduce((sum, row) => sum + row.actual, 0),
@@ -811,9 +867,10 @@ export default function App() {
   const adminOnlyModules: Module[] = ['Employees', 'Suppliers', 'Accounts', 'Reports', 'User Management', 'Settings', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules,
-    'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item)),
+    'Production Supervisor': [...adminModules.filter(item => !adminOnlyModules.includes(item)), 'E-commerce Workspace'],
     'Machine Operator': ['Dashboard', 'Production'],
     'Store Manager': ['Dashboard'],
+    'E-commerce Executive': ['E-commerce Workspace'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -927,6 +984,10 @@ function ModuleView(props: {
   const [selectedCatalogMasterSku, setSelectedCatalogMasterSku] = useState('')
   const [stockFormOpen, setStockFormOpen] = useState(false)
   const [materialFormOpen, setMaterialFormOpen] = useState(false)
+  const [newUserRole, setNewUserRole] = useState<Role>('Production Supervisor')
+  const [ecommerceReports, setEcommerceReports] = useState<EcommerceDailyReport[]>([])
+  const [ecommerceReportsError, setEcommerceReportsError] = useState('')
+  const [ecommerceReportsLoading, setEcommerceReportsLoading] = useState(false)
   const [catalogListingFilter, setCatalogListingFilter] = useState('')
   const [catalogProductSearch, setCatalogProductSearch] = useState('')
   const [catalogPlatformSearch, setCatalogPlatformSearch] = useState('')
@@ -937,6 +998,31 @@ function ModuleView(props: {
   const [deliverySku, setDeliverySku] = useState('')
   const [returnChannel, setReturnChannel] = useState('')
   const [returnDispatchId, setReturnDispatchId] = useState('')
+
+  useEffect(() => {
+    if (module !== 'User Management' || sessionUser.role !== 'Super Admin') return
+    let active = true
+    void Promise.resolve().then(() => {
+      if (!active) return
+      setEcommerceReportsLoading(true)
+      return fetch('/api/ecommerce-reports', { cache: 'no-store' })
+        .then(async response => {
+          const result = await response.json() as { error?: string; reports?: EcommerceDailyReport[] }
+          if (!response.ok) throw new Error(result.error || 'Daily reports could not be loaded.')
+          if (active) {
+            setEcommerceReports(result.reports || [])
+            setEcommerceReportsError('')
+          }
+        })
+        .catch(error => {
+          if (active) setEcommerceReportsError(error instanceof Error ? error.message : 'Daily reports could not be loaded.')
+        })
+        .finally(() => {
+          if (active) setEcommerceReportsLoading(false)
+        })
+    })
+    return () => { active = false }
+  }, [module, sessionUser.role])
   const [productionDate, setProductionDate] = useState(() => indiaDateKey(clock))
   const [productionBlockChoice, setProductionBlockChoice] = useState('')
   const [marketplaceImportPreview, setMarketplaceImportPreview] = useState<MarketplaceImportRows | null>(null)
@@ -1017,6 +1103,10 @@ function ModuleView(props: {
   }, {})
   if (!allowedModules.includes(module)) {
     return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Your account role cannot open this section.</span></div></section>
+  }
+
+  if (module === 'E-commerce Workspace') {
+    return <EcommerceWorkspace user={sessionUser} />
   }
 
   const submitProduction = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -1874,7 +1964,7 @@ function ModuleView(props: {
   if (module === 'User Management') {
     if (sessionUser.role !== 'Super Admin') return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Only the Super Admin can manage users.</span></div></section>
     const exportUsers = () => {
-      const safeRows = users.map(({ id, name, username, role, active }) => ({ ID: id, Name: name, Username: username, Role: role, Status: active ? 'Active' : 'Inactive' }))
+      const safeRows = users.map(({ id, name, username, role, active, platforms }) => ({ ID: id, Name: name, Username: username, Role: role, Platforms: platforms.join(', '), Status: active ? 'Active' : 'Inactive' }))
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(safeRows), 'User Accounts')
       XLSX.writeFile(workbook, `Mahalaxmi-Users-${indiaDateKey()}.xlsx`)
@@ -1882,16 +1972,22 @@ function ModuleView(props: {
     }
     const createUser = async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault()
-      const form = new FormData(event.currentTarget)
+      const formElement = event.currentTarget
+      const form = new FormData(formElement)
       const username = String(form.get('username')).trim().toLowerCase()
       const password = String(form.get('password'))
       const requestedRole = String(form.get('role'))
+      const requestedPlatforms = form.getAll('platforms').map(String)
       if (password.length < 10) {
         notify('Password must be at least 10 characters')
         return
       }
-      if (!['Production Supervisor', 'Machine Operator', 'Store Manager'].includes(requestedRole)) {
+      if (!['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive'].includes(requestedRole)) {
         notify('Only one Super Admin is allowed')
+        return
+      }
+      if (requestedRole === 'E-commerce Executive' && requestedPlatforms.length === 0) {
+        notify('Assign at least one marketplace platform')
         return
       }
       if (!username) return
@@ -1899,12 +1995,13 @@ function ModuleView(props: {
         const result = await apiFetch<{ user: UserAccount }>('/api/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: String(form.get('name')), username, password, role: requestedRole }),
+          body: JSON.stringify({ name: String(form.get('name')), username, password, role: requestedRole, platforms: requestedPlatforms }),
         })
         setUsers(prev => [...prev, result.user])
         log(`Created ${result.user.role} account ${result.user.username}`)
         notify('Account saved to the master workbook')
-        event.currentTarget.reset()
+        formElement.reset()
+        setNewUserRole('Production Supervisor')
       } catch (error) {
         notify(error instanceof Error ? error.message : 'Account could not be created')
       }
@@ -1933,13 +2030,21 @@ function ModuleView(props: {
               <label>Full name<input name="name" required placeholder="Employee name" /></label>
               <label>Username<input name="username" required autoComplete="off" placeholder="login name" /></label>
               <label>Password<input name="password" type="password" required minLength={10} placeholder="Minimum 10 characters" /></label>
-              <label>Role<select name="role" required><option>Production Supervisor</option><option>Machine Operator</option><option>Store Manager</option></select></label>
+              <label>Role<select name="role" required value={newUserRole} onChange={event => setNewUserRole(event.target.value as Role)}><option>Production Supervisor</option><option>Machine Operator</option><option>Store Manager</option><option>E-commerce Executive</option></select></label>
+              {newUserRole === 'E-commerce Executive' && <fieldset className="platform-assignment"><legend>Assigned platform access</legend>{deliveryChannels.map(platform => <label key={platform}><input type="checkbox" name="platforms" value={platform} /> {platform}</label>)}</fieldset>}
             </div>
             <button className="primary wide" type="submit"><Plus size={17} /> Create account</button>
           </form>
         </div>
         <p className="local-storage-note">User accounts and password hashes are stored in the connected workbook. Users can sign in from any device on the deployed site.</p>
-        <div className="table-card entries-table"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th /></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.name}</td><td><code>{user.username}</code></td><td>{user.role}</td><td><span className={`status ${user.active ? 'active' : 'draft'}`}>{user.active ? 'Active' : 'Inactive'}</span></td><td><button className="secondary" disabled={user.id === sessionUser.id} onClick={() => setAccountActive(user)}>{user.active ? 'Deactivate' : 'Activate'}</button></td></tr>)}</tbody></table></div>
+        <section className="panel ecommerce-report-panel">
+          <div className="panel-heading"><div><h2>Executive daily reports</h2><p>Visible only to the Super Admin</p></div></div>
+          {ecommerceReportsLoading && <div className="empty-state">Loading reports…</div>}
+          {ecommerceReportsError && <p className="ecommerce-error" role="alert">{ecommerceReportsError}</p>}
+          {!ecommerceReportsLoading && !ecommerceReportsError && ecommerceReports.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No daily reports yet</strong><span>Submitted reports will appear here.</span></div>}
+          {ecommerceReports.length > 0 && <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Executive</th><th>Platform</th><th>Completed</th><th>Pending</th><th>Issues / notes</th></tr></thead><tbody>{ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
+        </section>
+        <div className="table-card entries-table"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Platforms</th><th>Status</th><th /></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.name}</td><td><code>{user.username}</code></td><td>{user.role}</td><td>{user.platforms.join(', ') || '—'}</td><td><span className={`status ${user.active ? 'active' : 'draft'}`}>{user.active ? 'Active' : 'Inactive'}</span></td><td><button className="secondary" disabled={user.id === sessionUser.id} onClick={() => setAccountActive(user)}>{user.active ? 'Deactivate' : 'Activate'}</button></td></tr>)}</tbody></table></div>
       </section>
     )
   }
@@ -1962,6 +2067,293 @@ function ModuleView(props: {
         <p>This module is connected to the shared ERP data model and ready for server-backed workbook operations.</p>
         <button className="primary" onClick={() => notify(`${module} setup saved`)}><CheckCircle2 size={17} /> Mark configuration ready</button>
       </div>
+    </section>
+  )
+}
+
+function EcommerceMonthlyDashboard() {
+  const [data, setData] = useState<EcommerceWorkspaceData | null>(null)
+  const [reports, setReports] = useState<EcommerceDailyReport[]>([])
+  const [selectedMonth, setSelectedMonth] = useState(() => indiaMonthKey())
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    void Promise.all([
+      apiFetch<EcommerceWorkspaceData>('/api/ecommerce'),
+      apiFetch<{ reports: EcommerceDailyReport[] }>('/api/ecommerce-reports'),
+    ]).then(([workspace, reportResult]) => {
+      if (!active) return
+      setData(workspace)
+      setReports(reportResult.reports)
+      setError('')
+    }).catch(requestError => {
+      if (active) setError(requestError instanceof Error ? requestError.message : 'Monthly e-commerce analysis could not be loaded.')
+    }).finally(() => {
+      if (active) setLoading(false)
+    })
+    return () => { active = false }
+  }, [])
+
+  const summaries = ecommercePlatforms.map(platform =>
+    summarizeEcommercePlatform(platform, data?.movements || [], reports, selectedMonth),
+  )
+  const monthlyReports = reports.filter(report => report.date.slice(0, 7) === selectedMonth)
+  const orderCount = summaries.reduce((total, item) => total + item.dispatchedOrders, 0)
+  const dispatchedUnits = summaries.reduce((total, item) => total + item.dispatchedUnits, 0)
+  const returnedOrders = summaries.reduce((total, item) => total + item.returnedOrders, 0)
+  const damagedUnits = summaries.reduce((total, item) => total + item.damagedUnits, 0)
+
+  const exportMonthlyReport = () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaries.map(item => ({
+      Platform: item.platform,
+      'Orders Dispatched': item.dispatchedOrders,
+      'Units Dispatched': item.dispatchedUnits,
+      'Return Orders': item.returnedOrders,
+      'Return Units': item.returnedUnits,
+      'Damage Orders': item.damagedOrders,
+      'Damaged Units': item.damagedUnits,
+      'Daily Reports': item.dailyReports,
+    }))), 'Platform Summary')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthlyReports.map(report => ({
+      Date: report.date,
+      Executive: report.userName,
+      Platform: report.platform,
+      'Completed Work': report.completed,
+      'Pending Work': report.pending,
+      'Issues / Notes': report.issues,
+      'Last Updated': report.updatedAt,
+    }))), 'Daily Reports')
+    XLSX.writeFile(workbook, `Ecommerce-Monthly-${selectedMonth}.xlsx`)
+  }
+
+  return (
+    <section className="panel ecommerce-admin-dashboard">
+      <div className="panel-heading ecommerce-month-heading">
+        <div><h2>E-commerce monthly analysis</h2><p>All marketplace activity and executive reports for the selected month</p></div>
+        <div className="ecommerce-month-actions"><label className="ecommerce-month-filter">Month<input type="month" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} /></label><button className="secondary" type="button" onClick={exportMonthlyReport} disabled={!data}><Download size={15} /> Export monthly report</button></div>
+      </div>
+      {error && <p className="ecommerce-error" role="alert">{error}</p>}
+      {loading && !data && <div className="empty-state">Loading platform analysis…</div>}
+      {data && <>
+        <div className="ecommerce-platform-tags">{ecommercePlatforms.map(platform => <span className="ecommerce-platform-tag" key={platform}>{platform}</span>)}</div>
+        <p className="ecommerce-metric-note">A dispatched order is counted once per unique marketplace order number. Delivery confirmation is not recorded in the current stock ledger.</p>
+        <div className="stats-grid ecommerce-stock-summary">
+          <div className="stat-card"><div className="stat-icon blue"><ShoppingCart size={20} /></div><div className="stat-body"><span>Orders dispatched</span><strong>{orderCount}</strong><small>{selectedMonth} · all platforms</small></div></div>
+          <div className="stat-card"><div className="stat-icon green"><Truck size={20} /></div><div className="stat-body"><span>Units dispatched</span><strong>{dispatchedUnits.toLocaleString('en-IN')}</strong><small>{selectedMonth}</small></div></div>
+          <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returned orders</span><strong>{returnedOrders}</strong><small>{selectedMonth}</small></div></div>
+          <div className="stat-card"><div className="stat-icon purple"><ClipboardCheck size={20} /></div><div className="stat-body"><span>Executive reports / damaged units</span><strong>{monthlyReports.length} / {damagedUnits.toLocaleString('en-IN')}</strong><small>{selectedMonth}</small></div></div>
+        </div>
+        <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th><th>Daily reports</th></tr></thead><tbody>{summaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td><td>{summary.dailyReports}</td></tr>)}</tbody></table></div>
+        <div className="ecommerce-admin-reports">
+          <div className="ecommerce-admin-reports-heading"><strong>{selectedMonth} executive daily reports</strong><span>{monthlyReports.length} submissions</span></div>
+          {monthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No reports submitted this month</strong></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead><tbody>{monthlyReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
+        </div>
+      </>}
+    </section>
+  )
+}
+
+function EcommerceWorkspace({ user }: { user: UserAccount }) {
+  const [data, setData] = useState<EcommerceWorkspaceData | null>(null)
+  const [selectedPlatform, setSelectedPlatform] = useState<EcommercePlatform>(user.platforms[0] || 'AMAZON')
+  const [selectedMonth, setSelectedMonth] = useState(() => indiaMonthKey())
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [editingListingId, setEditingListingId] = useState('')
+  const [platformSkuDraft, setPlatformSkuDraft] = useState('')
+
+  const reload = useCallback(async () => {
+    try {
+      const result = await apiFetch<EcommerceWorkspaceData>('/api/ecommerce')
+      setData(result)
+      setError('')
+      setSelectedPlatform(current => result.platforms.includes(current) ? current : result.platforms[0] || 'AMAZON')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'E-commerce workspace could not be loaded.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void reload() }, [reload])
+
+  const listings = data?.listings.filter(listing => listing.platform === selectedPlatform) || []
+  const movements = data?.movements.filter(movement => movement.platform === selectedPlatform) || []
+  const labels = data?.labels.filter(label => label.platform === selectedPlatform) || []
+  const uniqueStock = new Map(listings.map(listing => [listing.productSku.toLowerCase(), listing.availableStock]))
+  const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
+  const monthlySummaries = (data?.platforms || []).map(platform =>
+    summarizeEcommercePlatform(platform, data?.movements || [], [], selectedMonth),
+  )
+  const selectedSummary = monthlySummaries.find(summary => summary.platform === selectedPlatform)
+
+  const saveSku = async (event: React.FormEvent<HTMLFormElement>, listing: EcommerceListing) => {
+    event.preventDefault()
+    setBusy(true)
+    setActionMessage('')
+    try {
+      await apiFetch('/api/ecommerce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'updateSku', platform: selectedPlatform, listingId: listing.id, platformSku: platformSkuDraft }),
+      })
+      setActionMessage('Marketplace SKU updated.')
+      setEditingListingId('')
+      await reload()
+    } catch (requestError) {
+      setActionMessage(requestError instanceof Error ? requestError.message : 'Marketplace SKU could not be updated.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const uploadLabel = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const file = form.get('label')
+    if (!(file instanceof File) || file.size === 0) {
+      setActionMessage('Choose a PDF shipping label.')
+      return
+    }
+    if (file.size > 3 * 1024 * 1024 || !/\.pdf$/i.test(file.name)) {
+      setActionMessage('Choose a PDF file of 3 MB or smaller.')
+      return
+    }
+    setBusy(true)
+    setActionMessage('')
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      let binary = ''
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)))
+      }
+      await apiFetch('/api/ecommerce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'uploadLabel',
+          platform: selectedPlatform,
+          orderNumber: form.get('orderNumber'),
+          fileName: file.name,
+          base64: window.btoa(binary),
+        }),
+      })
+      formElement.reset()
+      setActionMessage('Label uploaded to private storage.')
+      await reload()
+    } catch (requestError) {
+      setActionMessage(requestError instanceof Error ? requestError.message : 'Shipping label could not be uploaded.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitDailyReport = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setBusy(true)
+    setActionMessage('')
+    try {
+      await apiFetch('/api/ecommerce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'submitReport',
+          platform: selectedPlatform,
+          completed: form.get('completed'),
+          pending: form.get('pending'),
+          issues: form.get('issues'),
+        }),
+      })
+      formElement.reset()
+      setActionMessage('Daily report saved. You can update it again today.')
+    } catch (requestError) {
+      setActionMessage(requestError instanceof Error ? requestError.message : 'Daily report could not be submitted.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const downloadLabel = async (label: EcommerceLabel) => {
+    setBusy(true)
+    setActionMessage('')
+    try {
+      const response = await fetch(`/api/ecommerce-label?id=${encodeURIComponent(label.id)}`, { cache: 'no-store' })
+      if (!response.ok) {
+        let message = 'Shipping label could not be downloaded.'
+        try {
+          const result = await response.json() as { error?: string }
+          message = result.error || message
+        } catch { /* The download endpoint may return a non-JSON server error. */ }
+        throw new Error(message)
+      }
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = label.fileName
+      anchor.click()
+      window.URL.revokeObjectURL(url)
+      setActionMessage('Shipping label downloaded.')
+    } catch (requestError) {
+      setActionMessage(requestError instanceof Error ? requestError.message : 'Shipping label could not be downloaded.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="ecommerce-workspace">
+      <div className="page-heading"><div><p>PLATFORM OPERATIONS</p><h1>E-commerce Workspace</h1><span className="catalog-intro">Platform access is verified on the server for stock, orders, SKU updates, labels, and reports.</span></div><button className="secondary" onClick={() => { setLoading(true); void reload() }} disabled={loading}><RotateCcw size={16} /> Refresh</button></div>
+      {error && <div className="ecommerce-error" role="alert">{error}</div>}
+      {loading && !data && <div className="panel empty-state">Loading assigned platform data…</div>}
+      {data && <>
+        <section className="panel ecommerce-section">
+          <div className="panel-heading ecommerce-month-heading">
+            <div><h2>Assigned platforms</h2><p>Your account can access only the tagged platforms below.</p></div>
+            <label className="ecommerce-month-filter">Monthly analysis<input type="month" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} /></label>
+          </div>
+          <div className="ecommerce-platform-tags">{data.platforms.map(platform => <span className="ecommerce-platform-tag" key={platform}>{platform}</span>)}</div>
+          <p className="ecommerce-metric-note">Dispatched orders are counted by unique order number; the ledger does not track delivery confirmation.</p>
+          <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units dispatched</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td></tr>)}</tbody></table></div>
+        </section>
+        <div className="ecommerce-platform-tabs" role="tablist" aria-label="Assigned marketplace platforms">
+          {data.platforms.map(platform => <button key={platform} type="button" role="tab" aria-selected={selectedPlatform === platform} className={selectedPlatform === platform ? 'active' : ''} onClick={() => { setSelectedPlatform(platform); setActionMessage('') }}>{platform}</button>)}
+        </div>
+        <div className="stats-grid ecommerce-stock-summary">
+          <div className="stat-card"><div className="stat-icon blue"><Boxes size={20} /></div><div className="stat-body"><span>Available stock</span><strong>{Array.from(uniqueStock.values()).reduce((total, stock) => total + stock, 0).toLocaleString('en-IN')}</strong><small>Across {listings.length} assigned listings</small></div></div>
+          <div className="stat-card"><div className="stat-icon green"><Truck size={20} /></div><div className="stat-body"><span>Orders dispatched this month</span><strong>{selectedSummary?.dispatchedOrders || 0}</strong><small>{selectedSummary?.dispatchedUnits || 0} units · {selectedMonth}</small></div></div>
+          <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returns / damage this month</span><strong>{(selectedSummary?.returnedOrders || 0) + (selectedSummary?.damagedOrders || 0)}</strong><small>Order events · {selectedMonth}</small></div></div>
+          <div className="stat-card"><div className="stat-icon purple"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Stored privately</small></div></div>
+        </div>
+        <section className="panel ecommerce-section">
+          <div className="panel-heading"><div><h2>{selectedPlatform} stock and SKUs</h2><p>Only listings linked to this platform are shown.</p></div></div>
+          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>Available stock</th><th>Status</th>{canEdit && <th />}</tr></thead><tbody>{listings.map(listing => <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>{editingListingId === listing.id ? <form className="inline-sku-form" onSubmit={event => void saveSku(event, listing)}><input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /><button className="primary" type="submit" disabled={busy}>Save</button><button className="secondary" type="button" onClick={() => setEditingListingId('')}>Cancel</button></form> : <code>{listing.platformSku || '—'}</code>}</td><td>{listing.availableStock.toLocaleString('en-IN')}</td><td>{listing.stockStatus}</td>{canEdit && <td>{editingListingId !== listing.id && <button className="secondary" type="button" onClick={() => { setEditingListingId(listing.id); setPlatformSkuDraft(listing.platformSku) }}>Update SKU</button>}</td>}</tr>)}</tbody></table></div>}
+        </section>
+        <section className="panel ecommerce-section">
+          <div className="panel-heading"><div><h2>Dispatches and returns</h2><p>Dispatch, return, and damage records tied to order numbers.</p></div></div>
+          {movements.length === 0 ? <div className="empty-state"><Truck size={24} /><strong>No platform orders yet</strong><span>Platform dispatches and linked returns will appear here.</span></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Order number</th><th>Type</th><th>Product SKU</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>{movements.map(item => <tr key={item.id}><td>{formatIndiaDateTime(item.date)}</td><td><code>{item.orderNumber}</code></td><td>{item.type}</td><td><code>{item.sku}</code></td><td>{item.quantity}</td><td>{item.reason || '—'}</td></tr>)}</tbody></table></div>}
+        </section>
+        <div className="ecommerce-panels">
+          <section className="panel ecommerce-section">
+            <div className="panel-heading"><div><h2>Shipping labels</h2><p>PDFs are stored in private Drive and downloaded through this signed-in account.</p></div></div>
+            {canEdit && <form className="ecommerce-form" onSubmit={event => void uploadLabel(event)}><label>Marketplace order number<input name="orderNumber" required maxLength={120} /></label><label>Label PDF<input name="label" type="file" accept="application/pdf,.pdf" required /></label><small>PDF only · maximum 3 MB</small><button className="primary" type="submit" disabled={busy}><Upload size={15} /> Upload label</button></form>}
+            {labels.length === 0 ? <div className="empty-state"><FileSpreadsheet size={24} /><strong>No labels for {selectedPlatform}</strong><span>Uploaded shipping labels will be listed here.</span></div> : <div className="ecommerce-label-list">{labels.map(label => <div className="ecommerce-label-row" key={label.id}><div><strong>{label.orderNumber}</strong><span>{label.fileName} · {formatIndiaDateTime(label.uploadedAt)}</span></div><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLabel(label)}><Download size={15} /> Download</button></div>)}</div>}
+          </section>
+          {user.role === 'E-commerce Executive' && <section className="panel ecommerce-section">
+            <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per platform each day; new submissions update today’s report.</p></div></div>
+            <form className="ecommerce-form" onSubmit={event => void submitDailyReport(event)}><label>Completed work<textarea name="completed" required maxLength={3000} rows={4} /></label><label>Pending work<textarea name="pending" maxLength={3000} rows={3} /></label><label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} /></label><button className="primary" type="submit" disabled={busy}><CheckCircle2 size={15} /> Submit daily report</button></form>
+          </section>}
+        </div>
+        <p className="ecommerce-feedback" role="status" aria-live="polite">{actionMessage}</p>
+      </>}
     </section>
   )
 }
@@ -2022,7 +2414,7 @@ function DashboardView({
   const zeroStockCount = activeProducts.filter(product => product.stock <= 0).length
   const availableStock = activeProducts.reduce((sum, product) => sum + product.stock, 0)
   const activeUsers = users.filter(account => account.active)
-  const roleCounts = (['Production Supervisor', 'Machine Operator', 'Store Manager'] as Role[])
+  const roleCounts = (['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive'] as Role[])
     .map(accountRole => ({
       role: accountRole,
       count: users.filter(account => account.role === accountRole).length,
@@ -2035,6 +2427,7 @@ function DashboardView({
     'Production Supervisor': 'Manage production, inventory, catalog, machines, and sales. Management, User Management, Settings, and Audit Logs are Admin-only.',
     'Machine Operator': 'Record your daily output and review your own production entries.',
     'Store Manager': 'This account has dashboard-only access. Contact the Super Admin if your assigned workspace needs to change.',
+    'E-commerce Executive': 'Review assigned-platform stock and dispatches, upload labels, update marketplace SKUs, and submit your daily report.',
   }
   const statsByRole: Record<Role, { label: string; value: string; detail: string; icon: typeof Package; tone: string }[]> = {
     'Super Admin': [
@@ -2061,6 +2454,9 @@ function DashboardView({
       { label: 'Out of stock', value: String(zeroStockCount), detail: 'Active SKUs at zero', icon: AlertTriangle, tone: 'orange' },
       { label: 'Stocked SKUs', value: String(activeProducts.filter(product => product.stock > 0).length), detail: 'Active SKUs with stock', icon: CheckCircle2, tone: 'purple' },
     ],
+    'E-commerce Executive': [
+      { label: 'Assigned platforms', value: '—', detail: 'Open your e-commerce workspace', icon: ShoppingCart, tone: 'blue' },
+    ],
   }
   const shortcuts: Record<Role, { module: Module; detail: string }[]> = {
     'Super Admin': [
@@ -2081,6 +2477,9 @@ function DashboardView({
       { module: 'Production', detail: 'Record output by machine and SKU' },
     ],
     'Store Manager': [],
+    'E-commerce Executive': [
+      { module: 'E-commerce Workspace', detail: 'View assigned platforms, shipping labels, and daily tasks' },
+    ],
   }
   const recentProduction = [...production].reverse().slice(0, 5)
 
@@ -2103,10 +2502,12 @@ function DashboardView({
         ))}
       </div>
 
+      {role === 'Super Admin' && <EcommerceMonthlyDashboard />}
+
       <div className="dashboard-grid">
         <section className="panel production-panel">
-          <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Factory production' : role === 'Super Admin' ? 'Factory production' : 'My production overview'}</h2><p>Actual output over the last 7 days</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
-          <div className="chart-stat"><strong>{productionChart.reduce((sum, day) => sum + day.qty, 0)}</strong><span><ArrowUpRight size={14} /> 7 days</span></div>
+          <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Factory production' : role === 'Super Admin' ? 'Factory production' : 'My production overview'}</h2><p>Actual output, Monday through Sunday</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
+          <div className="chart-stat"><strong>{productionChart.reduce((sum, day) => sum + day.qty, 0)}</strong><span><ArrowUpRight size={14} /> This week</span></div>
           <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" interval={0} tickFormatter={value => formatIndiaWeekday(String(value))} axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip labelFormatter={label => `${formatIndiaWeekday(String(label))}, ${formatIndiaDate(String(label))}`} /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
         </section>
 

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './http.js'
 import { ApiError } from './http.js'
-import { getSessionSecret, isUserRole, listUsers, publicUser, type PublicUser, type UserRole, type WorkbookUser } from './workbook.js'
+import { getSessionSecret, isUserRole, listUsers, publicUser, type EcommercePlatform, type PublicUser, type UserRole, type WorkbookUser } from './workbook.js'
 
 const SESSION_COOKIE = 'mahalaxmi_session'
 const SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 30
@@ -12,6 +12,7 @@ type SessionPayload = {
   name?: string
   username?: string
   role?: UserRole
+  platforms?: EcommercePlatform[]
   sessionBoundWrites?: boolean
 }
 
@@ -35,6 +36,7 @@ function writeSessionCookie(response: ApiResponse, user: PublicUser, expiresAt: 
     name: user.name,
     username: user.username,
     role: user.role,
+    platforms: user.platforms,
     sessionBoundWrites,
   }
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
@@ -84,6 +86,9 @@ function readSessionPayload(request: ApiRequest): SessionPayload {
   if (payload.sessionBoundWrites !== undefined && typeof payload.sessionBoundWrites !== 'boolean') {
     throw new ApiError(401, 'Your session is invalid. Please sign in again.')
   }
+  if (payload.platforms !== undefined && (!Array.isArray(payload.platforms) || payload.platforms.some(platform => typeof platform !== 'string'))) {
+    throw new ApiError(401, 'Your session is invalid. Please sign in again.')
+  }
   return payload
 }
 
@@ -114,6 +119,7 @@ export function getSessionClaims(request: ApiRequest): PublicUser | null {
     username: payload.username,
     role: payload.role,
     active: true,
+    platforms: payload.platforms || [],
   }
 }
 

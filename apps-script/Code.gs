@@ -1,7 +1,10 @@
-    const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At']
+    const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook']
+    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports']
+    const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
+    const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
+    const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
     const ERP_WORKBOOK_CACHE_SECONDS = 10
     const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
@@ -58,9 +61,11 @@
         if (ERP_SESSION_BOUND_ACTIONS.indexOf(request.action) >= 0) {
           const user = assertActiveSessionUser_(spreadsheet, payload)
           payload.createdBy = user.name
+          payload.sessionUserRole = user.role
+          payload.sessionUserPlatforms = user.platforms
         }
         const data = dispatch_(spreadsheet, request.action, payload)
-        if (request.action !== 'getWorkbookData' && request.action !== 'getUsers') {
+        if (['getWorkbookData', 'getUsers', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -87,7 +92,12 @@
       const active = user && (user.Active === true || ['true', '1', 'yes'].indexOf(String(user.Active || '').toLowerCase()) >= 0)
       if (!active) throw apiError_(401, 'This account is inactive or no longer exists.')
       if (String(user.Role || '').trim() !== sessionRole) throw apiError_(401, 'Your role changed. Sign in again.')
-      return { id: userId, name: String(user.Name || '').trim(), role: String(user.Role || '').trim() }
+      return {
+        id: userId,
+        name: String(user.Name || '').trim(),
+        role: String(user.Role || '').trim(),
+        platforms: String(user['Assigned Platforms'] || '').split(',').map(function (platform) { return platform.trim().toUpperCase() }).filter(Boolean),
+      }
     }
 
     function dispatch_(spreadsheet, action, payload) {
@@ -102,6 +112,18 @@
           return appendUser_(spreadsheet, payload.user)
         case 'setUserActive':
           return setUserActive_(spreadsheet, payload.id, payload.active)
+        case 'updateMarketplaceSku':
+          return updateMarketplaceSku_(spreadsheet, payload)
+        case 'uploadEcommerceLabel':
+          return uploadEcommerceLabel_(payload)
+        case 'listEcommerceLabels':
+          return listEcommerceLabels_(payload)
+        case 'downloadEcommerceLabel':
+          return downloadEcommerceLabel_(payload)
+        case 'submitEcommerceReport':
+          return submitEcommerceReport_(spreadsheet, payload)
+        case 'listEcommerceReports':
+          return listEcommerceReports_(spreadsheet, payload)
         case 'appendRecord':
           return appendRecord_(spreadsheet, payload)
         case 'addMarketplaceListing':
@@ -821,7 +843,8 @@
         assertUsernameAvailable_(users, user)
         createBackup_(spreadsheet)
         const sheet = ensureUserSheet_(spreadsheet)
-        sheet.appendRow(userValues_(user))
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+        sheet.appendRow(userValues_(user, headers))
         SpreadsheetApp.flush()
         return { created: true }
       })
@@ -833,10 +856,276 @@
         const users = readSheetRecords_(spreadsheet, 'Users')
         assertUsernameAvailable_(users, user)
         createBackup_(spreadsheet)
-        ensureUserSheet_(spreadsheet).appendRow(userValues_(user))
+        const sheet = ensureUserSheet_(spreadsheet)
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+        sheet.appendRow(userValues_(user, headers))
         SpreadsheetApp.flush()
         return { created: true }
       })
+    }
+
+    function assertEcommercePlatformAccess_(payload, platform) {
+      const normalizedPlatform = String(platform || '').trim().toUpperCase()
+      if (ERP_ECOMMERCE_PLATFORMS.indexOf(normalizedPlatform) < 0) throw apiError_(400, 'Choose a valid marketplace platform.')
+      const role = String(payload.sessionUserRole || '')
+      if (role === 'Super Admin' || role === 'Production Supervisor') return normalizedPlatform
+      if (role !== 'E-commerce Executive') throw apiError_(403, 'This account cannot access e-commerce platform data.')
+      const assigned = Array.isArray(payload.sessionUserPlatforms) ? payload.sessionUserPlatforms : []
+      if (assigned.indexOf(normalizedPlatform) < 0) throw apiError_(403, 'This marketplace platform is not assigned to your account.')
+      return normalizedPlatform
+    }
+
+    function normalizeMarketplacePlatform_(platform) {
+      const normalized = String(platform || '').trim().toUpperCase()
+      return normalized === 'AMAZON.IN' || normalized === 'AMAZON.COM' ? 'AMAZON' : normalized
+    }
+
+    function assertEcommerceWriteRole_(payload) {
+      const role = String(payload.sessionUserRole || '')
+      if (role !== 'E-commerce Executive' && role !== 'Super Admin') {
+        throw apiError_(403, 'Only an E-commerce Executive or Super Admin can perform this action.')
+      }
+    }
+
+    function updateMarketplaceSku_(spreadsheet, payload) {
+      assertEcommerceWriteRole_(payload)
+      const platform = assertEcommercePlatformAccess_(payload, payload.platform)
+      const listingId = String(payload.listingId || '').trim()
+      const platformSku = String(payload.platformSku || '').trim()
+      if (!listingId || !platformSku || platformSku.length > 120) throw apiError_(400, 'A listing and platform SKU of 1 to 120 characters are required.')
+      return withWriteLock_(function () {
+        const sheet = spreadsheet.getSheetByName('Marketplace_Listings')
+        if (!sheet || sheet.getLastRow() < 2) throw apiError_(404, 'Marketplace listings were not found.')
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+        const idColumn = headers.indexOf('Listing ID')
+        const platformColumn = headers.indexOf('Platform')
+        const skuColumn = headers.indexOf('Platform SKU')
+        if (idColumn < 0 || platformColumn < 0 || skuColumn < 0) throw apiError_(422, 'The Marketplace_Listings sheet is missing required columns.')
+        const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues()
+        let targetRow = 0
+        let listing = null
+        rows.forEach(function (row, index) {
+          if (String(row[idColumn] || '').trim() === listingId && normalizeMarketplacePlatform_(row[platformColumn]) === platform) {
+            targetRow = index + 2
+            listing = row
+          }
+        })
+        if (!targetRow || !listing) throw apiError_(404, 'The marketplace listing was not found.')
+        const duplicate = rows.some(function (row, index) {
+          return index + 2 !== targetRow &&
+            normalizeMarketplacePlatform_(row[platformColumn]) === platform &&
+            String(row[skuColumn] || '').trim().toLowerCase() === platformSku.toLowerCase()
+        })
+        if (duplicate) throw apiError_(409, 'That platform SKU is already assigned to another listing on this platform.')
+        createBackup_(spreadsheet)
+        sheet.getRange(targetRow, skuColumn + 1).setValue(safeCellValue_(platformSku))
+        SpreadsheetApp.flush()
+        const updated = {}
+        headers.forEach(function (header, index) { updated[header] = serializeCell_(index === skuColumn ? platformSku : listing[index]) })
+        return { listing: updated }
+      })
+    }
+
+    function getEcommerceLabelFolder_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY)
+      if (folderId) return DriveApp.getFolderById(folderId)
+      if (!createIfMissing) return null
+      const folder = DriveApp.createFolder('Mahalaxmi ERP Private E-commerce Labels')
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      properties.setProperty(ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY, folder.getId())
+      return folder
+    }
+
+    function ecommerceLabelMetadata_(file) {
+      let metadata
+      try {
+        metadata = JSON.parse(file.getDescription() || '{}')
+      } catch (error) {
+        throw apiError_(500, 'A stored shipping label has invalid metadata.')
+      }
+      if (metadata.kind !== 'mahalaxmi-erp-ecommerce-label' || ERP_ECOMMERCE_PLATFORMS.indexOf(metadata.platform) < 0) {
+        throw apiError_(500, 'A stored shipping label has invalid metadata.')
+      }
+      return {
+        id: file.getId(),
+        fileName: file.getName(),
+        orderNumber: String(metadata.orderNumber || ''),
+        platform: metadata.platform,
+        uploadedBy: String(metadata.uploadedBy || ''),
+        uploadedAt: String(metadata.uploadedAt || ''),
+      }
+    }
+
+    function uploadEcommerceLabel_(payload) {
+      assertEcommerceWriteRole_(payload)
+      const platform = assertEcommercePlatformAccess_(payload, payload.platform)
+      const orderNumber = String(payload.orderNumber || '').trim()
+      const requestedName = String(payload.fileName || '').trim()
+      const base64 = String(payload.base64 || '')
+      if (!orderNumber || orderNumber.length > 120) throw apiError_(400, 'Enter an order number of 1 to 120 characters.')
+      if (!requestedName || requestedName.length > 180 || !/\.pdf$/i.test(requestedName)) throw apiError_(400, 'Upload a PDF file with a valid file name.')
+      if (!base64 || base64.length > 4200000) throw apiError_(413, 'Shipping-label PDFs must be 3 MB or smaller.')
+      const bytes = Utilities.base64Decode(base64)
+      if (bytes.length > 3145728 || bytes.length < 5 || bytes[0] !== 37 || bytes[1] !== 80 || bytes[2] !== 68 || bytes[3] !== 70 || bytes[4] !== 45) {
+        throw apiError_(400, 'The uploaded file is not a valid PDF of 3 MB or smaller.')
+      }
+      const safeName = requestedName.replace(/[\\/:*?"<>|]/g, '_')
+      const uploadedAt = new Date().toISOString()
+      const folder = getEcommerceLabelFolder_(true)
+      const blob = Utilities.newBlob(bytes, 'application/pdf', safeName)
+      const file = folder.createFile(blob)
+      try {
+        file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        file.setDescription(JSON.stringify({
+          kind: 'mahalaxmi-erp-ecommerce-label',
+          orderNumber: orderNumber,
+          platform: platform,
+          uploadedBy: String(payload.createdBy || ''),
+          uploadedAt: uploadedAt,
+        }))
+      } catch (error) {
+        file.setTrashed(true)
+        throw error
+      }
+      return ecommerceLabelMetadata_(file)
+    }
+
+    function listEcommerceLabels_(payload) {
+      if (['E-commerce Executive', 'Production Supervisor', 'Super Admin'].indexOf(String(payload.sessionUserRole || '')) < 0) {
+        throw apiError_(403, 'This account cannot view shipping labels.')
+      }
+      const platform = String(payload.platform || '').trim().toUpperCase()
+      if (platform) assertEcommercePlatformAccess_(payload, platform)
+      const folder = getEcommerceLabelFolder_(false)
+      if (!folder) return { labels: [] }
+      const labels = []
+      const files = folder.getFiles()
+      while (files.hasNext()) {
+        const metadata = ecommerceLabelMetadata_(files.next())
+        if ((!platform || metadata.platform === platform) &&
+            (payload.sessionUserRole !== 'E-commerce Executive' ||
+              (Array.isArray(payload.sessionUserPlatforms) && payload.sessionUserPlatforms.indexOf(metadata.platform) >= 0))) {
+          labels.push(metadata)
+        }
+      }
+      labels.sort(function (a, b) { return String(b.uploadedAt).localeCompare(String(a.uploadedAt)) })
+      return { labels: labels }
+    }
+
+    function downloadEcommerceLabel_(payload) {
+      const fileId = String(payload.fileId || '').trim()
+      if (!fileId) throw apiError_(400, 'A shipping-label ID is required.')
+      const folder = getEcommerceLabelFolder_(false)
+      if (!folder) throw apiError_(404, 'Shipping label was not found.')
+      const files = folder.getFiles()
+      while (files.hasNext()) {
+        const file = files.next()
+        if (file.getId() !== fileId) continue
+        const metadata = ecommerceLabelMetadata_(file)
+        assertEcommercePlatformAccess_(payload, metadata.platform)
+        return {
+          fileName: metadata.fileName,
+          base64: Utilities.base64Encode(file.getBlob().getBytes()),
+        }
+      }
+      throw apiError_(404, 'Shipping label was not found.')
+    }
+
+    function getEcommerceReportFolder_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY)
+      if (folderId) return DriveApp.getFolderById(folderId)
+      if (!createIfMissing) return null
+      const folder = DriveApp.createFolder('Mahalaxmi ERP Private E-commerce Daily Reports')
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      properties.setProperty(ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY, folder.getId())
+      return folder
+    }
+
+    function submitEcommerceReport_(spreadsheet, payload) {
+      if (payload.sessionUserRole !== 'E-commerce Executive') throw apiError_(403, 'Only an E-commerce Executive can submit a daily report.')
+      const platform = assertEcommercePlatformAccess_(payload, payload.platform)
+      const completed = String(payload.completed || '').trim()
+      const pending = String(payload.pending || '').trim()
+      const issues = String(payload.issues || '').trim()
+      if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
+        throw apiError_(400, 'Completed work is required; each report field must be 3,000 characters or fewer.')
+      }
+      return withWriteLock_(function () {
+        const date = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')
+        const userId = String(payload.sessionUserId || '')
+        if (!userId) throw apiError_(401, 'Sign in again before submitting a daily report.')
+        const folder = getEcommerceReportFolder_(true)
+        const fileName = 'report_' + date + '_' + userId.replace(/[^A-Za-z0-9_-]/g, '_') + '_' + platform + '.json'
+        const matchingFiles = folder.getFilesByName(fileName)
+        const existingFile = matchingFiles.hasNext() ? matchingFiles.next() : null
+        let previous = null
+        if (existingFile) {
+          try {
+            previous = JSON.parse(existingFile.getBlob().getDataAsString())
+          } catch (error) {
+            throw apiError_(500, 'The existing daily report is corrupted and was not overwritten.')
+          }
+          if (!previous || previous.kind !== 'mahalaxmi-erp-ecommerce-report' || previous.version !== 1) {
+            throw apiError_(500, 'The existing daily report has an unsupported format and was not overwritten.')
+          }
+        }
+        const now = new Date().toISOString()
+        const report = {
+          kind: 'mahalaxmi-erp-ecommerce-report',
+          version: 1,
+          id: previous ? previous.id : Utilities.getUuid(),
+          date: date,
+          platform: platform,
+          userId: userId,
+          userName: String(payload.createdBy || ''),
+          completed: completed,
+          pending: pending,
+          issues: issues,
+          createdAt: previous ? previous.createdAt : now,
+          updatedAt: now,
+        }
+        const content = JSON.stringify(report)
+        if (existingFile) {
+          existingFile.setContent(content)
+        } else {
+          const file = folder.createFile(fileName, content, MimeType.PLAIN_TEXT)
+          try {
+            file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+            file.setDescription(JSON.stringify({ kind: report.kind, version: report.version }))
+          } catch (error) {
+            file.setTrashed(true)
+            throw error
+          }
+        }
+        return { report: report }
+      })
+    }
+
+    function listEcommerceReports_(spreadsheet, payload) {
+      if (payload.sessionUserRole !== 'Super Admin') throw apiError_(403, 'Only the Super Admin can view E-commerce Executive daily reports.')
+      const folder = getEcommerceReportFolder_(false)
+      if (!folder) return { reports: [] }
+      const reports = []
+      const files = folder.getFiles()
+      while (files.hasNext()) {
+        const file = files.next()
+        let report
+        try {
+          report = JSON.parse(file.getBlob().getDataAsString())
+        } catch (error) {
+          throw apiError_(500, 'A stored daily report is corrupted.')
+        }
+        if (!report || report.kind !== 'mahalaxmi-erp-ecommerce-report' || report.version !== 1 ||
+            typeof report.id !== 'string' || typeof report.date !== 'string' ||
+            ERP_ECOMMERCE_PLATFORMS.indexOf(report.platform) < 0) {
+          throw apiError_(500, 'A stored daily report has an unsupported format.')
+        }
+        reports.push(report)
+      }
+      reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })
+      return { reports: reports }
     }
 
     function setUserActive_(spreadsheet, userId, active) {
@@ -1300,12 +1589,17 @@
       if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, ERP_USER_COLUMNS.length).setValues([ERP_USER_COLUMNS])
       const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
       const missing = ERP_USER_COLUMNS.filter(function (column) { return headers.indexOf(column) < 0 })
-      if (missing.length) throw apiError_(422, 'The Users sheet is missing required columns: ' + missing.join(', ') + '.')
+      const requiredMissing = missing.filter(function (column) { return column !== 'Assigned Platforms' })
+      if (requiredMissing.length) throw apiError_(422, 'The Users sheet is missing required columns: ' + requiredMissing.join(', ') + '.')
+      missing.forEach(function (column) {
+        sheet.getRange(1, sheet.getLastColumn() + 1).setValue(column)
+        headers.push(column)
+      })
       return sheet
     }
 
-    function userValues_(user) {
-      return ERP_USER_COLUMNS.map(function (header) {
+    function userValues_(user, headers) {
+      return headers.map(function (header) {
         const active = user.Active === true || String(user.Active || '').toLowerCase() === 'true'
         const value = header === 'Active' ? (active ? 'TRUE' : 'FALSE') : user[header]
         return safeCellValue_(value === undefined ? '' : value)

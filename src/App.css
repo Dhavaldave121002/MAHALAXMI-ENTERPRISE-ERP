@@ -128,3 +128,53 @@ main { min-width: 0; }.topbar { height: 72px; background: #fff; border-bottom: 1
   .mobile-menu-toggle:focus-visible,.sidebar nav .nav-item:focus-visible{outline:2px solid #5369d8;outline-offset:2px}
   .mobile-menu-backdrop{position:fixed;inset:0;z-index:30;display:block;border:0;background:#16203355}
 }
+.platform-assignment{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px 14px;margin:0;padding:12px;border:1px solid #e3e8ef;border-radius:8px}
+.platform-assignment legend{padding:0 5px;color:#697386;font-size:10px;font-weight:700}
+.platform-assignment label{display:flex;align-items:center;gap:5px;color:#4b5568;font-size:10px}
+.platform-assignment input{accent-color:#485bd5}
+.ecommerce-report-panel,.ecommerce-section{margin:14px 0}
+.ecommerce-report-cell{min-width:160px;max-width:320px;white-space:pre-wrap;line-height:1.45}
+.ecommerce-workspace>.page-heading{align-items:flex-start}
+.ecommerce-platform-tabs{display:flex;gap:8px;overflow-x:auto;margin:0 0 14px;padding:3px}
+.ecommerce-platform-tabs button{min-height:36px;border:1px solid #e3e8ef;border-radius:18px;background:#fff;color:#667085;padding:0 14px;font-size:11px;font-weight:700;white-space:nowrap}
+.ecommerce-platform-tabs button.active{border-color:#485bd5;background:#eef2ff;color:#4058d7}
+.ecommerce-stock-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
+.ecommerce-table-wrap{width:100%;overflow-x:auto}
+.ecommerce-table-wrap table{min-width:760px}
+.ecommerce-section .panel-heading{height:auto;min-height:64px;padding:12px 16px}
+.ecommerce-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.ecommerce-form{display:grid;gap:10px;padding:14px 16px;border-bottom:1px solid #f0f3f7}
+.ecommerce-form label{display:grid;gap:5px;color:#697386;font-size:10px;font-weight:700}
+.ecommerce-form input,.ecommerce-form textarea,.inline-sku-form input{width:100%;min-height:36px;border:1px solid #e3e8ef;border-radius:7px;padding:8px 10px;background:#fff;color:#263147;font-size:11px}
+.ecommerce-form textarea{resize:vertical;line-height:1.45}
+.ecommerce-form small{color:#8b95a7;font-size:9px}
+.ecommerce-form .primary{justify-self:start}
+.ecommerce-label-list{padding:0 16px}
+.ecommerce-label-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:58px;border-bottom:1px solid #f1f3f7}
+.ecommerce-label-row:last-child{border-bottom:0}
+.ecommerce-label-row>div{min-width:0}
+.ecommerce-label-row strong,.ecommerce-label-row span{display:block}
+.ecommerce-label-row strong{font-size:11px;color:#263147}
+.ecommerce-label-row span{overflow-wrap:anywhere;margin-top:3px;color:#8b95a7;font-size:9px}
+.inline-sku-form{display:flex;min-width:280px;gap:5px}
+.inline-sku-form input{min-width:100px}
+.inline-sku-form .primary,.inline-sku-form .secondary{height:34px;padding:0 8px;font-size:10px}
+.ecommerce-error{margin:12px 0;padding:10px 12px;border:1px solid #f0caca;border-radius:8px;background:#fff1f1;color:#a43d3d;font-size:11px;line-height:1.5}
+.ecommerce-feedback{min-height:18px;margin:8px 0;color:#5867a7;font-size:11px}
+.ecommerce-workspace button:focus-visible,.ecommerce-workspace input:focus-visible,.ecommerce-workspace textarea:focus-visible,.platform-assignment input:focus-visible{outline:2px solid #5369d8;outline-offset:2px}
+@media(max-width:900px){.ecommerce-stock-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.ecommerce-panels{grid-template-columns:1fr}}
+@media(max-width:760px){.ecommerce-stock-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.ecommerce-workspace>.page-heading{flex-direction:column;gap:10px}.ecommerce-label-row{align-items:flex-start;flex-direction:column;padding:10px 0}.inline-sku-form{min-width:250px;flex-wrap:wrap}.inline-sku-form input{flex:1 1 100%}}
+.ecommerce-month-heading{height:auto;min-height:66px;gap:14px;padding:12px 16px}
+.ecommerce-month-actions{display:flex;align-items:end;gap:10px}
+.ecommerce-month-filter{display:grid;gap:4px;color:#697386;font-size:9px;font-weight:700}
+.ecommerce-month-filter input{height:34px;border:1px solid #e3e8ef;border-radius:7px;padding:0 8px;background:#fff;color:#263147;font-size:11px}
+.ecommerce-platform-tags{display:flex;flex-wrap:wrap;gap:7px;padding:12px 16px 4px}
+.ecommerce-platform-tag{display:inline-flex;align-items:center;min-height:26px;padding:4px 10px;border:1px solid #dfe5ff;border-radius:16px;background:#f2f4ff;color:#4559c8;font-size:9px;font-weight:800;letter-spacing:.3px}
+.ecommerce-metric-note{margin:6px 16px 12px;color:#8b95a7;font-size:9px;line-height:1.5}
+.ecommerce-admin-dashboard>.ecommerce-stock-summary{padding:0 14px}
+.ecommerce-admin-reports{margin-top:8px;border-top:1px solid #edf1f6}
+.ecommerce-admin-reports-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:14px 16px;color:#263147;font-size:11px}
+.ecommerce-admin-reports-heading span{color:#8b95a7;font-size:9px}
+.ecommerce-admin-dashboard .ecommerce-table-wrap table{min-width:880px}
+.ecommerce-admin-dashboard button:focus-visible,.ecommerce-admin-dashboard input:focus-visible{outline:2px solid #5369d8;outline-offset:2px}
+@media(max-width:760px){.ecommerce-month-heading{align-items:flex-start;flex-direction:column}.ecommerce-month-actions{width:100%;align-items:end;justify-content:space-between;flex-wrap:wrap}.ecommerce-admin-dashboard>.ecommerce-stock-summary{padding-inline:8px}}

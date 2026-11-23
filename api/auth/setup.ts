@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from '../_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from '../_lib/http.js'
-import { createInitialAdmin, getSessionSecret, makePasswordHash, newUser, type UserRole } from '../_lib/workbook.js'
+import { createInitialAdmin, getSessionSecret, makePasswordHash, newUser, publicUser, type UserRole } from '../_lib/workbook.js'
 import { setSessionCookie } from '../_lib/session.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -24,7 +24,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const admin = newUser({ id: randomUUID(), name, username, role: adminRole, ...credentials })
     await createInitialAdmin(admin)
     setSessionCookie(response, admin)
-    sendJson(response, 201, { user: { id: admin.id, name: admin.name, username: admin.username, role: admin.role, active: true } })
+    sendJson(response, 201, { user: publicUser(admin) })
   } catch (error) {
     handleApiError(response, error, 'Initial admin setup')
   }

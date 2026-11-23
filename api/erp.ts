@@ -129,6 +129,18 @@ function productionSkus(products: CatalogItem[]) {
 }
 
 export function getSnapshot(data: WorkbookData, user: PublicUser) {
+  if (user.role === 'E-commerce Executive') {
+    return {
+      products: [],
+      marketplaceListings: [],
+      machines: [],
+      production: [],
+      rawMaterials: [],
+      finishedGoods: [],
+      stockMovements: [],
+      workbookMeta: { loaded: true, name: data.name, sheetCount: data.sheetCount },
+    }
+  }
   const masters = records(data, 'Products')
   const variants = records(data, 'SKU_Variants')
   const finishedRows = records(data, 'Finished_Goods')
@@ -726,6 +738,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         : await getSessionUser(request)
 
     if (action === 'addProduction') {
+      if (!['Super Admin', 'Production Supervisor', 'Machine Operator'].includes(user.role)) {
+        throw new ApiError(403, 'This account cannot record production.')
+      }
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for production validation.')
       const record = await addProduction(data, user, body)
       sendJson(response, 201, { record })
