@@ -35,7 +35,7 @@ type MarketplaceImportResult = {
   skipped: { products: number; variants: number; listings: number }
   backupName: string
 }
-type Production = { id: string; date: string; machine: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
+type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
 type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean }
 type Machine = { id: string; name: string; type: string; department: string; operator: string; status: string }
@@ -81,6 +81,11 @@ const deliveryMarketplacePlatforms: Record<string, string[]> = {
   SHOPIFY: ['SHOPIFY'],
   MYNTRA: ['MYNTRA'],
 }
+const productionBlocks = [
+  { name: 'Block 1', time: '09:30 AM – 12:30 PM' },
+  { name: 'Block 2', time: '01:00 PM – 04:00 PM' },
+  { name: 'Block 3', time: '04:20 PM – 07:00 PM' },
+]
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   Dashboard: LayoutDashboard, Production: Factory, Stitching: ClipboardCheck, 'Raw Material': Boxes,
@@ -675,7 +680,7 @@ function ModuleView(props: {
   saveVariant: (input: { masterSku: string; sku: string; size: string; color: string; packQuantity: number; mrp?: number; sellingPrice?: number }) => Promise<Product>;
   saveMarketplaceListing: (input: { platform: string; platformSku: string; productSku: string }) => Promise<MarketplaceListing>;
   importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => Promise<MarketplaceImportResult>;
-  saveProduction: (input: { date: string; machine: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
+  saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
   saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
   applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string }) => Promise<void>;
   archiveStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
@@ -797,6 +802,7 @@ function ModuleView(props: {
       await saveProduction({
         date: String(form.get('date')),
         machine: String(form.get('machine')),
+        block: String(form.get('block')),
         sku,
         product: product.name,
         actual,
@@ -1499,6 +1505,7 @@ function ModuleView(props: {
             <div className="field-grid">
               <label>Date<input name="date" type="date" required defaultValue={today} /></label>
               <label>Machine<select name="machine" required disabled={availableMachines.length === 0}><option value="">Select machine</option>{availableMachines.map(machine => <option key={machine.id} value={machine.id}>{machine.id}{machine.name ? ` — ${machine.name}` : ''}</option>)}</select></label>
+              <label>Production block<select name="block" required defaultValue=""><option value="">Select time block</option>{productionBlocks.map(block => <option key={block.name} value={block.name}>{block.name} · {block.time}</option>)}</select></label>
               <label>Product + SKU<select name="sku" required disabled={activeProducts.length === 0}><option value="">Select product and SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{[product.size, product.color].filter(Boolean).length ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
               <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
               <label>Rejected quantity<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /></label>
@@ -1508,11 +1515,11 @@ function ModuleView(props: {
           </form>
           <div className="panel time-card">
             <div className="panel-heading"><div><h2>Production blocks</h2><p>Break periods are excluded</p></div></div>
-            {['09:30 AM – 12:30 PM', '01:00 PM – 04:00 PM', '04:20 PM – 07:00 PM'].map((time, i) => <div className="time-row" key={time}><span>Block {i + 1}</span><strong>{time}</strong></div>)}
+            {productionBlocks.map(block => <div className="time-row" key={block.name}><span>{block.name}</span><strong>{block.time}</strong></div>)}
             <div className="break-note"><AlertTriangle size={16} /> Break time is not counted as production time.</div>
           </div>
         </div>
-        <div className="table-card entries-table"><table><thead><tr><th>Date</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{visibleProduction.map(row => <tr key={row.id}><td>{row.date}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{row.createdBy || '—'}</td></tr>)}</tbody></table>{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
+        <div className="table-card entries-table"><table><thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{visibleProduction.map(row => <tr key={row.id}><td>{row.date}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{row.createdBy || '—'}</td></tr>)}</tbody></table>{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
       </section>
     )
   }

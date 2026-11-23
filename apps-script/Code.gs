@@ -477,12 +477,19 @@
         const required = ['Production ID', 'Date', 'Machine ID', 'Product Name', 'Master SKU', 'Actual Quantity', 'Rejected Quantity', 'Created By', 'Created Date', 'Variant SKU']
         const missing = required.filter(function (header) { return header !== 'Variant SKU' && productionHeaders.indexOf(header) < 0 })
         if (missing.length) throw apiError_(422, 'The Production sheet is missing required columns: ' + missing.join(', ') + '.')
+        const productionBlock = String(record['Production Block'] || '').trim()
+        if (['Block 1', 'Block 2', 'Block 3'].indexOf(productionBlock) < 0) throw apiError_(400, 'Choose a valid production time block.')
         assertRecordUnique_(spreadsheet, 'Production', record)
         const backupState = { created: false }
         if (productionHeaders.indexOf('Variant SKU') < 0) {
           createBackupOnce_(spreadsheet, backupState)
           productionSheet.getRange(1, productionHeaders.length + 1).setValue('Variant SKU')
           productionHeaders.push('Variant SKU')
+        }
+        if (productionHeaders.indexOf('Production Block') < 0) {
+          createBackupOnce_(spreadsheet, backupState)
+          productionSheet.getRange(1, productionHeaders.length + 1).setValue('Production Block')
+          productionHeaders.push('Production Block')
         }
 
         const finished = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)

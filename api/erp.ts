@@ -47,7 +47,7 @@ type MarketplaceListing = {
 
 const MARKETPLACES = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
 type Machine = { id: string; name: string; type: string; department: string; operator: string; status: string }
-type Production = { id: string; date: string; machine: string; sku: string; product: string; actual: number; rejected: number; createdBy: string }
+type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy: string }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
   supplier: string; issued: number; machineConsumption: number; stitchingConsumption: number;
@@ -255,6 +255,7 @@ function getSnapshot(data: WorkbookData, user: PublicUser) {
       id: text(row['Production ID']) || `PRO-${index + 1}`,
       date: dateKey(row.Date),
       machine: text(row['Machine ID']),
+      block: text(row['Production Block']),
       sku: text(row['Variant SKU']) || text(row['Master SKU']),
       product: text(row['Product Name']),
       actual: number(row['Actual Quantity']),
@@ -503,6 +504,8 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     throw new ApiError(400, 'Choose a valid production date.')
   }
   const machineId = requiredText(body.machine, 'Machine', 100)
+  const block = requiredText(body.block, 'Production block', 20)
+  if (!['Block 1', 'Block 2', 'Block 3'].includes(block)) throw new ApiError(400, 'Choose a valid production time block.')
   const machine = records(data, 'Machines').find(row => text(row['Machine ID']).toLowerCase() === machineId.toLowerCase())
   if (!machine) throw new ApiError(400, 'Choose a machine configured by the Admin.')
   if (text(machine.Status).toLowerCase() === 'maintenance') throw new ApiError(400, 'The selected machine is under maintenance.')
@@ -520,6 +523,7 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     'Production ID': id,
     Date: date,
     'Machine ID': machineId,
+    'Production Block': block,
     'Product Name': catalog.name,
     'Master SKU': catalog.masterSku,
     'Variant SKU': catalog.isVariant ? catalog.sku : '',
@@ -534,6 +538,7 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     id,
     date,
     machine: machineId,
+    block,
     sku: catalog.sku,
     product: catalog.name,
     actual,
