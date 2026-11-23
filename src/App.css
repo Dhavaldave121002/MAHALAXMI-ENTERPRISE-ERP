@@ -134,6 +134,7 @@ main { min-width: 0; }.topbar { height: 72px; background: #fff; border-bottom: 1
 .platform-assignment input{accent-color:#485bd5}
 .ecommerce-report-panel,.ecommerce-section{margin:14px 0}
 .ecommerce-report-cell{min-width:160px;max-width:320px;white-space:pre-wrap;line-height:1.45}
+.ecommerce-report-saved{margin:12px 0 0;padding:10px 12px;border:1px solid #dfe7ff;border-radius:8px;background:#f5f7ff;color:#3448a5;font-size:11px;font-weight:600}
 .ecommerce-workspace>.page-heading{align-items:flex-start}
 .ecommerce-quick-links{display:flex;justify-content:flex-end;margin:-5px 0 10px}
 .ecommerce-quick-links{flex-wrap:wrap;gap:7px}

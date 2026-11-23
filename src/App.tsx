@@ -2082,7 +2082,7 @@ function ModuleView(props: {
           {ecommerceReportsLoading && <div className="empty-state">Loading reports…</div>}
           {ecommerceReportsError && <p className="ecommerce-error" role="alert">{ecommerceReportsError}</p>}
           {!ecommerceReportsLoading && !ecommerceReportsError && ecommerceReports.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No daily reports yet</strong><span>Submitted reports will appear here.</span></div>}
-          {ecommerceReports.length > 0 && <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Executive</th><th>Platform</th><th>Completed</th><th>Pending</th><th>Issues / notes</th></tr></thead><tbody>{ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
+          {ecommerceReports.length > 0 && <div className="ecommerce-table-wrap"><table><thead><tr><th>Report date</th><th>Last updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed</th><th>Pending</th><th>Issues / notes</th></tr></thead><tbody>{ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
         </section>
         <div className="table-card entries-table"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Platforms</th><th>Status</th><th /></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.name}</td><td><code>{user.username}</code></td><td>{user.role}</td><td>{user.platforms.join(', ') || '—'}</td><td><span className={`status ${user.active ? 'active' : 'draft'}`}>{user.active ? 'Active' : 'Inactive'}</span></td><td><button className="secondary" disabled={user.id === sessionUser.id} onClick={() => setAccountActive(user)}>{user.active ? 'Deactivate' : 'Activate'}</button></td></tr>)}</tbody></table></div>
       </section>
@@ -2227,7 +2227,7 @@ function EcommerceMonthlyDashboard() {
       'Completed Work': report.completed,
       'Pending Work': report.pending,
       'Issues / Notes': report.issues,
-      'Last Updated': report.updatedAt,
+      'Last Updated (IST)': formatIndiaDateTime(report.updatedAt),
     }))), 'Daily Reports')
     XLSX.writeFile(workbook, `Ecommerce-Monthly-${selectedMonth}.xlsx`)
   }
@@ -2270,7 +2270,7 @@ function EcommerceMonthlyDashboard() {
         <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th><th>Daily reports</th></tr></thead><tbody>{summaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td><td>{summary.dailyReports}</td></tr>)}</tbody></table></div>
         <div className="ecommerce-admin-reports">
           <div className="ecommerce-admin-reports-heading"><strong>{selectedMonth} executive daily reports</strong><span>{monthlyReports.length} submissions</span></div>
-          {monthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No reports submitted this month</strong></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead><tbody>{monthlyReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
+          {monthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No reports submitted this month</strong></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Report date</th><th>Last updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead><tbody>{monthlyReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
         </div>
       </>}
     </section>
@@ -2293,6 +2293,7 @@ function EcommerceWorkspace({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionMessage, setActionMessage] = useState('')
+  const [reportSavedAt, setReportSavedAt] = useState<{ date: string; updatedAt: string; platform: EcommercePlatform } | null>(null)
   const [busy, setBusy] = useState(false)
   const [editingListingId, setEditingListingId] = useState('')
   const [platformSkuDraft, setPlatformSkuDraft] = useState('')
@@ -2420,7 +2421,7 @@ function EcommerceWorkspace({
     setBusy(true)
     setActionMessage('')
     try {
-      await apiFetch('/api/ecommerce', {
+      const result = await apiFetch<{ report: { date: string; updatedAt: string; platform: EcommercePlatform } }>('/api/ecommerce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2431,8 +2432,9 @@ function EcommerceWorkspace({
           issues: form.get('issues'),
         }),
       })
+      setReportSavedAt(result.report)
       formElement.reset()
-      setActionMessage('Daily report saved. You can update it again today.')
+      setActionMessage('Daily report saved.')
     } catch (requestError) {
       setActionMessage(requestError instanceof Error ? requestError.message : 'Daily report could not be submitted.')
     } finally {
@@ -2520,6 +2522,7 @@ function EcommerceWorkspace({
           {showReport && <section className="panel ecommerce-section">
             <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per platform each day; new submissions update today’s report.</p></div></div>
             <form className="ecommerce-form" onSubmit={event => void submitDailyReport(event)}><label>Completed work<textarea name="completed" required maxLength={3000} rows={4} /></label><label>Pending work<textarea name="pending" maxLength={3000} rows={3} /></label><label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} /></label><button className="primary" type="submit" disabled={busy}><CheckCircle2 size={15} /> Submit daily report</button></form>
+            {reportSavedAt?.platform === selectedPlatform && <p className="ecommerce-report-saved" role="status">Report date: {formatIndiaDate(reportSavedAt.date)} · Last submitted/updated: {formatIndiaDateTime(reportSavedAt.updatedAt)}</p>}
           </section>}
         </div>}
         <p className="ecommerce-feedback" role="status" aria-live="polite">{actionMessage}</p>
