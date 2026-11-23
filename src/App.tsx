@@ -12,7 +12,8 @@ import './App.css'
 
 type Module = 'Dashboard' | 'Factory' | 'Production' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
-  'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'Machines' | 'Quality Control' | 'Employees' |
+  'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
+  'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
   'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs'
 
 type Product = {
@@ -78,7 +79,8 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Stitching', 'Quality Control'] as Module[] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
-  { label: 'SALES', items: ['Orders', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace'] },
+  { label: 'SALES', items: ['Orders', 'Shipping & Delivery', 'Returns & RTO'] },
+  { label: 'E-COMMERCE', items: ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
@@ -113,6 +115,8 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   'Quality Control': ClipboardCheck, Employees: Users, Suppliers: Building2,
   Accounts: CircleDollarSign, Reports: BarChart3, 'Excel Management': FileSpreadsheet,
   'User Management': UserCog, Settings, 'Audit Logs': Archive, 'E-commerce Workspace': ShoppingCart,
+  'E-commerce Stock': Boxes, 'E-commerce Orders': Truck, 'Shipping Labels': FileSpreadsheet,
+  'Daily Work Report': ClipboardCheck,
   Factory: Factory,
 } as Record<Module, typeof LayoutDashboard>
 
@@ -878,11 +882,11 @@ export default function App() {
   const adminModules = navSections.flatMap(section => section.items)
   const adminOnlyModules: Module[] = ['Employees', 'Suppliers', 'Accounts', 'Reports', 'User Management', 'Settings', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
-    'Super Admin': adminModules,
-    'Production Supervisor': [...adminModules.filter(item => !adminOnlyModules.includes(item)), 'E-commerce Workspace'],
+    'Super Admin': adminModules.filter(item => item !== 'Daily Work Report'),
+    'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
     'Machine Operator': ['Dashboard', 'Production'],
     'Store Manager': ['Dashboard'],
-    'E-commerce Executive': ['E-commerce Workspace'],
+    'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -1117,8 +1121,12 @@ function ModuleView(props: {
     return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Your account role cannot open this section.</span></div></section>
   }
 
-  if (module === 'E-commerce Workspace') {
-    return <EcommerceWorkspace user={sessionUser} />
+  if (
+    module === 'E-commerce Workspace' || module === 'E-commerce Stock' ||
+    module === 'E-commerce Orders' || module === 'Shipping Labels' ||
+    module === 'Daily Work Report'
+  ) {
+    return <EcommerceWorkspace user={sessionUser} module={module} setModule={setModule} />
   }
 
   const submitProduction = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -2217,10 +2225,19 @@ function EcommerceMonthlyDashboard() {
   )
 }
 
-function EcommerceWorkspace({ user }: { user: UserAccount }) {
+function EcommerceWorkspace({
+  user,
+  module,
+  setModule,
+}: {
+  user: UserAccount
+  module: Module
+  setModule: (module: Module) => void
+}) {
   const [data, setData] = useState<EcommerceWorkspaceData | null>(null)
   const [selectedPlatform, setSelectedPlatform] = useState<EcommercePlatform>(user.platforms[0] || 'AMAZON')
   const [selectedMonth, setSelectedMonth] = useState(() => indiaMonthKey())
+  const [listingSearch, setListingSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionMessage, setActionMessage] = useState('')
@@ -2244,6 +2261,10 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
   useEffect(() => { void reload() }, [reload])
 
   const listings = data?.listings.filter(listing => listing.platform === selectedPlatform) || []
+  const visibleListings = listings.filter(listing => {
+    const query = listingSearch.trim().toLowerCase()
+    return !query || [listing.productName, listing.productSku, listing.platformSku].some(value => value.toLowerCase().includes(query))
+  })
   const movements = data?.movements.filter(movement => movement.platform === selectedPlatform) || []
   const labels = data?.labels.filter(label => label.platform === selectedPlatform) || []
   const uniqueStock = new Map(listings.map(listing => [listing.productSku.toLowerCase(), listing.availableStock]))
@@ -2252,6 +2273,24 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
     summarizeEcommercePlatform(platform, data?.movements || [], [], selectedMonth, data?.targets[platform] ?? 0),
   )
   const selectedSummary = monthlySummaries.find(summary => summary.platform === selectedPlatform)
+  const page = module === 'E-commerce Workspace'
+    ? user.role === 'E-commerce Executive' ? 'overview' : 'all'
+    : module === 'E-commerce Stock' ? 'stock'
+      : module === 'E-commerce Orders' ? 'orders'
+        : module === 'Shipping Labels' ? 'labels'
+          : module === 'Daily Work Report' ? 'report'
+            : 'overview'
+  const pageTitle = page === 'stock' ? 'Stock and SKUs'
+    : page === 'orders' ? 'Dispatches and returns'
+      : page === 'labels' ? 'Shipping labels'
+        : page === 'report' ? 'Daily work report'
+          : 'E-commerce Workspace'
+  const showAll = page === 'all'
+  const showOverview = showAll || page === 'overview'
+  const showStock = showAll || page === 'stock'
+  const showOrders = showAll || page === 'orders'
+  const showLabels = showAll || page === 'labels'
+  const showReport = user.role === 'E-commerce Executive' && (showAll || page === 'report')
 
   const saveSku = async (event: React.FormEvent<HTMLFormElement>, listing: EcommerceListing) => {
     event.preventDefault()
@@ -2372,12 +2411,17 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
 
   return (
     <section className="ecommerce-workspace">
-      <div className="page-heading"><div><p>PLATFORM OPERATIONS</p><h1>E-commerce Workspace</h1><span className="catalog-intro">Platform access is verified on the server for stock, orders, SKU updates, labels, and reports.</span></div><button className="secondary" onClick={() => { setLoading(true); void reload() }} disabled={loading}><RotateCcw size={16} /> Refresh</button></div>
-      <nav className="ecommerce-quick-links" aria-label="E-commerce workspace shortcuts"><a className="secondary" href="#ecommerce-shipping-labels"><FileSpreadsheet size={16} /> Shipping Labels</a></nav>
+      <div className="page-heading"><div><p>PLATFORM OPERATIONS</p><h1>{pageTitle}</h1><span className="catalog-intro">Platform access is verified on the server for stock, orders, SKU updates, labels, and reports.</span></div><button className="secondary" onClick={() => { setLoading(true); void reload() }} disabled={loading}><RotateCcw size={16} /> Refresh</button></div>
+      {(showOverview || showAll) && <nav className="ecommerce-quick-links" aria-label="E-commerce workspace shortcuts">
+        <button className="secondary" type="button" onClick={() => setModule('E-commerce Stock')}><Boxes size={16} /> Stock & SKUs</button>
+        <button className="secondary" type="button" onClick={() => setModule('E-commerce Orders')}><Truck size={16} /> Dispatches & Returns</button>
+        <button className="secondary" type="button" onClick={() => setModule('Shipping Labels')}><FileSpreadsheet size={16} /> Shipping Labels</button>
+        {user.role === 'E-commerce Executive' && <button className="secondary" type="button" onClick={() => setModule('Daily Work Report')}><ClipboardCheck size={16} /> Daily Report</button>}
+      </nav>}
       {error && <div className="ecommerce-error" role="alert">{error}</div>}
       {loading && !data && <div className="panel empty-state">Loading assigned platform data…</div>}
       {data && <>
-        <section className="panel ecommerce-section">
+        {(showOverview || showAll) && <section className="panel ecommerce-section">
           <div className="panel-heading ecommerce-month-heading">
             <div><h2>Assigned platforms</h2><p>Your account can access only the tagged platforms below.</p></div>
             <label className="ecommerce-month-filter">Monthly analysis<input type="month" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} /></label>
@@ -2385,36 +2429,37 @@ function EcommerceWorkspace({ user }: { user: UserAccount }) {
           <div className="ecommerce-platform-tags">{data.platforms.map(platform => <span className="ecommerce-platform-tag" key={platform}>{platform}</span>)}</div>
           <p className="ecommerce-metric-note">Dispatched orders are counted by unique order number; the ledger does not track delivery confirmation.</p>
           <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Daily target</th><th>Monthly target</th><th>Orders dispatched</th><th>Target achievement</th><th>Units dispatched</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dailyTarget}</td><td>{summary.monthlyTarget.toLocaleString('en-IN')}</td><td>{summary.dispatchedOrders}</td><td>{summary.achievementPercent === null ? '—' : `${summary.achievementPercent}%`}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td></tr>)}</tbody></table></div>
-        </section>
-        <div className="ecommerce-platform-tabs" role="tablist" aria-label="Assigned marketplace platforms">
-          {data.platforms.map(platform => <button key={platform} type="button" role="tab" aria-selected={selectedPlatform === platform} className={selectedPlatform === platform ? 'active' : ''} onClick={() => { setSelectedPlatform(platform); setActionMessage('') }}>{platform}</button>)}
-        </div>
-        <div className="stats-grid ecommerce-stock-summary">
+        </section>}
+        {showStock && <div className="ecommerce-platform-tabs" role="tablist" aria-label="Assigned marketplace platforms">
+          {data.platforms.map(platform => <button key={platform} type="button" role="tab" aria-selected={selectedPlatform === platform} className={selectedPlatform === platform ? 'active' : ''} onClick={() => { setSelectedPlatform(platform); setListingSearch(''); setActionMessage('') }}>{platform}</button>)}
+        </div>}
+        {showStock && <div className="stats-grid ecommerce-stock-summary">
           <div className="stat-card"><div className="stat-icon blue"><Boxes size={20} /></div><div className="stat-body"><span>Available stock</span><strong>{Array.from(uniqueStock.values()).reduce((total, stock) => total + stock, 0).toLocaleString('en-IN')}</strong><small>Across {listings.length} assigned listings</small></div></div>
           <div className="stat-card"><div className="stat-icon green"><Truck size={20} /></div><div className="stat-body"><span>Orders dispatched this month</span><strong>{selectedSummary?.dispatchedOrders || 0}</strong><small>{selectedSummary?.dispatchedUnits || 0} units · {selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon purple"><Target size={20} /></div><div className="stat-body"><span>Daily order target</span><strong>{selectedSummary?.dailyTarget ?? 0}</strong><small>{selectedSummary?.monthlyTarget.toLocaleString('en-IN') ?? 0} monthly · {selectedSummary?.achievementPercent === null || selectedSummary?.achievementPercent === undefined ? '—' : `${selectedSummary.achievementPercent}%`} achieved</small></div></div>
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returns / damage this month</span><strong>{(selectedSummary?.returnedOrders || 0) + (selectedSummary?.damagedOrders || 0)}</strong><small>Order events · {selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Stored privately</small></div></div>
-        </div>
-        <section className="panel ecommerce-section">
+        </div>}
+        {showStock && <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>{selectedPlatform} stock and SKUs</h2><p>Only listings linked to this platform are shown.</p></div></div>
-          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>Available stock</th><th>Status</th>{canEdit && <th />}</tr></thead><tbody>{listings.map(listing => <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>{editingListingId === listing.id ? <form className="inline-sku-form" onSubmit={event => void saveSku(event, listing)}><input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /><button className="primary" type="submit" disabled={busy}>Save</button><button className="secondary" type="button" onClick={() => setEditingListingId('')}>Cancel</button></form> : <code>{listing.platformSku || '—'}</code>}</td><td>{listing.availableStock.toLocaleString('en-IN')}</td><td>{listing.stockStatus}</td>{canEdit && <td>{editingListingId !== listing.id && <button className="secondary" type="button" onClick={() => { setEditingListingId(listing.id); setPlatformSkuDraft(listing.platformSku) }}>Update SKU</button>}</td>}</tr>)}</tbody></table></div>}
-        </section>
-        <section className="panel ecommerce-section">
+          <div className="ecommerce-listing-toolbar"><label><Search size={16} /><input type="search" aria-label="Search product name, product SKU, or platform SKU" placeholder="Search product name or SKU" value={listingSearch} onChange={event => setListingSearch(event.target.value)} /></label><span>{visibleListings.length} of {listings.length} listings</span></div>
+          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : visibleListings.length === 0 ? <div className="empty-state"><Search size={24} /><strong>No matching products</strong><span>Try a different product name or SKU.</span></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>Available stock</th><th>Status</th>{canEdit && <th />}</tr></thead><tbody>{visibleListings.map(listing => <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>{editingListingId === listing.id ? <form className="inline-sku-form" onSubmit={event => void saveSku(event, listing)}><input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /><button className="primary" type="submit" disabled={busy}>Save</button><button className="secondary" type="button" onClick={() => setEditingListingId('')}>Cancel</button></form> : <code>{listing.platformSku || '—'}</code>}</td><td>{listing.availableStock.toLocaleString('en-IN')}</td><td>{listing.stockStatus}</td>{canEdit && <td>{editingListingId !== listing.id && <button className="secondary" type="button" onClick={() => { setEditingListingId(listing.id); setPlatformSkuDraft(listing.platformSku) }}>Update SKU</button>}</td>}</tr>)}</tbody></table></div>}
+        </section>}
+        {showOrders && <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>Dispatches and returns</h2><p>Dispatch, return, and damage records tied to order numbers.</p></div></div>
           {movements.length === 0 ? <div className="empty-state"><Truck size={24} /><strong>No platform orders yet</strong><span>Platform dispatches and linked returns will appear here.</span></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Order number</th><th>Type</th><th>Product SKU</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>{movements.map(item => <tr key={item.id}><td>{formatIndiaDateTime(item.date)}</td><td><code>{item.orderNumber}</code></td><td>{item.type}</td><td><code>{item.sku}</code></td><td>{item.quantity}</td><td>{item.reason || '—'}</td></tr>)}</tbody></table></div>}
-        </section>
-        <div className="ecommerce-panels">
-          <section className="panel ecommerce-section" id="ecommerce-shipping-labels">
+        </section>}
+        {(showLabels || showReport) && <div className={`ecommerce-panels${showLabels !== showReport ? ' ecommerce-single-panel' : ''}`}>
+          {showLabels && <section className="panel ecommerce-section" id="ecommerce-shipping-labels">
             <div className="panel-heading"><div><h2>Shipping labels</h2><p>PDFs are stored in private Drive and downloaded through this signed-in account.</p></div></div>
             {canEdit && <form className="ecommerce-form" onSubmit={event => void uploadLabel(event)}><label>Marketplace order number<input name="orderNumber" required maxLength={120} /></label><label>Label PDF<input name="label" type="file" accept="application/pdf,.pdf" required /></label><small>PDF only · maximum 3 MB</small><button className="primary" type="submit" disabled={busy}><Upload size={15} /> Upload label</button></form>}
             {labels.length === 0 ? <div className="empty-state"><FileSpreadsheet size={24} /><strong>No labels for {selectedPlatform}</strong><span>Uploaded shipping labels will be listed here.</span></div> : <div className="ecommerce-label-list">{labels.map(label => <div className="ecommerce-label-row" key={label.id}><div><strong>{label.orderNumber}</strong><span>{label.fileName} · {formatIndiaDateTime(label.uploadedAt)}</span></div><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLabel(label)}><Download size={15} /> Download</button></div>)}</div>}
-          </section>
-          {user.role === 'E-commerce Executive' && <section className="panel ecommerce-section">
+          </section>}
+          {showReport && <section className="panel ecommerce-section">
             <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per platform each day; new submissions update today’s report.</p></div></div>
             <form className="ecommerce-form" onSubmit={event => void submitDailyReport(event)}><label>Completed work<textarea name="completed" required maxLength={3000} rows={4} /></label><label>Pending work<textarea name="pending" maxLength={3000} rows={3} /></label><label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} /></label><button className="primary" type="submit" disabled={busy}><CheckCircle2 size={15} /> Submit daily report</button></form>
           </section>}
-        </div>
+        </div>}
         <p className="ecommerce-feedback" role="status" aria-live="polite">{actionMessage}</p>
       </>}
     </section>
