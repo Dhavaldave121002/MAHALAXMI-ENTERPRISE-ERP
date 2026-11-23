@@ -172,6 +172,8 @@ export async function importWorkbookMarketplaceCatalog(input: {
   variants: Record<string, unknown>[]
   listings: Record<string, unknown>[]
   createdBy: string
+  sessionUserId: string
+  sessionRole: string
 }) {
   return callAppsScript<{
     added: { products: number; variants: number; listings: number }
@@ -186,6 +188,13 @@ export async function addWorkbookRawMaterial(input: Record<string, unknown>) {
 
 export async function applyWorkbookStockMovement(input: Record<string, unknown>) {
   return callAppsScript<{ item: Record<string, unknown>; movement: Record<string, unknown> }>('applyStockMovement', input)
+}
+
+export async function initializeWorkbookZeroFinishedStock(user: PublicUser) {
+  return callAppsScript<{ updated: number; unchanged: number; archived: number; targetStock: number }>(
+    'initializeZeroFinishedStock',
+    { createdBy: user.name, sessionUserId: user.id, sessionRole: user.role },
+  )
 }
 
 export async function archiveWorkbookStockItem(input: Record<string, unknown>) {

@@ -1,6 +1,7 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
+    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook']
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
     const ERP_FINISHED_GOODS_HEADERS = ['Product SKU', 'Product Name', 'Opening Stock', 'Production Received', 'Quality Approved', 'Rejected', 'Reserved Stock', 'Available Stock', 'Dispatched Stock', 'Returned Stock', 'Damaged Stock', 'Last Updated', 'Adjustment In', 'Adjustment Out', 'Status']
     const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner']
@@ -51,7 +52,12 @@
         if (typeof request.secret !== 'string' || request.secret !== expectedSecret) throw apiError_(401, 'Invalid API secret.')
 
         const spreadsheet = SpreadsheetApp.openById(spreadsheetId)
-        const data = dispatch_(spreadsheet, request.action, request.payload || {})
+        const payload = request.payload || {}
+        if (ERP_SESSION_BOUND_ACTIONS.indexOf(request.action) >= 0) {
+          const user = assertActiveSessionUser_(spreadsheet, payload)
+          payload.createdBy = user.name
+        }
+        const data = dispatch_(spreadsheet, request.action, payload)
         return jsonOutput_({ ok: true, data: data })
       } catch (error) {
         return jsonOutput_({
@@ -60,6 +66,19 @@
           error: String(error && error.message || 'Apps Script request failed.'),
         })
       }
+    }
+
+    function assertActiveSessionUser_(spreadsheet, payload) {
+      const userId = String(payload.sessionUserId || '').trim()
+      const sessionRole = String(payload.sessionRole || '').trim()
+      if (!userId || !sessionRole) throw apiError_(401, 'Sign in again before changing inventory.')
+      const user = readSheetRecords_(spreadsheet, 'Users').find(function (row) {
+        return String(row['User ID'] || '').trim() === userId
+      })
+      const active = user && (user.Active === true || ['true', '1', 'yes'].indexOf(String(user.Active || '').toLowerCase()) >= 0)
+      if (!active) throw apiError_(401, 'This account is inactive or no longer exists.')
+      if (String(user.Role || '').trim() !== sessionRole) throw apiError_(401, 'Your role changed. Sign in again.')
+      return { id: userId, name: String(user.Name || '').trim(), role: String(user.Role || '').trim() }
     }
 
     function dispatch_(spreadsheet, action, payload) {
@@ -84,6 +103,8 @@
           return addRawMaterial_(spreadsheet, payload)
         case 'applyStockMovement':
           return applyStockMovement_(spreadsheet, payload)
+        case 'initializeZeroFinishedStock':
+          return initializeZeroFinishedStock_(spreadsheet, payload)
         case 'archiveStockItem':
           return archiveStockItem_(spreadsheet, payload)
         case 'deleteUnusedStockItem':
@@ -408,7 +429,7 @@
           const mapping = fields[type]
           if (!mapping) throw apiError_(400, 'Choose a supported finished-goods movement type.')
           closing += mapping[1] * quantity
-          if (closing < 0 && !(type === 'Dispatch' && salesChannel && deliveryPartner)) throw apiError_(409, 'This movement would make available stock negative.')
+          if (closing < 0) throw apiError_(409, 'This movement would make available stock negative.')
           const updatedValue = stockNumber_(item[mapping[0]], mapping[0]) + mapping[2] * quantity
           if (updatedValue < 0) throw apiError_(409, 'You cannot release more units than are currently reserved.')
           item[mapping[0]] = updatedValue
@@ -429,6 +450,139 @@
         appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
         SpreadsheetApp.flush()
         return { item: item, movement: movement }
+      })
+    }
+
+    function initializeZeroFinishedStock_(spreadsheet, payload) {
+      return withWriteLock_(function () {
+        const marker = 'ERP_ZERO_FINISHED_STOCK_INITIALIZED_' + spreadsheet.getId()
+        const properties = PropertiesService.getScriptProperties()
+        if (properties.getProperty(marker)) {
+          throw apiError_(409, 'The one-time zero-stock initialization has already been completed.')
+        }
+
+        const products = readSheetRecords_(spreadsheet, 'Products')
+        const masters = new Map()
+        products.forEach(function (row) {
+          const sku = String(row['Master SKU'] || '').trim()
+          if (sku && String(row.Status || '').trim().toLowerCase() === 'active') {
+            masters.set(sku.toLowerCase(), {
+              sku: sku,
+              name: String(row['Product Title'] || sku).trim(),
+            })
+          }
+        })
+
+        const catalog = new Map()
+        masters.forEach(function (product) { catalog.set(product.sku.toLowerCase(), product) })
+        readSheetRecords_(spreadsheet, 'SKU_Variants').forEach(function (row) {
+          const sku = String(row['Variant SKU'] || '').trim()
+          const masterSku = String(row['Master SKU'] || '').trim()
+          const parent = masters.get(masterSku.toLowerCase())
+          if (sku && parent && String(row.Status || '').trim().toLowerCase() === 'active') {
+            if (!catalog.has(sku.toLowerCase())) catalog.set(sku.toLowerCase(), { sku: sku, name: parent.name })
+          }
+        })
+
+        const backupState = { created: false }
+        const finished = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
+        const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
+        const skuIndex = finished.headers.indexOf('Product SKU')
+        const existingRows = finished.sheet.getLastRow() > 1
+          ? finished.sheet.getRange(2, 1, finished.sheet.getLastRow() - 1, finished.headers.length).getValues()
+          : []
+        const rowNumbers = new Map()
+        existingRows.forEach(function (row, index) {
+          const sku = String(row[skuIndex] || '').trim().toLowerCase()
+          if (sku && !rowNumbers.has(sku)) rowNumbers.set(sku, index + 2)
+        })
+
+        let updated = 0
+        let unchanged = 0
+        let archived = 0
+        const newStockRows = []
+        const movements = []
+        catalog.forEach(function (product) {
+          const key = product.sku.toLowerCase()
+          const rowNumber = rowNumbers.get(key) || 0
+          let item = null
+          if (rowNumber) {
+            item = {}
+            finished.headers.forEach(function (header, index) {
+              if (header) item[header] = existingRows[rowNumber - 2][index]
+            })
+          }
+          if (item && String(item.Status || '').trim().toLowerCase() === 'archived') {
+            archived += 1
+            return
+          }
+          const current = item ? finishedAvailableStock_(item) : 0
+          if (current > 0) {
+            unchanged += 1
+            return
+          }
+
+          if (!item) {
+            item = {
+              'Product SKU': product.sku,
+              'Product Name': product.name,
+              'Opening Stock': 0,
+              'Production Received': 0,
+              'Quality Approved': 0,
+              Rejected: 0,
+              'Reserved Stock': 0,
+              'Available Stock': 0,
+              'Dispatched Stock': 0,
+              'Returned Stock': 0,
+              'Damaged Stock': 0,
+              'Adjustment In': 0,
+              'Adjustment Out': 0,
+              Status: 'Active',
+            }
+          }
+          const adjustment = 10000 - current
+          item['Adjustment In'] = stockNumber_(item['Adjustment In'], 'Adjustment in') + adjustment
+          item['Available Stock'] = finishedAvailableStock_(item)
+          if (item['Available Stock'] !== 10000) throw apiError_(409, 'Could not set SKU ' + product.sku + ' to the requested available balance.')
+          item['Last Updated'] = new Date().toISOString()
+
+          createBackupOnce_(spreadsheet, backupState)
+          if (rowNumber) updateStockRow_(finished.sheet, finished.headers, rowNumber, item)
+          else newStockRows.push(item)
+          movements.push(stockMovementRecord_({
+            sku: product.sku,
+            type: 'Adjustment In',
+            quantity: adjustment,
+            opening: current,
+            closing: 10000,
+            reason: 'One-time initialization of zero or negative stock to 10,000',
+            createdBy: payload.createdBy,
+            itemType: 'Finished Goods',
+          }))
+          updated += 1
+        })
+
+        if (newStockRows.length) {
+          const firstStockRow = finished.sheet.getLastRow() + 1
+          finished.sheet.getRange(firstStockRow, 1, newStockRows.length, finished.headers.length)
+            .setValues(newStockRows.map(function (item) {
+              return finished.headers.map(function (header) {
+                return safeCellValue_(item[header] === undefined ? '' : item[header])
+              })
+            }))
+        }
+        if (movements.length) {
+          const firstMovementRow = movementSheet.sheet.getLastRow() + 1
+          movementSheet.sheet.getRange(firstMovementRow, 1, movements.length, movementSheet.headers.length)
+            .setValues(movements.map(function (movement) {
+              return movementSheet.headers.map(function (header) {
+                return safeCellValue_(movement[header] === undefined ? '' : movement[header])
+              })
+            }))
+        }
+        SpreadsheetApp.flush()
+        properties.setProperty(marker, new Date().toISOString())
+        return { updated: updated, unchanged: unchanged, archived: archived, targetStock: 10000 }
       })
     }
 

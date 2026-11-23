@@ -22,7 +22,8 @@ function getCookie(request: ApiRequest, name: string) {
 }
 
 export function setSessionCookie(response: ApiResponse, userId: string) {
-  const payload: SessionPayload = { userId, expiresAt: Date.now() + SESSION_LIFETIME_SECONDS * 1000 }
+  const expiresAt = Date.now() + SESSION_LIFETIME_SECONDS * 1000
+  const payload: SessionPayload = { userId, expiresAt }
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
   const token = `${encoded}.${sign(encoded)}`
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
@@ -34,7 +35,7 @@ export function clearSessionCookie(response: ApiResponse) {
   response.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`)
 }
 
-export async function getSessionUser(request: ApiRequest, users?: WorkbookUser[]): Promise<PublicUser> {
+function readSessionPayload(request: ApiRequest): SessionPayload {
   const token = getCookie(request, SESSION_COOKIE)
   const [encoded, providedSignature] = token.split('.')
   if (!encoded || !providedSignature) throw new ApiError(401, 'Please sign in.')
@@ -54,7 +55,21 @@ export async function getSessionUser(request: ApiRequest, users?: WorkbookUser[]
   if (typeof payload.userId !== 'string' || typeof payload.expiresAt !== 'number' || payload.expiresAt <= Date.now()) {
     throw new ApiError(401, 'Your session has expired. Please sign in again.')
   }
+  return payload
+}
 
+export function hasSignedSession(request: ApiRequest) {
+  try {
+    readSessionPayload(request)
+    return true
+  } catch (error) {
+    if (error instanceof ApiError && error.statusCode === 401) return false
+    throw error
+  }
+}
+
+export async function getSessionUser(request: ApiRequest, users?: WorkbookUser[]): Promise<PublicUser> {
+  const payload = readSessionPayload(request)
   const accounts = users || await listUsers()
   const user = accounts.find(item => item.id === payload.userId && item.active)
   if (!user) throw new ApiError(401, 'This account is inactive or no longer exists.')

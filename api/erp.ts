@@ -10,6 +10,7 @@ import {
   appendWorkbookRecord,
   deleteUnusedWorkbookStockItem,
   getWorkbookData,
+  initializeWorkbookZeroFinishedStock,
   importWorkbookMarketplaceCatalog,
   recordWorkbookProduction,
   readUsers,
@@ -127,7 +128,7 @@ function productionSkus(products: CatalogItem[]) {
   )
 }
 
-function getSnapshot(data: WorkbookData, user: PublicUser) {
+export function getSnapshot(data: WorkbookData, user: PublicUser) {
   const masters = records(data, 'Products')
   const variants = records(data, 'SKU_Variants')
   const finishedRows = records(data, 'Finished_Goods')
@@ -483,7 +484,9 @@ async function importMarketplaceWorkbook(user: PublicUser, body: Record<string, 
       throw new ApiError(400, `Marketplace_Listings_Import row ${index + 1} uses an unsupported platform.`)
     }
   }
-  return importWorkbookMarketplaceCatalog({ products, variants, listings, createdBy: user.name })
+  return importWorkbookMarketplaceCatalog({
+    products, variants, listings, createdBy: user.name, sessionUserId: user.id, sessionRole: user.role,
+  })
 }
 
 async function addMachine(data: WorkbookData, body: Record<string, unknown>) {
@@ -592,6 +595,7 @@ async function addRawMaterial(user: PublicUser, body: Record<string, unknown>) {
   const supplier = text(body.supplier).slice(0, 180)
   const result = await addWorkbookRawMaterial({
     sku, name, unit, openingStock, reorderLevel, unitCost, supplier, createdBy: user.name,
+    sessionUserId: user.id, sessionRole: user.role,
   })
   const material = result.material
   const mappedMaterial: RawMaterial = {
@@ -661,6 +665,8 @@ async function applyStockMovement(user: PublicUser, body: Record<string, unknown
     machineId: text(body.machineId).slice(0, 100),
     unitCost: body.unitCost === undefined || body.unitCost === '' ? '' : nonnegativeNumber(body.unitCost, 'Unit cost'),
     createdBy: user.name,
+    sessionUserId: user.id,
+    sessionRole: user.role,
   })
   return result
 }
@@ -669,14 +675,17 @@ async function archiveStockItem(user: PublicUser, body: Record<string, unknown>)
   const kind = text(body.kind)
   const sku = requiredText(body.sku, 'SKU', 100)
   if (!['raw', 'finished'].includes(kind)) throw new ApiError(400, 'Choose a valid stock item type.')
-  return archiveWorkbookStockItem({ kind, sku, reason: text(body.reason).slice(0, 300), createdBy: user.name })
+  return archiveWorkbookStockItem({
+    kind, sku, reason: text(body.reason).slice(0, 300), createdBy: user.name,
+    sessionUserId: user.id, sessionRole: user.role,
+  })
 }
 
-async function deleteUnusedStockItem(body: Record<string, unknown>) {
+async function deleteUnusedStockItem(user: PublicUser, body: Record<string, unknown>) {
   const kind = text(body.kind)
   const sku = requiredText(body.sku, 'SKU', 100)
   if (!['raw', 'finished'].includes(kind)) throw new ApiError(400, 'Choose a valid stock item type.')
-  return deleteUnusedWorkbookStockItem({ kind, sku })
+  return deleteUnusedWorkbookStockItem({ kind, sku, sessionUserId: user.id, sessionRole: user.role })
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -718,6 +727,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       sendJson(response, 200, result)
       return
     }
+    if (action === 'initializeZeroFinishedStock') {
+      requireSupervisorOrAdmin(user)
+      const result = await initializeWorkbookZeroFinishedStock(user)
+      sendJson(response, 200, result)
+      return
+    }
     if (action === 'archiveStockItem') {
       requireSupervisorOrAdmin(user)
       const result = await archiveStockItem(user, body)
@@ -726,7 +741,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'deleteUnusedStockItem') {
       requireSupervisorOrAdmin(user)
-      const result = await deleteUnusedStockItem(body)
+      const result = await deleteUnusedStockItem(user, body)
       sendJson(response, 200, result)
       return
     }

@@ -55,6 +55,16 @@ type StockMovement = {
   referenceId: string; machineId: string; reason: string; salesChannel: string; deliveryPartner: string;
   openingStock: number; closingStock: number; createdBy: string
 }
+type WorkbookSnapshot = {
+  products: Product[]
+  marketplaceListings: MarketplaceListing[]
+  machines: Machine[]
+  production: Production[]
+  rawMaterials: RawMaterial[]
+  finishedGoods: FinishedGood[]
+  stockMovements: StockMovement[]
+  workbookMeta: { loaded: boolean; name: string; sheetCount: number }
+}
 type AuthStatus = 'checking' | 'ready' | 'unavailable'
 
 const navSections: { label: string; items: Module[] }[] = [
@@ -235,32 +245,28 @@ export default function App() {
   const [audit, setAudit] = useState<string[]>(() => readStored('erp-audit', ['Workbook connection pending', 'System initialized']))
   const [toast, setToast] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const [zeroStockInitializationBusy, setZeroStockInitializationBusy] = useState(false)
   const workbookRefreshInFlight = useRef<Promise<void> | null>(null)
   const workbookLastRefreshAt = useRef(0)
   const [workbookMeta, setWorkbookMeta] = useState({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
 
+  const applyWorkbookSnapshot = useCallback((data: WorkbookSnapshot) => {
+    setProducts(data.products)
+    setMarketplaceListings(data.marketplaceListings)
+    setMachines(data.machines)
+    setProduction(data.production)
+    setRawMaterials(data.rawMaterials)
+    setFinishedGoods(data.finishedGoods)
+    setStockMovements(data.stockMovements)
+    setWorkbookMeta(data.workbookMeta)
+    workbookLastRefreshAt.current = Date.now()
+  }, [])
+
   const refreshWorkbook = useCallback(async () => {
     if (workbookRefreshInFlight.current) return workbookRefreshInFlight.current
     const request = (async () => {
-      const data = await apiFetch<{
-        products: Product[]
-        marketplaceListings: MarketplaceListing[]
-        machines: Machine[]
-        production: Production[]
-        rawMaterials: RawMaterial[]
-        finishedGoods: FinishedGood[]
-        stockMovements: StockMovement[]
-        workbookMeta: { loaded: boolean; name: string; sheetCount: number }
-      }>('/api/erp')
-      setProducts(data.products)
-      setMarketplaceListings(data.marketplaceListings)
-      setMachines(data.machines)
-      setProduction(data.production)
-      setRawMaterials(data.rawMaterials)
-      setFinishedGoods(data.finishedGoods)
-      setStockMovements(data.stockMovements)
-      setWorkbookMeta(data.workbookMeta)
-      workbookLastRefreshAt.current = Date.now()
+      const data = await apiFetch<WorkbookSnapshot>('/api/erp')
+      applyWorkbookSnapshot(data)
     })()
     workbookRefreshInFlight.current = request
     try {
@@ -268,7 +274,7 @@ export default function App() {
     } finally {
       if (workbookRefreshInFlight.current === request) workbookRefreshInFlight.current = null
     }
-  }, [])
+  }, [applyWorkbookSnapshot])
 
   useEffect(() => localStorage.setItem('erp-audit', JSON.stringify(audit)), [audit])
   useEffect(() => {
@@ -280,13 +286,20 @@ export default function App() {
     const initializeAuthentication = async () => {
       try {
         const statusResponse = await fetch('/api/auth/status', { cache: 'no-store' })
-        const statusData = await statusResponse.json() as { error?: string; configured?: boolean; needsAdminSetup?: boolean; user?: UserAccount | null }
+        const statusData = await statusResponse.json() as {
+          error?: string
+          configured?: boolean
+          needsAdminSetup?: boolean
+          user?: UserAccount | null
+          workbook?: WorkbookSnapshot
+        }
         if (!statusResponse.ok || !statusData.configured) throw new Error(statusData.error || 'Google Sheets Apps Script is not configured.')
         if (!active) return
         setNeedsAdminSetup(Boolean(statusData.needsAdminSetup))
         if (statusData.user) {
           setSessionUser(statusData.user)
           setModule('Dashboard')
+          if (statusData.workbook) applyWorkbookSnapshot(statusData.workbook)
         }
         setAuthStatus('ready')
       } catch (error) {
@@ -297,7 +310,7 @@ export default function App() {
     }
     void initializeAuthentication()
     return () => { active = false }
-  }, [])
+  }, [applyWorkbookSnapshot])
   useEffect(() => {
     let active = true
     if (!sessionUser || sessionUser.role !== 'Super Admin') {
@@ -503,6 +516,30 @@ export default function App() {
     workbookLastRefreshAt.current = Date.now()
     log(`${input.type} · ${input.sku} · ${input.quantity}`)
     notify('Stock movement saved to the ledger')
+  }
+
+  const initializeZeroFinishedStock = async () => {
+    if (!window.confirm('Set every active product or variant with missing, zero, or negative finished-goods stock to 10,000? Each increase will be recorded in the stock ledger. Raw materials and SKUs already above zero will not change. This is a one-time operation.')) return
+    setZeroStockInitializationBusy(true)
+    try {
+      const result = await apiFetch<{ updated: number; unchanged: number; archived: number; targetStock: number }>('/api/erp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'initializeZeroFinishedStock' }),
+      })
+      try {
+        await refreshWorkbook()
+      } catch {
+        notify(`${result.updated} SKUs were adjusted, but the workbook view could not refresh. Reload before continuing.`)
+        return
+      }
+      log(`Initialized ${result.updated} zero-stock SKUs to ${result.targetStock}`)
+      notify(`${result.updated} SKUs set to ${result.targetStock.toLocaleString('en-IN')}; ${result.unchanged} already had stock.`)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Zero-stock initialization failed')
+    } finally {
+      setZeroStockInitializationBusy(false)
+    }
   }
 
   const archiveStockItem = async (kind: 'raw' | 'finished', sku: string) => {
@@ -794,6 +831,7 @@ export default function App() {
             <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
               saveProduction={saveProduction} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
+              initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
               allowedModules={roleModules[sessionUser.role]} />
@@ -817,6 +855,7 @@ function ModuleView(props: {
   saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
   saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
   applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string }) => Promise<void>;
+  initializeZeroFinishedStock: () => Promise<void>; zeroStockInitializationBusy: boolean;
   archiveStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
   deleteUnusedStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
   saveMachine: (input: Omit<Machine, 'id'>) => Promise<Machine>;
@@ -827,7 +866,7 @@ function ModuleView(props: {
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
   allowedModules: Module[]
 }) {
-  const { module, clock, products, marketplaceListings, production, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveRawMaterial, applyStockMovement, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
+  const { module, clock, products, marketplaceListings, production, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
   const [catalogFormOpen, setCatalogFormOpen] = useState<'product' | 'variant' | 'listing' | null>(null)
   const [selectedCatalogMasterSku, setSelectedCatalogMasterSku] = useState('')
   const [stockFormOpen, setStockFormOpen] = useState(false)
@@ -1195,7 +1234,7 @@ function ModuleView(props: {
     }))
     return (
       <section>
-        <div className="page-heading"><div><p>INVENTORY · FINISHED GOODS</p><h1>Finished Goods</h1></div><div className="heading-actions">{canManageInventory && <button className="primary" onClick={() => setStockFormOpen(open => !open)}><Plus size={16} /> Stock movement</button>}</div></div>
+        <div className="page-heading"><div><p>INVENTORY · FINISHED GOODS</p><h1>Finished Goods</h1></div><div className="heading-actions">{canManageInventory && <><button className="secondary" disabled={zeroStockInitializationBusy} onClick={() => void initializeZeroFinishedStock()}>{zeroStockInitializationBusy ? 'Initializing…' : 'Initialize zero-stock SKUs to 10,000'}</button><button className="primary" onClick={() => setStockFormOpen(open => !open)}><Plus size={16} /> Stock movement</button></>}</div></div>
         {stockFormOpen && canManageInventory && renderMovementForm('finished', 'Post finished-goods movement', ['Opening Stock', 'Dispatch', 'Return', 'Damage', 'Adjustment In', 'Adjustment Out', 'Reserve', 'Release Reservation'], 'Opening Stock')}
         <div className="table-card entries-table inventory-table"><table><thead><tr><th>SKU</th><th>Product</th><th>Produced</th><th>Approved</th><th>Dispatched</th><th>Returned</th><th>Damaged</th><th>Reserved</th><th>Available</th><th>Status</th><th>Actions</th></tr></thead><tbody>
           {finishedRows.map(({ product, item }) => {
@@ -1273,7 +1312,7 @@ function ModuleView(props: {
       <section>
         <div className="page-heading"><div><p>FINISHED GOODS · {isShipping ? 'DISPATCH' : 'RETURNS'}</p><h1>{module}</h1></div></div>
         {isShipping ? <form className="panel form-card delivery-form" onSubmit={submitDelivery}>
-          <div className="panel-heading"><div><h2>Create delivery</h2><p>Select the sales channel, courier, and SKU. Record deliveries even when stock is short; the balance will be negative until inventory is received.</p></div></div>
+          <div className="panel-heading"><div><h2>Create delivery</h2><p>Select the sales channel, courier, and SKU. Dispatches require available stock; initialize eligible zero-stock SKUs from Finished Goods before shipping.</p></div></div>
           <div className="field-grid">
             <label>Platform / channel<select name="salesChannel" required value={deliveryChannel} onChange={event => {
               setDeliveryChannel(event.target.value)
