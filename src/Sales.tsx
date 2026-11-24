@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
-import { BarChart3, Download, FileSpreadsheet, Phone, Plus, Search, Target, Upload } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { BarChart3, CheckCircle2, Download, FileSpreadsheet, Phone, Plus, Search, Target, Upload } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import type {
   SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus,
-  SalesOrder, SalesTarget, SalesTargetPeriod,
+  SalesDailyReport, SalesOrder, SalesTarget, SalesTargetPeriod,
 } from './salesTypes'
 
 type SalesRole = 'Super Admin' | 'Production Supervisor' | 'Sales Executive'
@@ -98,11 +98,38 @@ export function SalesDashboardView(props: {
   const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({})
   const [savingTarget, setSavingTarget] = useState('')
   const [message, setMessage] = useState('')
+  const [dailyWorkReports, setDailyWorkReports] = useState<SalesDailyReport[]>([])
+  const [dailyWorkReportsLoading, setDailyWorkReportsLoading] = useState(true)
+  const [dailyWorkReportsError, setDailyWorkReportsError] = useState('')
+  const [dailyWorkReportMessage, setDailyWorkReportMessage] = useState('')
+  const [savingDailyWorkReport, setSavingDailyWorkReport] = useState(false)
+  useEffect(() => {
+    let active = true
+    void fetch('/api/sales-reports', { cache: 'no-store' })
+      .then(async response => {
+        const result = await response.json() as { error?: string; reports?: SalesDailyReport[] }
+        if (!response.ok) throw new Error(result.error || 'Sales daily reports could not be loaded.')
+        if (active) {
+          setDailyWorkReports(result.reports || [])
+          setDailyWorkReportsError('')
+        }
+      })
+      .catch(error => {
+        if (active) setDailyWorkReportsError(error instanceof Error ? error.message : 'Sales daily reports could not be loaded.')
+      })
+      .finally(() => {
+        if (active) setDailyWorkReportsLoading(false)
+      })
+    return () => { active = false }
+  }, [])
   const monthActual = orders.filter(order => dateForSales(order.createdAt).slice(0, 7) === selectedMonth)
     .reduce((sum, order) => sum + activeOrderAmount(order), 0)
   const yearActual = orders.filter(order => dateForSales(order.createdAt).slice(0, 4) === selectedYear)
     .reduce((sum, order) => sum + activeOrderAmount(order), 0)
   const today = currentIndiaDate()
+  const todayWorkReport = dailyWorkReports.find(report => report.userId === currentUser.id && report.date === today)
+  const workReportsForDate = dailyWorkReports.filter(report => report.date === dailyReportDate)
+    .sort((a, b) => a.userName.localeCompare(b.userName))
   const todayOrders = orders.filter(order => dateForSales(order.createdAt) === today)
   const todayActual = todayOrders.reduce((sum, order) => sum + activeOrderAmount(order), 0)
   const dailyReportOrders = orders
@@ -148,6 +175,38 @@ export function SalesDashboardView(props: {
       setMessage(error instanceof Error ? error.message : 'Sales target could not be saved.')
     } finally {
       setSavingTarget('')
+    }
+  }
+
+  const submitDailyWorkReport = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    const values = new FormData(form)
+    const completed = String(values.get('completed') || '').trim()
+    const pending = String(values.get('pending') || '').trim()
+    const issues = String(values.get('issues') || '').trim()
+    if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
+      setDailyWorkReportMessage('Completed work is required; each field must be 3,000 characters or fewer.')
+      return
+    }
+    setSavingDailyWorkReport(true)
+    setDailyWorkReportMessage('')
+    try {
+      const response = await fetch('/api/sales-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed, pending, issues }),
+      })
+      const result = await response.json() as { error?: string; report?: SalesDailyReport }
+      if (!response.ok || !result.report) throw new Error(result.error || 'Daily sales report could not be saved.')
+      const savedReport = result.report
+      setDailyWorkReports(previous => [savedReport, ...previous.filter(report => report.id !== savedReport.id)])
+      setDailyWorkReportsError('')
+      setDailyWorkReportMessage('Daily work report saved. You can update it again today.')
+    } catch (error) {
+      setDailyWorkReportMessage(error instanceof Error ? error.message : 'Daily sales report could not be saved.')
+    } finally {
+      setSavingDailyWorkReport(false)
     }
   }
 
@@ -247,6 +306,14 @@ export function SalesDashboardView(props: {
       Notes: activity.notes,
       'Next Follow-Up': activity.nextFollowUp,
     }))), 'Activities')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(workReportsForDate.map(report => ({
+      Date: report.date,
+      Salesperson: report.userName,
+      Completed: report.completed,
+      Pending: report.pending,
+      'Issues / notes': report.issues,
+      'Last updated': report.updatedAt,
+    }))), 'Work Reports')
     XLSX.writeFile(workbook, `Mahalaxmi-Sales-Daily-Report-${dailyReportDate}.xlsx`)
   }
 
@@ -294,6 +361,23 @@ export function SalesDashboardView(props: {
             </tbody></table></div> : <div className="sales-daily-empty">No lead activities were recorded on this date.</div>}
           </div>
         </div>
+      </section>
+      <section className="panel sales-work-report">
+        <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per Sales Executive each day; submitting again updates today’s report.</p></div></div>
+        {role === 'Sales Executive' && <form key={todayWorkReport?.updatedAt || 'new'} className="ecommerce-form" onSubmit={event => void submitDailyWorkReport(event)}>
+          <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} defaultValue={todayWorkReport?.completed || ''} /></label>
+          <label>Pending work<textarea name="pending" maxLength={3000} rows={3} defaultValue={todayWorkReport?.pending || ''} /></label>
+          <label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} defaultValue={todayWorkReport?.issues || ''} /></label>
+          <button className="primary" type="submit" disabled={savingDailyWorkReport}><CheckCircle2 size={15} /> {todayWorkReport ? 'Update today’s report' : 'Submit daily report'}</button>
+        </form>}
+        {role !== 'Sales Executive' && <p className="sales-readonly-note">Read-only report history for {dailyReportDate}. Sales Executives can submit or update their own report for today.</p>}
+        {dailyWorkReportsError && <p className="sales-message" role="alert">{dailyWorkReportsError}</p>}
+        {dailyWorkReportsLoading ? <p className="sales-readonly-note">Loading saved work reports…</p>
+          : workReportsForDate.length ? <div className="table-card entries-table sales-work-report-table"><table><thead><tr><th>Sales Executive</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th><th>Last updated</th></tr></thead><tbody>
+            {workReportsForDate.map(report => <tr key={report.id}><td>{report.userName}</td><td className="sales-report-cell">{report.completed}</td><td className="sales-report-cell">{report.pending || '—'}</td><td className="sales-report-cell">{report.issues || '—'}</td><td>{new Date(report.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</td></tr>)}
+          </tbody></table></div>
+            : <div className="sales-daily-empty">{dailyWorkReportsError ? 'Saved reports could not be loaded.' : `No work reports were submitted for ${dailyReportDate}.`}</div>}
+        <p className="sales-message" role="status" aria-live="polite">{dailyWorkReportMessage}</p>
       </section>
       {role !== 'Sales Executive' && <section className="panel sales-target-panel">
         <div className="panel-heading"><div><h2>Salesperson targets and progress</h2><p>Set targets per active Sales Executive; booked amounts update automatically.</p></div></div>

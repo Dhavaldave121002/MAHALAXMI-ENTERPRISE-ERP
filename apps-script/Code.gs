@@ -1,12 +1,13 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
     const ERP_ECOMMERCE_LABEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
     const ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER = 'cleanupExpiredEcommerceLabels_'
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
+    const ERP_SALES_REPORT_FOLDER_PROPERTY = 'ERP_SALES_REPORT_FOLDER_ID'
     const ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_DAILY_TARGET_'
     const ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_'
     const ERP_WORKBOOK_CACHE_SECONDS = 10
@@ -77,7 +78,7 @@
           payload.sessionUserPlatforms = user.platforms
         }
         const data = dispatch_(spreadsheet, request.action, payload)
-        if (['getWorkbookData', 'getUsers', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
+        if (['getWorkbookData', 'getUsers', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -137,6 +138,10 @@
           return submitEcommerceReport_(spreadsheet, payload)
         case 'listEcommerceReports':
           return listEcommerceReports_(spreadsheet, payload)
+        case 'submitSalesReport':
+          return submitSalesReport_(payload)
+        case 'listSalesReports':
+          return listSalesReports_(payload)
         case 'getEcommerceTargets':
           return getEcommerceTargets_(spreadsheet, payload)
         case 'setEcommerceTarget':
@@ -1793,6 +1798,117 @@
         reports.push(report)
       }
       reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })
+      return { reports: reports }
+    }
+
+    function getSalesReportFolder_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(ERP_SALES_REPORT_FOLDER_PROPERTY)
+      if (folderId) return DriveApp.getFolderById(folderId)
+      if (!createIfMissing) return null
+      const folder = DriveApp.createFolder('Mahalaxmi ERP Private Sales Daily Reports')
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      properties.setProperty(ERP_SALES_REPORT_FOLDER_PROPERTY, folder.getId())
+      return folder
+    }
+
+    function submitSalesReport_(payload) {
+      if (payload.sessionUserRole !== 'Sales Executive') throw apiError_(403, 'Only a Sales Executive can submit a daily sales report.')
+      const completed = String(payload.completed || '').trim()
+      const pending = String(payload.pending || '').trim()
+      const issues = String(payload.issues || '').trim()
+      if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
+        throw apiError_(400, 'Completed work is required; each report field must be 3,000 characters or fewer.')
+      }
+      return withWriteLock_(function () {
+        const date = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')
+        const userId = String(payload.sessionUserId || '')
+        if (!userId) throw apiError_(401, 'Sign in again before submitting a daily sales report.')
+        const folder = getSalesReportFolder_(true)
+        const fileName = 'sales_report_' + date + '_' + userId.replace(/[^A-Za-z0-9_-]/g, '_') + '.json'
+        const matchingFiles = folder.getFilesByName(fileName)
+        const existingFile = matchingFiles.hasNext() ? matchingFiles.next() : null
+        let previous = null
+        if (existingFile) {
+          try {
+            previous = JSON.parse(existingFile.getBlob().getDataAsString())
+          } catch (error) {
+            throw apiError_(500, 'The existing daily sales report is corrupted and was not overwritten.')
+          }
+          if (!previous || previous.kind !== 'mahalaxmi-erp-sales-report' || previous.version !== 1 ||
+              previous.userId !== userId || previous.date !== date || typeof previous.id !== 'string') {
+            throw apiError_(500, 'The existing daily sales report has an unsupported format and was not overwritten.')
+          }
+        }
+        const now = new Date().toISOString()
+        const report = {
+          kind: 'mahalaxmi-erp-sales-report',
+          version: 1,
+          id: previous ? previous.id : Utilities.getUuid(),
+          date: date,
+          userId: userId,
+          userName: String(payload.createdBy || ''),
+          completed: completed,
+          pending: pending,
+          issues: issues,
+          createdAt: previous ? previous.createdAt : now,
+          updatedAt: now,
+        }
+        const content = JSON.stringify(report)
+        if (existingFile) {
+          existingFile.setContent(content)
+        } else {
+          const file = folder.createFile(fileName, content, MimeType.PLAIN_TEXT)
+          try {
+            file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+            file.setDescription(JSON.stringify({ kind: report.kind, version: report.version }))
+          } catch (error) {
+            file.setTrashed(true)
+            throw error
+          }
+        }
+        return { report: report }
+      })
+    }
+
+    function listSalesReports_(payload) {
+      const role = String(payload.sessionUserRole || '')
+      if (['Super Admin', 'Production Supervisor', 'Sales Executive'].indexOf(role) < 0) {
+        throw apiError_(403, 'This account cannot view Sales daily reports.')
+      }
+      const sessionUserId = String(payload.sessionUserId || '')
+      if (!sessionUserId) throw apiError_(401, 'Sign in again before viewing daily sales reports.')
+      const folder = getSalesReportFolder_(false)
+      if (!folder) return { reports: [] }
+      const reports = []
+      const files = folder.getFiles()
+      while (files.hasNext()) {
+        const file = files.next()
+        let report
+        try {
+          report = JSON.parse(file.getBlob().getDataAsString())
+        } catch (error) {
+          throw apiError_(500, 'A stored Sales daily report is corrupted.')
+        }
+        const validDate = report && typeof report.date === 'string' &&
+          /^\d{4}-\d{2}-\d{2}$/.test(report.date) &&
+          !isNaN(Date.parse(report.date + 'T00:00:00.000Z')) &&
+          new Date(Date.parse(report.date + 'T00:00:00.000Z')).toISOString().slice(0, 10) === report.date
+        if (!report || report.kind !== 'mahalaxmi-erp-sales-report' || report.version !== 1 ||
+            typeof report.id !== 'string' || !report.id || !validDate ||
+            typeof report.userId !== 'string' || !report.userId ||
+            typeof report.userName !== 'string' || typeof report.completed !== 'string' ||
+            typeof report.pending !== 'string' || typeof report.issues !== 'string' ||
+            report.completed.length > 3000 || report.pending.length > 3000 || report.issues.length > 3000) {
+          throw apiError_(500, 'A stored Sales daily report has an unsupported format.')
+        }
+        if (role === 'Sales Executive' && report.userId !== sessionUserId) continue
+        reports.push(report)
+      }
+      reports.sort(function (a, b) {
+        return String(b.date || '').localeCompare(String(a.date || '')) ||
+          String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
+      })
       return { reports: reports }
     }
 

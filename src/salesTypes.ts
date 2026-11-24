@@ -62,6 +62,17 @@ export type SalesTarget = {
   updatedBy: string
 }
 
+export type SalesDailyReport = {
+  id: string
+  date: string
+  userId: string
+  userName: string
+  completed: string
+  pending: string
+  issues: string
+  updatedAt: string
+}
+
 export type SalesAccount = {
   id: string
   name: string

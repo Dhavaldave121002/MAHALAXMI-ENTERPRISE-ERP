@@ -49,6 +49,7 @@ const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'listEcommerceLabels',
   'downloadEcommerceLabel',
   'listEcommerceReports',
+  'listSalesReports',
   'getEcommerceTargets',
 ])
 let workbookDataCache: { data: WorkbookData; expiresAt: number } | null = null
@@ -310,6 +311,21 @@ export async function submitWorkbookEcommerceReport(input: SessionBoundInput & {
 
 export async function listWorkbookEcommerceReports(user: SessionBoundInput) {
   return callAppsScript<{ reports: Record<string, unknown>[] }>('listEcommerceReports', sessionBoundPayload(user))
+}
+
+export async function submitWorkbookSalesReport(input: SessionBoundInput & {
+  completed: string
+  pending: string
+  issues: string
+}) {
+  return callAppsScript<{ report: Record<string, unknown> }>('submitSalesReport', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function listWorkbookSalesReports(user: SessionBoundInput) {
+  return callAppsScript<{ reports: Record<string, unknown>[] }>('listSalesReports', sessionBoundPayload(user))
 }
 
 export async function importWorkbookMarketplaceCatalog(input: {
