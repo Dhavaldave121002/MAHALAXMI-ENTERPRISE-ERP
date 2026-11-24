@@ -81,10 +81,23 @@ function workspaceData(data: WorkbookData, user: PublicUser) {
       platformSku: text(row['Platform SKU']),
       productSku,
       productName: text(row['Product Name']) || productSku,
+      mrp: number(row.MRP),
+      sellingPrice: number(row['Selling Price']),
       availableStock: stock?.availableStock ?? 0,
       stockStatus: stock?.status || 'Not initialized',
       status: text(row.Status) || 'Active',
     }]
+  })
+  const listingPriceBySku = new Map(listings.map(row => [row.productSku.toLowerCase(), row.sellingPrice]))
+  const movementListings = readSheetRecords(data, 'Marketplace_Listings')
+  movementListings.forEach(row => {
+    const platform = platformOf(row.Platform)
+    if (!platform || !platforms.includes(platform)) return
+    const productSku = text(row['Product SKU']).toLowerCase()
+    const platformSku = text(row['Platform SKU']).toLowerCase()
+    const sellingPrice = number(row['Selling Price'])
+    if (productSku) listingPriceBySku.set(`${platform}:${productSku}`, sellingPrice)
+    if (platformSku) listingPriceBySku.set(`${platform}:${platformSku}`, sellingPrice)
   })
   const movements = readSheetRecords(data, 'Stock_Movement').flatMap(row => {
     const platform = platformOf(row['Sales Channel'])
@@ -93,6 +106,10 @@ function workspaceData(data: WorkbookData, user: PublicUser) {
     const referenceId = text(row['Reference ID'])
     if (!platform || !platforms.includes(platform) || itemType !== 'Finished Goods' ||
         !['Dispatch', 'Return', 'Damage'].includes(type) || !referenceId) return []
+    const sku = text(row.SKU)
+    const sellingPrice = listingPriceBySku.get(`${platform}:${sku.toLowerCase()}`)
+      || listingPriceBySku.get(sku.toLowerCase())
+      || 0
     return [{
       id: text(row['Movement ID']),
       date: text(row['Date/Time']),
@@ -101,6 +118,7 @@ function workspaceData(data: WorkbookData, user: PublicUser) {
       orderNumber: referenceId,
       sku: text(row.SKU),
       quantity: number(row.Quantity),
+      unitSellingPrice: sellingPrice,
       reason: text(row.Reason),
     }]
   }).sort((a, b) => b.date.localeCompare(a.date))

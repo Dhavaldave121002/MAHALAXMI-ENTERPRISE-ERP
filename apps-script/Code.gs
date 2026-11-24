@@ -1293,7 +1293,7 @@
           throw apiError_(400, 'A valid platform SKU and product SKU are required.')
         }
 
-        const headers = ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name', 'Status', 'Created By', 'Created At']
+        const headers = ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name', 'Selling Price', 'MRP', 'Status', 'Created By', 'Created At']
         const backupState = { created: false }
         const target = ensureStockSheet_(spreadsheet, 'Marketplace_Listings', headers, backupState)
         const existing = readSheetRecords_(spreadsheet, 'Marketplace_Listings')
@@ -1310,6 +1310,8 @@
           'Product SKU': productSku,
           'Master SKU': String(payload.masterSku || productSku),
           'Product Name': String(payload.productName || productSku),
+          'Selling Price': Number(payload.sellingPrice || 0),
+          MRP: Number(payload.mrp || 0),
           Status: 'Active',
           'Created By': String(payload.createdBy || ''),
           'Created At': String(payload.createdAt || new Date().toISOString()),

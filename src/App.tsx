@@ -23,7 +23,7 @@ type Product = {
 
 type MarketplaceListing = {
   id: string; platform: string; platformSku: string; productSku: string; masterSku: string;
-  productName: string; status: string; createdBy?: string; createdAt?: string
+  productName: string; mrp: number; sellingPrice: number; status: string; createdBy?: string; createdAt?: string
 }
 type MarketplaceImportRows = {
   products: Record<string, unknown>[]
@@ -40,14 +40,14 @@ type Production = { id: string; date: string; machine: string; block: string; sk
 type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator' | 'E-commerce Executive'
 type EcommercePlatform = 'AMAZON' | 'FLIPKART' | 'MEESHO' | 'SHOPIFY' | 'MYNTRA'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean; platforms: EcommercePlatform[] }
-type EcommerceListing = { id: string; platform: EcommercePlatform; platformSku: string; productSku: string; productName: string; availableStock: number; stockStatus: string; status: string }
-type EcommerceMovement = { id: string; date: string; platform: EcommercePlatform; orderNumber: string; type: string; sku: string; quantity: number; reason: string }
+type EcommerceListing = { id: string; platform: EcommercePlatform; platformSku: string; productSku: string; productName: string; mrp: number; sellingPrice: number; availableStock: number; stockStatus: string; status: string }
+type EcommerceMovement = { id: string; date: string; platform: EcommercePlatform; orderNumber: string; type: string; sku: string; quantity: number; unitSellingPrice: number; reason: string }
 type EcommerceLabel = { id: string; platform: EcommercePlatform; orderNumber: string; fileName: string; uploadedAt: string; uploadedBy: string }
 type EcommerceExecutiveTarget = { executiveId: string; executiveName: string; platforms: EcommercePlatform[]; dailyTarget: number; monthlyTarget: number }
 type EcommerceTargetData = { dailyTarget?: number; monthlyTarget?: number; executives?: EcommerceExecutiveTarget[] }
 type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[]; targets: EcommerceTargetData }
 type EcommerceDailyReport = { id: string; date: string; platform: EcommercePlatform; userName: string; completed: string; pending: string; issues: string; updatedAt: string }
-type EcommercePlatformSummary = { platform: EcommercePlatform; dispatchedOrders: number; dispatchedUnits: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
+type EcommercePlatformSummary = { platform: EcommercePlatform; dispatchedOrders: number; dispatchedUnits: number; dispatchedRevenue: number; returnValue: number; damagedValue: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
@@ -178,10 +178,13 @@ function summarizeEcommercePlatform(
     platform,
     dispatchedOrders: uniqueOrders(dispatched),
     dispatchedUnits: dispatched.reduce((total, item) => total + item.quantity, 0),
+    dispatchedRevenue: dispatched.reduce((total, item) => total + item.quantity * (item.unitSellingPrice || 0), 0),
     returnedOrders: uniqueOrders(returned),
     returnedUnits: returned.reduce((total, item) => total + item.quantity, 0),
     damagedOrders: uniqueOrders(damaged),
     damagedUnits: damaged.reduce((total, item) => total + item.quantity, 0),
+    returnValue: returned.reduce((total, item) => total + item.quantity * (item.unitSellingPrice || 0), 0),
+    damagedValue: damaged.reduce((total, item) => total + item.quantity * (item.unitSellingPrice || 0), 0),
     dailyReports: reports.filter(report => report.platform === platform && report.date.slice(0, 7) === month).length,
   }
 }
@@ -541,7 +544,7 @@ export default function App() {
     return result.product
   }
 
-  const saveMarketplaceListing = async (input: { platform: string; platformSku: string; productSku: string }) => {
+  const saveMarketplaceListing = async (input: { platform: string; platformSku: string; productSku: string; mrp: number; sellingPrice: number }) => {
     const result = await apiFetch<{ listing: MarketplaceListing }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -990,7 +993,7 @@ function ModuleView(props: {
   setSearch: (v: string) => void; exportExcel: () => void;
   saveProduct: (input: { sku: string; name: string; category: string; mrp: number }) => Promise<Product>;
   saveVariant: (input: { masterSku: string; sku: string; size: string; color: string; packQuantity: number; mrp?: number; sellingPrice?: number }) => Promise<Product>;
-  saveMarketplaceListing: (input: { platform: string; platformSku: string; productSku: string }) => Promise<MarketplaceListing>;
+  saveMarketplaceListing: (input: { platform: string; platformSku: string; productSku: string; mrp: number; sellingPrice: number }) => Promise<MarketplaceListing>;
   importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => Promise<MarketplaceImportResult>;
   saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
   saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
@@ -1223,6 +1226,8 @@ function ModuleView(props: {
         platform: String(form.get('platform')),
         platformSku: String(form.get('platformSku')).trim(),
         productSku: String(form.get('productSku')),
+        mrp: Number(form.get('mrp') || 0),
+        sellingPrice: Number(form.get('sellingPrice') || 0),
       })
       formElement.reset()
       setCatalogPlatform('')
@@ -1385,6 +1390,11 @@ function ModuleView(props: {
   }
 
   if (module === 'Raw Material') {
+    const rawMaterialRows = rawMaterials.map(item => {
+      const hasHistory = hasItemMovement('raw', item.sku)
+      const low = item.closingStock <= item.reorderLevel
+      return <tr key={item.sku}><td><code>{item.sku}</code></td><td>{item.name}</td><td>{item.unit || '—'}</td><td>{item.supplier || '—'}</td><td><b className={low ? 'stock-low' : 'stock-good'}>{item.closingStock.toLocaleString('en-IN')}</b></td><td>{item.reorderLevel.toLocaleString('en-IN')}</td><td>₹{item.stockValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td><span className={`status ${item.status.toLowerCase() === 'active' ? 'active' : 'draft'}`}>{item.status}</span></td><td>{item.status.toLowerCase() === 'archived' ? '—' : item.closingStock === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('raw', item.sku)}>Delete unused</button> : item.closingStock === 0 ? <button className="text-action" onClick={() => void confirmArchive('raw', item.sku)}>Archive</button> : '—'}</td></tr>
+    })
     return (
       <section>
         <div className="page-heading"><div><p>INVENTORY · RAW MATERIAL</p><h1>Raw Materials</h1></div><div className="heading-actions">
@@ -1404,13 +1414,7 @@ function ModuleView(props: {
           <button className="primary wide" type="submit"><Plus size={17} /> Save material</button>
         </form>}
         {stockFormOpen && canManageInventory && renderMovementForm('raw', 'Post raw-material movement', ['Purchase Inward', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Adjustment In', 'Adjustment Out'], 'Purchase Inward')}
-        <div className="table-card entries-table inventory-table"><table><thead><tr><th>SKU</th><th>Material</th><th>Unit</th><th>Supplier</th><th>On hand</th><th>Reorder at</th><th>Stock value</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {rawMaterials.map(item => {
-            const hasHistory = hasItemMovement('raw', item.sku)
-            const low = item.closingStock <= item.reorderLevel
-            return <tr key={item.sku}><td><code>{item.sku}</code></td><td>{item.name}</td><td>{item.unit || '—'}</td><td>{item.supplier || '—'}</td><td><b className={low ? 'stock-low' : 'stock-good'}>{item.closingStock.toLocaleString('en-IN')}</b></td><td>{item.reorderLevel.toLocaleString('en-IN')}</td><td>₹{item.stockValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td><span className={`status ${item.status.toLowerCase() === 'active' ? 'active' : 'draft'}`}>{item.status}</span></td><td>{item.status.toLowerCase() === 'archived' ? '—' : item.closingStock === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('raw', item.sku)}>Delete unused</button> : item.closingStock === 0 ? <button className="text-action" onClick={() => void confirmArchive('raw', item.sku)}>Archive</button> : '—'}</td></tr>
-          })}
-        </tbody></table>
+        <div className="table-card entries-table inventory-table"><PaginatedTable label="Raw material inventory" resetKey="raw-materials" header={<thead><tr><th>SKU</th><th>Material</th><th>Unit</th><th>Supplier</th><th>On hand</th><th>Reorder at</th><th>Stock value</th><th>Status</th><th>Actions</th></tr></thead>} rows={rawMaterialRows} />
           {rawMaterials.length === 0 && <div className="empty-state"><Boxes size={26} /><strong>No raw materials yet</strong><span>Add an item, then record purchase inward, issue, consumption, wastage or a correction.</span></div>}
         </div>
       </section>
@@ -1440,17 +1444,16 @@ function ModuleView(props: {
       product,
       item: finishedGoods.find(item => item.sku.toLowerCase() === product.sku.toLowerCase()),
     }))
+    const finishedTableRows = finishedRows.map(({ product, item }) => {
+      const available = item?.availableStock || 0
+      const hasHistory = hasItemMovement('finished', product.sku)
+      return <tr key={product.sku}><td><code>{product.sku}</code></td><td>{product.name}</td><td>{item?.productionReceived || 0}</td><td>{item?.qualityApproved || 0}</td><td>{item?.dispatchedStock || 0}</td><td>{item?.returnedStock || 0}</td><td>{item?.damagedStock || 0}</td><td>{item?.reservedStock || 0}</td><td><b className={available < 10 ? 'stock-low' : 'stock-good'}>{available}</b></td><td><span className={`status ${item?.status.toLowerCase() === 'archived' ? 'draft' : 'active'}`}>{item?.status || 'Not initialized'}</span></td><td>{!item || item.status.toLowerCase() === 'archived' ? '—' : available === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('finished', product.sku)}>Delete unused</button> : available === 0 ? <button className="text-action" onClick={() => void confirmArchive('finished', product.sku)}>Archive</button> : '—'}</td></tr>
+    })
     return (
       <section>
         <div className="page-heading"><div><p>INVENTORY · FINISHED GOODS</p><h1>Finished Goods</h1></div><div className="heading-actions">{canManageInventory && <><button className="secondary" disabled={zeroStockInitializationBusy} onClick={() => void initializeZeroFinishedStock()}>{zeroStockInitializationBusy ? 'Initializing…' : 'Initialize zero-stock SKUs to 10,000'}</button><button className="primary" onClick={() => setStockFormOpen(open => !open)}><Plus size={16} /> Stock movement</button></>}</div></div>
         {stockFormOpen && canManageInventory && renderMovementForm('finished', 'Post finished-goods movement', ['Opening Stock', 'Dispatch', 'Return', 'Damage', 'Adjustment In', 'Adjustment Out', 'Reserve', 'Release Reservation'], 'Opening Stock')}
-        <div className="table-card entries-table inventory-table"><table><thead><tr><th>SKU</th><th>Product</th><th>Produced</th><th>Approved</th><th>Dispatched</th><th>Returned</th><th>Damaged</th><th>Reserved</th><th>Available</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-          {finishedRows.map(({ product, item }) => {
-            const available = item?.availableStock || 0
-            const hasHistory = hasItemMovement('finished', product.sku)
-            return <tr key={product.sku}><td><code>{product.sku}</code></td><td>{product.name}</td><td>{item?.productionReceived || 0}</td><td>{item?.qualityApproved || 0}</td><td>{item?.dispatchedStock || 0}</td><td>{item?.returnedStock || 0}</td><td>{item?.damagedStock || 0}</td><td>{item?.reservedStock || 0}</td><td><b className={available < 10 ? 'stock-low' : 'stock-good'}>{available}</b></td><td><span className={`status ${item?.status.toLowerCase() === 'archived' ? 'draft' : 'active'}`}>{item?.status || 'Not initialized'}</span></td><td>{!item || item.status.toLowerCase() === 'archived' ? '—' : available === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('finished', product.sku)}>Delete unused</button> : available === 0 ? <button className="text-action" onClick={() => void confirmArchive('finished', product.sku)}>Archive</button> : '—'}</td></tr>
-          })}
-        </tbody></table>
+        <div className="table-card entries-table inventory-table"><PaginatedTable label="Finished-goods inventory" resetKey="finished-goods" header={<thead><tr><th>SKU</th><th>Product</th><th>Produced</th><th>Approved</th><th>Dispatched</th><th>Returned</th><th>Damaged</th><th>Reserved</th><th>Available</th><th>Status</th><th>Actions</th></tr></thead>} rows={finishedTableRows} />
           {finishedRows.length === 0 && <div className="empty-state"><Package size={26} /><strong>No active products or SKUs</strong><span>Add products and variants in Product Catalog first.</span></div>}
         </div>
       </section>
@@ -1492,7 +1495,7 @@ function ModuleView(props: {
         <div className="page-heading"><div><p>INVENTORY · AUDIT LEDGER</p><h1>Stock Movement</h1></div><span className="status active">{stockMovements.length} movements</span></div>
         <div className="local-storage-note">Posted movements cannot be deleted. Correct an error with an adjustment; zero-balance items with history can only be archived.</div>
         <div className="toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search SKU, reference or movement" /></div></div>
-        <div className="table-card entries-table inventory-table"><MovementTable movements={filteredMovements} /></div>
+        <div className="table-card entries-table inventory-table"><MovementTable movements={filteredMovements} resetKey={search} /></div>
       </section>
     )
   }
@@ -1614,6 +1617,7 @@ function ModuleView(props: {
   }
 
   if (module === 'Machines') {
+    const machineRows = machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)
     const exportMachines = () => {
       const rows = machines.map(({ id, name, type, operator, status }) => ({ id, name, type, operator, status }))
       const workbook = XLSX.utils.book_new()
@@ -1656,7 +1660,7 @@ function ModuleView(props: {
           </div>
           <button className="primary wide" type="submit"><Plus size={17} /> Add machine</button>
         </form>}
-        <div className="table-card entries-table"><table><thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Operator</th><th>Status</th></tr></thead><tbody>{machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)}</tbody></table>{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>The Super Admin or Production Supervisor can add machines.</span></div>}</div>
+        <div className="table-card entries-table"><PaginatedTable label="Machine roster" resetKey="machines" header={<thead><tr><th>Machine ID</th><th>Name</th><th>Type</th><th>Operator</th><th>Status</th></tr></thead>} rows={machineRows} />{machines.length === 0 && <div className="empty-state"><Gauge size={24} /><strong>No machines configured</strong><span>The Super Admin or Production Supervisor can add machines.</span></div>}</div>
       </section>
     )
   }
@@ -1687,6 +1691,19 @@ function ModuleView(props: {
       (!catalogListingFilter || listing.platform.toLowerCase() === catalogListingFilter.toLowerCase()) &&
       `${listing.platform} ${listing.platformSku} ${listing.productName} ${listing.productSku} ${listing.masterSku}`.toLowerCase().includes(search.toLowerCase())
     )
+    const skuRows = selectedSkuProducts.map(product => (
+      <tr key={product.sku}>
+        <td>{product.isVariant ? 'Variant' : 'Master'}</td>
+        <td>{product.name}</td>
+        <td><code>{product.sku}</code></td>
+        <td>{product.isVariant ? [product.size, product.color].filter(Boolean).join(' · ') || '—' : '—'}</td>
+        <td>₹{product.mrp.toLocaleString('en-IN')}</td>
+        <td><b className={product.stock < 50 ? 'stock-low' : 'stock-good'}>{product.stock}</b></td>
+        <td>{skuListingCount(product)}</td>
+        <td><span className={`status ${product.status.toLowerCase()}`}>{product.status}</span></td>
+      </tr>
+    ))
+    const catalogListingRows = visibleListings.map(listing => <tr key={listing.id}><td><b>{listing.platform}</b></td><td><code>{listing.platformSku}</code></td><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>₹{listing.mrp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td>₹{listing.sellingPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td><span className="status active">{listing.status}</span></td></tr>)
     const skuListingCount = (product: Product) => selectedListings.filter(listing =>
       product.isVariant
         ? listing.productSku.toLowerCase() === product.sku.toLowerCase()
@@ -1804,6 +1821,8 @@ function ModuleView(props: {
             </div>
             <label>Product SKU<select name="productSku" required defaultValue=""><option value="" disabled>Select internal SKU</option>{selectedSkuProducts.map(product => <option key={product.sku} value={product.sku}>{product.isVariant ? 'Variant' : 'Master'} · {product.name} · {product.sku}</option>)}</select></label>
             <label>Marketplace SKU<input name="platformSku" required maxLength={100} autoComplete="off" placeholder="Enter SKU used on this marketplace" /></label>
+            <label>MRP<input name="mrp" type="number" min="0" step="0.01" required placeholder="0.00" /></label>
+            <label>Selling price<input name="sellingPrice" type="number" min="0" step="0.01" required placeholder="0.00" /></label>
           </div>
           <button className="primary wide" type="submit" disabled={selectedProduct.status !== 'Active'}><Plus size={17} /> Save marketplace SKU</button>
         </form>}
@@ -1858,20 +1877,7 @@ function ModuleView(props: {
             </div>
           </div>
           <div className="table-card">
-            <table><thead><tr><th>SKU type</th><th>Product / variant</th><th>Internal SKU</th><th>Size / color</th><th>MRP</th><th>Stock</th><th>Marketplace SKUs</th><th>Status</th></tr></thead><tbody>
-              {selectedSkuProducts.map(product => (
-                <tr key={product.sku}>
-                  <td>{product.isVariant ? 'Variant' : 'Master'}</td>
-                  <td>{product.name}</td>
-                  <td><code>{product.sku}</code></td>
-                  <td>{product.isVariant ? [product.size, product.color].filter(Boolean).join(' · ') || '—' : '—'}</td>
-                  <td>₹{product.mrp.toLocaleString('en-IN')}</td>
-                  <td><b className={product.stock < 50 ? 'stock-low' : 'stock-good'}>{product.stock}</b></td>
-                  <td>{skuListingCount(product)}</td>
-                  <td><span className={`status ${product.status.toLowerCase()}`}>{product.status}</span></td>
-                </tr>
-              ))}
-            </tbody></table>
+            <PaginatedTable label="Product SKUs" resetKey={selectedProduct.sku} header={<thead><tr><th>SKU type</th><th>Product / variant</th><th>Internal SKU</th><th>Size / color</th><th>MRP</th><th>Stock</th><th>Marketplace SKUs</th><th>Status</th></tr></thead>} rows={skuRows} />
             {selectedSkuProducts.length === 0 && <div className="empty-state"><Package size={28} /><strong>No SKUs for this product</strong><span>Add a variant to make it selectable in production.</span></div>}
           </div>
         </div>
@@ -1886,9 +1892,7 @@ function ModuleView(props: {
             </label>
           </div>
           <div className="table-card">
-            <table><thead><tr><th>Platform</th><th>Marketplace SKU</th><th>Product</th><th>Internal SKU</th><th>Status</th></tr></thead><tbody>
-              {visibleListings.map(listing => <tr key={listing.id}><td><b>{listing.platform}</b></td><td><code>{listing.platformSku}</code></td><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td><span className="status active">{listing.status}</span></td></tr>)}
-            </tbody></table>
+            <PaginatedTable label="Marketplace listings" resetKey={`${selectedProduct.sku}:${catalogListingFilter}:${search}`} header={<thead><tr><th>Platform</th><th>Marketplace SKU</th><th>Product</th><th>Internal SKU</th><th>MRP</th><th>Selling price</th><th>Status</th></tr></thead>} rows={catalogListingRows} />
             {visibleListings.length === 0 && <div className="empty-state"><ShoppingCart size={28} /><strong>{selectedListings.length ? 'No matching listings' : 'No marketplace SKUs yet'}</strong><span>{selectedListings.length ? 'Try another platform or search term.' : 'Add a marketplace SKU to link this product to a sales channel.'}</span></div>}
           </div>
         </div>
@@ -1912,6 +1916,7 @@ function ModuleView(props: {
     )
     const availableMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
     const visibleProduction = production.filter(row => row.date === today)
+    const productionRows = visibleProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{row.createdBy || '—'}</td></tr>)
     const exportDailyReport = () => {
       const sheet = XLSX.utils.json_to_sheet(visibleProduction)
       const workbook = XLSX.utils.book_new()
@@ -1969,7 +1974,7 @@ function ModuleView(props: {
             <div className="break-note"><AlertTriangle size={16} /> Break time is not counted as production time.</div>
           </div>
         </div>
-        <div className="table-card entries-table"><table><thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead><tbody>{visibleProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{row.createdBy || '—'}</td></tr>)}</tbody></table>{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
+        <div className="table-card entries-table"><PaginatedTable label="Today's production entries" resetKey={today} header={<thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead>} rows={productionRows} />{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
       </section>
     )
   }
@@ -2060,6 +2065,8 @@ function ModuleView(props: {
         notify(error instanceof Error ? error.message : 'Account status could not be changed')
       }
     }
+    const reportRows = ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)
+    const userRows = users.map(user => <tr key={user.id}><td>{user.name}</td><td><code>{user.username}</code></td><td>{user.role}</td><td>{user.platforms.join(', ') || '—'}</td><td><span className={`status ${user.active ? 'active' : 'draft'}`}>{user.active ? 'Active' : 'Inactive'}</span></td><td><button className="secondary" disabled={user.id === sessionUser.id} onClick={() => setAccountActive(user)}>{user.active ? 'Deactivate' : 'Activate'}</button></td></tr>)
     return (
       <section>
         <div className="page-heading"><div><p>ADMINISTRATION</p><h1>User Management</h1></div><div className="heading-actions"><button className="secondary" onClick={() => void refreshUsers()}><RotateCcw size={16} /> Refresh users</button><button className="secondary" onClick={exportUsers}><Download size={16} /> Export users</button></div></div>
@@ -2082,17 +2089,18 @@ function ModuleView(props: {
           {ecommerceReportsLoading && <div className="empty-state">Loading reports…</div>}
           {ecommerceReportsError && <p className="ecommerce-error" role="alert">{ecommerceReportsError}</p>}
           {!ecommerceReportsLoading && !ecommerceReportsError && ecommerceReports.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No daily reports yet</strong><span>Submitted reports will appear here.</span></div>}
-          {ecommerceReports.length > 0 && <div className="ecommerce-table-wrap"><table><thead><tr><th>Report date</th><th>Last updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed</th><th>Pending</th><th>Issues / notes</th></tr></thead><tbody>{ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
+          {ecommerceReports.length > 0 && <div className="ecommerce-table-wrap"><PaginatedTable label="Executive daily reports" header={<thead><tr><th>Report date</th><th>Last updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed</th><th>Pending</th><th>Issues / notes</th></tr></thead>} rows={reportRows} /></div>}
         </section>
-        <div className="table-card entries-table"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Platforms</th><th>Status</th><th /></tr></thead><tbody>{users.map(user => <tr key={user.id}><td>{user.name}</td><td><code>{user.username}</code></td><td>{user.role}</td><td>{user.platforms.join(', ') || '—'}</td><td><span className={`status ${user.active ? 'active' : 'draft'}`}>{user.active ? 'Active' : 'Inactive'}</span></td><td><button className="secondary" disabled={user.id === sessionUser.id} onClick={() => setAccountActive(user)}>{user.active ? 'Deactivate' : 'Activate'}</button></td></tr>)}</tbody></table></div>
+        <div className="table-card entries-table"><PaginatedTable label="User accounts" header={<thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Platforms</th><th>Status</th><th /></tr></thead>} rows={userRows} /></div>
       </section>
     )
   }
 
   if (module === 'Audit Logs') {
+    const auditRows = audit.map((entry, i) => <div className="audit-row" key={i}><div className="audit-dot" /><div><strong>{entry}</strong><span>{sessionUser.name}</span></div></div>)
     return (
       <section><div className="page-heading"><div><p>SECURITY</p><h1>Audit Logs</h1></div></div>
-        <div className="panel audit-card"><div className="panel-heading"><div><h2>Recent activity</h2><p>Changes made in this browser session</p></div></div>{audit.map((entry, i) => <div className="audit-row" key={i}><div className="audit-dot" /><div><strong>{entry}</strong><span>{sessionUser.name}</span></div></div>)}</div>
+        <div className="panel audit-card"><div className="panel-heading"><div><h2>Recent activity</h2><p>Changes made in this browser session</p></div></div><PaginatedList label="Audit log activity" items={auditRows} /></div>
       </section>
     )
   }
@@ -2161,7 +2169,10 @@ function EcommerceMonthlyDashboard() {
   const orderCount = summaries.reduce((total, item) => total + item.dispatchedOrders, 0)
   const dispatchedUnits = summaries.reduce((total, item) => total + item.dispatchedUnits, 0)
   const returnedOrders = summaries.reduce((total, item) => total + item.returnedOrders, 0)
-  const damagedUnits = summaries.reduce((total, item) => total + item.damagedUnits, 0)
+  const grossSales = summaries.reduce((total, item) => total + item.dispatchedRevenue, 0)
+  const netSales = grossSales - summaries.reduce((total, item) => total + item.returnValue + item.damagedValue, 0)
+  const executiveRows = executiveSummaries.map(executive => <tr key={executive.executiveId}><td><strong>{executive.executiveName}</strong></td><td>{executive.platforms.join(', ') || '—'}</td><td>{executive.dailyTarget}</td><td>{executive.ordersToday}</td><td>{executive.dailyAchievement === null ? '—' : `${executive.dailyAchievement}%`}</td><td>{executive.monthlyTarget}</td><td>{executive.ordersThisMonth}</td><td>{executive.monthlyAchievement === null ? '—' : `${executive.monthlyAchievement}%`}</td></tr>)
+  const monthlyReportRows = monthlyReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)
 
   const saveExecutiveTarget = async (executive: EcommerceExecutiveTarget) => {
     const draft = targetDrafts[executive.executiveId]
@@ -2204,6 +2215,9 @@ function EcommerceMonthlyDashboard() {
       Platform: item.platform,
       'Orders Dispatched': item.dispatchedOrders,
       'Units Dispatched': item.dispatchedUnits,
+      'Gross Sales (INR)': item.dispatchedRevenue,
+      'Return Value (INR)': item.returnValue,
+      'Damage Value (INR)': item.damagedValue,
       'Return Orders': item.returnedOrders,
       'Return Units': item.returnedUnits,
       'Damage Orders': item.damagedOrders,
@@ -2247,7 +2261,7 @@ function EcommerceMonthlyDashboard() {
           <div className="stat-card"><div className="stat-icon blue"><ShoppingCart size={20} /></div><div className="stat-body"><span>Orders dispatched</span><strong>{orderCount}</strong><small>{selectedMonth} · all platforms</small></div></div>
           <div className="stat-card"><div className="stat-icon green"><Truck size={20} /></div><div className="stat-body"><span>Units dispatched</span><strong>{dispatchedUnits.toLocaleString('en-IN')}</strong><small>{selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returned orders</span><strong>{returnedOrders}</strong><small>{selectedMonth}</small></div></div>
-          <div className="stat-card"><div className="stat-icon purple"><ClipboardCheck size={20} /></div><div className="stat-body"><span>Executive reports / damaged units</span><strong>{monthlyReports.length} / {damagedUnits.toLocaleString('en-IN')}</strong><small>{selectedMonth}</small></div></div>
+          <div className="stat-card"><div className="stat-icon purple"><ClipboardCheck size={20} /></div><div className="stat-body"><span>Gross sales / net after returns & damage</span><strong>₹{grossSales.toLocaleString('en-IN')} / ₹{netSales.toLocaleString('en-IN')}</strong><small>{selectedMonth} · platform selling prices</small></div></div>
         </div>
         <section className="ecommerce-target-settings" aria-label="E-commerce Executive targets">
           <div className="ecommerce-admin-reports-heading"><strong>Executive order targets</strong><span>Set daily and monthly targets per active account.</span></div>
@@ -2263,14 +2277,14 @@ function EcommerceMonthlyDashboard() {
                 <button className="secondary" type="submit" disabled={savingTarget !== null}>{savingTarget === executive.executiveId ? 'Saving…' : 'Save targets'}</button>
               </form>
             })}</div>
-            <div className="ecommerce-table-wrap"><table><thead><tr><th>Executive</th><th>Assigned platforms</th><th>Daily target</th><th>Orders today</th><th>Daily achievement</th><th>Monthly target</th><th>Orders this month</th><th>Monthly achievement</th></tr></thead><tbody>{executiveSummaries.map(executive => <tr key={executive.executiveId}><td><strong>{executive.executiveName}</strong></td><td>{executive.platforms.join(', ') || '—'}</td><td>{executive.dailyTarget}</td><td>{executive.ordersToday}</td><td>{executive.dailyAchievement === null ? '—' : `${executive.dailyAchievement}%`}</td><td>{executive.monthlyTarget}</td><td>{executive.ordersThisMonth}</td><td>{executive.monthlyAchievement === null ? '—' : `${executive.monthlyAchievement}%`}</td></tr>)}</tbody></table></div>
+            <div className="ecommerce-table-wrap"><PaginatedTable label="Executive order targets and achievement" header={<thead><tr><th>Executive</th><th>Assigned platforms</th><th>Daily target</th><th>Orders today</th><th>Daily achievement</th><th>Monthly target</th><th>Orders this month</th><th>Monthly achievement</th></tr></thead>} rows={executiveRows} /></div>
           </>}
           <p className="ecommerce-feedback" role="status" aria-live="polite">{targetMessage}</p>
         </section>
-        <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th><th>Daily reports</th></tr></thead><tbody>{summaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td><td>{summary.dailyReports}</td></tr>)}</tbody></table></div>
+        <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units</th><th>Gross sales</th><th>Return value</th><th>Damage value</th><th>Net sales</th><th>Daily reports</th></tr></thead><tbody>{summaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>₹{summary.dispatchedRevenue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{summary.returnValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{summary.damagedValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{(summary.dispatchedRevenue - summary.returnValue - summary.damagedValue).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>{summary.dailyReports}</td></tr>)}</tbody></table></div>
         <div className="ecommerce-admin-reports">
           <div className="ecommerce-admin-reports-heading"><strong>{selectedMonth} executive daily reports</strong><span>{monthlyReports.length} submissions</span></div>
-          {monthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No reports submitted this month</strong></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Report date</th><th>Last updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead><tbody>{monthlyReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)}</tbody></table></div>}
+          {monthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No reports submitted this month</strong></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedMonth} executive daily reports`} resetKey={selectedMonth} header={<thead><tr><th>Report date</th><th>Last updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead>} rows={monthlyReportRows} /></div>}
         </div>
       </>}
     </section>
@@ -2332,7 +2346,10 @@ function EcommerceWorkspace({
     return !query || [listing.productName, listing.productSku, listing.platformSku].some(value => value.toLowerCase().includes(query))
   })
   const movements = data?.movements.filter(movement => movement.platform === selectedPlatform) || []
+  const listingRows = visibleListings.map(listing => <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>{editingListingId === listing.id ? <form className="inline-sku-form" onSubmit={event => void saveSku(event, listing)}><input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /><button className="primary" type="submit" disabled={busy}>Save</button><button className="secondary" type="button" onClick={() => setEditingListingId('')}>Cancel</button></form> : <code>{listing.platformSku || '—'}</code>}</td><td>{listing.availableStock.toLocaleString('en-IN')}</td><td>{listing.stockStatus}</td>{canEdit && <td>{editingListingId !== listing.id && <button className="secondary" type="button" onClick={() => { setEditingListingId(listing.id); setPlatformSkuDraft(listing.platformSku) }}>Update SKU</button>}</td>}</tr>)
+  const orderRows = movements.map(item => <tr key={item.id}><td>{formatIndiaDateTime(item.date)}</td><td><code>{item.orderNumber}</code></td><td>{item.type}</td><td><code>{item.sku}</code></td><td>{item.quantity}</td><td>{item.reason || '—'}</td></tr>)
   const labels = data?.labels.filter(label => label.platform === selectedPlatform) || []
+  const labelRows = labels.map(label => <div className="ecommerce-label-row" key={label.id}><div><strong>{label.orderNumber}</strong><span>{label.fileName} · {formatIndiaDateTime(label.uploadedAt)}</span></div><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLabel(label)}><Download size={15} /> Download</button></div>)
   const latestOwnReport = ownReports.find(report => report.platform === selectedPlatform)
   const uniqueStock = new Map(listings.map(listing => [listing.productSku.toLowerCase(), listing.availableStock]))
   const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
@@ -2504,7 +2521,7 @@ function EcommerceWorkspace({
           </div>
           <div className="ecommerce-platform-tags">{data.platforms.map(platform => <span className="ecommerce-platform-tag" key={platform}>{platform}</span>)}</div>
           <p className="ecommerce-metric-note">Dispatched orders are counted by unique order number; the ledger does not track delivery confirmation.</p>
-          <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units dispatched</th><th>Return orders</th><th>Return units</th><th>Damage orders</th><th>Damaged units</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>{summary.returnedOrders}</td><td>{summary.returnedUnits.toLocaleString('en-IN')}</td><td>{summary.damagedOrders}</td><td>{summary.damagedUnits.toLocaleString('en-IN')}</td></tr>)}</tbody></table></div>
+          <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units dispatched</th><th>Gross sales</th><th>Return value</th><th>Damage value</th><th>Net sales</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>₹{summary.dispatchedRevenue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{summary.returnValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{summary.damagedValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{(summary.dispatchedRevenue - summary.returnValue - summary.damagedValue).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td></tr>)}</tbody></table></div>
         </section>}
         {showOverview && user.role === 'E-commerce Executive' && <div className="stats-grid ecommerce-target-progress">
           <div className="stat-card"><div className="stat-icon blue"><Target size={20} /></div><div className="stat-body"><span>Today · dispatched orders / daily target</span><strong>{ordersToday} / {dailyTarget || '—'}</strong><small>{dailyAchievement === null ? 'Daily target not set' : `${dailyAchievement}% of daily target`}</small></div></div>
@@ -2522,17 +2539,17 @@ function EcommerceWorkspace({
         {showStock && <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>{selectedPlatform} stock and SKUs</h2><p>Only listings linked to this platform are shown.</p></div></div>
           <div className="ecommerce-listing-toolbar"><label><Search size={16} /><input type="search" aria-label="Search product name, product SKU, or platform SKU" placeholder="Search product name or SKU" value={listingSearch} onChange={event => setListingSearch(event.target.value)} /></label><span>{visibleListings.length} of {listings.length} listings</span></div>
-          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : visibleListings.length === 0 ? <div className="empty-state"><Search size={24} /><strong>No matching products</strong><span>Try a different product name or SKU.</span></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>Available stock</th><th>Status</th>{canEdit && <th />}</tr></thead><tbody>{visibleListings.map(listing => <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>{editingListingId === listing.id ? <form className="inline-sku-form" onSubmit={event => void saveSku(event, listing)}><input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /><button className="primary" type="submit" disabled={busy}>Save</button><button className="secondary" type="button" onClick={() => setEditingListingId('')}>Cancel</button></form> : <code>{listing.platformSku || '—'}</code>}</td><td>{listing.availableStock.toLocaleString('en-IN')}</td><td>{listing.stockStatus}</td>{canEdit && <td>{editingListingId !== listing.id && <button className="secondary" type="button" onClick={() => { setEditingListingId(listing.id); setPlatformSkuDraft(listing.platformSku) }}>Update SKU</button>}</td>}</tr>)}</tbody></table></div>}
+          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : visibleListings.length === 0 ? <div className="empty-state"><Search size={24} /><strong>No matching products</strong><span>Try a different product name or SKU.</span></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedPlatform} stock and SKUs`} resetKey={`${selectedPlatform}:${listingSearch}`} header={<thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>Available stock</th><th>Status</th>{canEdit && <th />}</tr></thead>} rows={listingRows} /></div>}
         </section>}
         {showOrders && <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>Dispatches and returns</h2><p>Dispatch, return, and damage records tied to order numbers.</p></div></div>
-          {movements.length === 0 ? <div className="empty-state"><Truck size={24} /><strong>No platform orders yet</strong><span>Platform dispatches and linked returns will appear here.</span></div> : <div className="ecommerce-table-wrap"><table><thead><tr><th>Date</th><th>Order number</th><th>Type</th><th>Product SKU</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>{movements.map(item => <tr key={item.id}><td>{formatIndiaDateTime(item.date)}</td><td><code>{item.orderNumber}</code></td><td>{item.type}</td><td><code>{item.sku}</code></td><td>{item.quantity}</td><td>{item.reason || '—'}</td></tr>)}</tbody></table></div>}
+          {movements.length === 0 ? <div className="empty-state"><Truck size={24} /><strong>No platform orders yet</strong><span>Platform dispatches and linked returns will appear here.</span></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedPlatform} dispatches and returns`} resetKey={selectedPlatform} header={<thead><tr><th>Date</th><th>Order number</th><th>Type</th><th>Product SKU</th><th>Quantity</th><th>Notes</th></tr></thead>} rows={orderRows} /></div>}
         </section>}
         {(showLabels || showReport) && <div className={`ecommerce-panels${showLabels !== showReport ? ' ecommerce-single-panel' : ''}`}>
           {showLabels && <section className="panel ecommerce-section" id="ecommerce-shipping-labels">
             <div className="panel-heading"><div><h2>Shipping labels</h2><p>PDFs are stored in private Drive and downloaded through this signed-in account.</p></div></div>
             {canEdit && <form className="ecommerce-form" onSubmit={event => void uploadLabel(event)}><label>Marketplace order number<input name="orderNumber" required maxLength={120} /></label><label>Label PDF<input name="label" type="file" accept="application/pdf,.pdf" required /></label><small>PDF only · maximum 3 MB</small><button className="primary" type="submit" disabled={busy}><Upload size={15} /> Upload label</button></form>}
-            {labels.length === 0 ? <div className="empty-state"><FileSpreadsheet size={24} /><strong>No labels for {selectedPlatform}</strong><span>Uploaded shipping labels will be listed here.</span></div> : <div className="ecommerce-label-list">{labels.map(label => <div className="ecommerce-label-row" key={label.id}><div><strong>{label.orderNumber}</strong><span>{label.fileName} · {formatIndiaDateTime(label.uploadedAt)}</span></div><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLabel(label)}><Download size={15} /> Download</button></div>)}</div>}
+            {labels.length === 0 ? <div className="empty-state"><FileSpreadsheet size={24} /><strong>No labels for {selectedPlatform}</strong><span>Uploaded shipping labels will be listed here.</span></div> : <PaginatedList label={`${selectedPlatform} shipping labels`} resetKey={selectedPlatform} items={labelRows} className="ecommerce-label-list" />}
           </section>}
           {showReport && <section className="panel ecommerce-section">
             <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per platform each day; new submissions update today’s report.</p></div></div>
@@ -2555,25 +2572,106 @@ function EcommerceWorkspace({
   )
 }
 
-function MovementTable({ movements, showDeliveryDetails = false }: { movements: StockMovement[]; showDeliveryDetails?: boolean }) {
+function MovementTable({ movements, showDeliveryDetails = false, resetKey = '' }: { movements: StockMovement[]; showDeliveryDetails?: boolean; resetKey?: string }) {
+  const headers = <thead><tr><th>Date / time</th><th>Item</th><th>SKU</th><th>Movement</th><th>Quantity</th><th>Balance</th>{showDeliveryDetails && <><th>Channel</th><th>Delivery partner</th></>}<th>Reference</th><th>Reason</th><th>Entered by</th></tr></thead>
+  const rows = movements.map(movement => <tr key={movement.id}>
+    <td>{formatIndiaDateTime(movement.date)}</td>
+    <td>{movement.itemType || '—'}</td>
+    <td><code>{movement.sku}</code></td>
+    <td>{movement.type}</td>
+    <td>{movement.quantity.toLocaleString('en-IN')}</td>
+    <td>{movement.openingStock.toLocaleString('en-IN')} → {movement.closingStock.toLocaleString('en-IN')}</td>
+    {showDeliveryDetails && <><td>{movement.salesChannel || '—'}</td><td>{movement.deliveryPartner || '—'}</td></>}
+    <td>{movement.referenceId || '—'}</td>
+    <td>{movement.reason || '—'}</td>
+    <td>{movement.createdBy || '—'}</td>
+  </tr>)
   return (
     <>
-      <table aria-label="Stock movement history"><thead><tr><th>Date / time</th><th>Item</th><th>SKU</th><th>Movement</th><th>Quantity</th><th>Balance</th>{showDeliveryDetails && <><th>Channel</th><th>Delivery partner</th></>}<th>Reference</th><th>Reason</th><th>Entered by</th></tr></thead><tbody>
-        {movements.map(movement => <tr key={movement.id}>
-          <td>{formatIndiaDateTime(movement.date)}</td>
-          <td>{movement.itemType || '—'}</td>
-          <td><code>{movement.sku}</code></td>
-          <td>{movement.type}</td>
-          <td>{movement.quantity.toLocaleString('en-IN')}</td>
-          <td>{movement.openingStock.toLocaleString('en-IN')} → {movement.closingStock.toLocaleString('en-IN')}</td>
-          {showDeliveryDetails && <><td>{movement.salesChannel || '—'}</td><td>{movement.deliveryPartner || '—'}</td></>}
-          <td>{movement.referenceId || '—'}</td>
-          <td>{movement.reason || '—'}</td>
-          <td>{movement.createdBy || '—'}</td>
-        </tr>)}
-      </tbody></table>
+      <PaginatedTable label="Stock movement history" resetKey={`${resetKey}:${showDeliveryDetails}`} header={headers} rows={rows} />
       {movements.length === 0 && <div className="empty-state"><Archive size={24} /><strong>No stock movements yet</strong><span>Saved stock changes will appear here and cannot be deleted.</span></div>}
     </>
+  )
+}
+
+function PaginatedTable({
+  label,
+  header,
+  rows,
+  resetKey = '',
+}: {
+  label: string
+  header: React.ReactNode
+  rows: React.ReactNode[]
+  resetKey?: string
+}) {
+  const [pagination, setPagination] = useState({ key: '', page: 1, pageSize: 10 })
+  const key = `${resetKey}:${rows.length}`
+  const pageSize = pagination.key === key ? pagination.pageSize : 10
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const page = Math.min(pagination.key === key ? pagination.page : 1, totalPages)
+  const start = (page - 1) * pageSize
+  const visibleRows = rows.slice(start, start + pageSize)
+  const updatePagination = (nextPage: number, nextPageSize = pageSize) => {
+    setPagination({ key, page: nextPage, pageSize: nextPageSize })
+  }
+
+  return (
+    <div className="paginated-table">
+      <table aria-label={label}>{header}<tbody>{visibleRows}</tbody></table>
+      {rows.length > pageSize && <nav className="pagination-controls" aria-label={`${label} pagination`}>
+        <span className="pagination-summary" aria-live="polite">Showing {start + 1}–{Math.min(start + pageSize, rows.length)} of {rows.length}</span>
+        <label className="pagination-page-size">Rows
+          <select aria-label={`Rows per page for ${label}`} value={pageSize} onChange={event => updatePagination(1, Number(event.target.value))}>
+            <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
+          </select>
+        </label>
+        <div className="pagination-actions">
+          <button type="button" className="secondary" disabled={page <= 1} onClick={() => updatePagination(page - 1)}>Previous</button>
+          <span>Page {page} of {totalPages}</span>
+          <button type="button" className="secondary" disabled={page >= totalPages} onClick={() => updatePagination(page + 1)}>Next</button>
+        </div>
+      </nav>}
+    </div>
+  )
+}
+
+function PaginatedList({
+  label,
+  items,
+  resetKey = '',
+  className = '',
+}: {
+  label: string
+  items: React.ReactNode[]
+  resetKey?: string
+  className?: string
+}) {
+  const [pagination, setPagination] = useState({ key: '', page: 1, pageSize: 10 })
+  const key = `${resetKey}:${items.length}`
+  const pageSize = pagination.key === key ? pagination.pageSize : 10
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
+  const page = Math.min(pagination.key === key ? pagination.page : 1, totalPages)
+  const start = (page - 1) * pageSize
+  const updatePagination = (nextPage: number, nextPageSize = pageSize) => setPagination({ key, page: nextPage, pageSize: nextPageSize })
+
+  return (
+    <div className={`paginated-list ${className}`}>
+      {items.slice(start, start + pageSize)}
+      {items.length > pageSize && <nav className="pagination-controls" aria-label={`${label} pagination`}>
+        <span className="pagination-summary" aria-live="polite">Showing {start + 1}–{Math.min(start + pageSize, items.length)} of {items.length}</span>
+        <label className="pagination-page-size">Rows
+          <select aria-label={`Rows per page for ${label}`} value={pageSize} onChange={event => updatePagination(1, Number(event.target.value))}>
+            <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
+          </select>
+        </label>
+        <div className="pagination-actions">
+          <button type="button" className="secondary" disabled={page <= 1} onClick={() => updatePagination(page - 1)}>Previous</button>
+          <span>Page {page} of {totalPages}</span>
+          <button type="button" className="secondary" disabled={page >= totalPages} onClick={() => updatePagination(page + 1)}>Next</button>
+        </div>
+      </nav>}
+    </div>
   )
 }
 

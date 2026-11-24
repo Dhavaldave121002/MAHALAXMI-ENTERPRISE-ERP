@@ -41,6 +41,8 @@ type MarketplaceListing = {
   productSku: string
   masterSku: string
   productName: string
+  mrp: number
+  sellingPrice: number
   status: string
   createdBy: string
   createdAt: string
@@ -319,6 +321,8 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       productSku,
       masterSku,
       productName: text(row['Product Name']) || product?.name || productSku,
+      mrp: number(row.MRP),
+      sellingPrice: number(row['Selling Price']),
       status: text(row.Status) || 'Active',
       createdBy: text(row['Created By']),
       createdAt: text(row['Created At']),
@@ -438,6 +442,11 @@ async function addMarketplaceListing(data: WorkbookData, user: PublicUser, body:
   if (!MARKETPLACES.includes(platform)) throw new ApiError(400, 'Choose a supported marketplace platform.')
   const platformSku = requiredText(body.platformSku, 'Platform SKU', 100)
   const productSku = requiredText(body.productSku, 'Product SKU', 100)
+  const mrp = Number(body.mrp)
+  const sellingPrice = Number(body.sellingPrice)
+  if (!Number.isFinite(mrp) || mrp < 0 || !Number.isFinite(sellingPrice) || sellingPrice < 0) {
+    throw new ApiError(400, 'MRP and selling price must be valid non-negative amounts.')
+  }
   const product = getSnapshot(data, user).products.find(item => item.sku.toLowerCase() === productSku.toLowerCase())
   if (!product || product.status !== 'Active') throw new ApiError(400, 'Choose an active product or variant from the catalog.')
   const duplicate = optionalRecords(data, 'Marketplace_Listings').some(row =>
@@ -452,6 +461,8 @@ async function addMarketplaceListing(data: WorkbookData, user: PublicUser, body:
     productSku: product.sku,
     masterSku: product.masterSku,
     productName: product.name,
+    mrp,
+    sellingPrice,
     status: 'Active',
     createdBy: user.name,
     createdAt: new Date().toISOString(),
@@ -463,6 +474,8 @@ async function addMarketplaceListing(data: WorkbookData, user: PublicUser, body:
     productSku: listing.productSku,
     masterSku: listing.masterSku,
     productName: listing.productName,
+    mrp: listing.mrp,
+    sellingPrice: listing.sellingPrice,
     createdBy: listing.createdBy,
     createdAt: listing.createdAt,
   })
