@@ -1,7 +1,7 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget']
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
@@ -119,6 +119,7 @@
         case 'setUserActive':
           return setUserActive_(spreadsheet, payload.id, payload.active)
         case 'updateMarketplaceSku':
+        case 'updateMarketplaceListing':
           return updateMarketplaceSku_(spreadsheet, payload)
         case 'uploadEcommerceLabel':
           return uploadEcommerceLabel_(payload)
@@ -916,6 +917,14 @@
       const listingId = String(payload.listingId || '').trim()
       const platformSku = String(payload.platformSku || '').trim()
       if (!listingId || !platformSku || platformSku.length > 120) throw apiError_(400, 'A listing and platform SKU of 1 to 120 characters are required.')
+      const hasMrp = payload.mrp !== undefined && payload.mrp !== null
+      const hasSellingPrice = payload.sellingPrice !== undefined && payload.sellingPrice !== null
+      if (hasMrp !== hasSellingPrice) throw apiError_(400, 'Enter both MRP and selling price.')
+      const mrp = hasMrp ? Number(payload.mrp) : null
+      const sellingPrice = hasSellingPrice ? Number(payload.sellingPrice) : null
+      if (hasMrp && (!isFinite(mrp) || mrp < 0 || !isFinite(sellingPrice) || sellingPrice < 0)) {
+        throw apiError_(400, 'MRP and selling price must be non-negative numbers.')
+      }
       return withWriteLock_(function () {
         const sheet = spreadsheet.getSheetByName('Marketplace_Listings')
         if (!sheet || sheet.getLastRow() < 2) throw apiError_(404, 'Marketplace listings were not found.')
@@ -923,7 +932,12 @@
         const idColumn = headers.indexOf('Listing ID')
         const platformColumn = headers.indexOf('Platform')
         const skuColumn = headers.indexOf('Platform SKU')
-        if (idColumn < 0 || platformColumn < 0 || skuColumn < 0) throw apiError_(422, 'The Marketplace_Listings sheet is missing required columns.')
+        const mrpColumn = headers.indexOf('MRP')
+        const sellingPriceColumn = headers.indexOf('Selling Price')
+        if (idColumn < 0 || platformColumn < 0 || skuColumn < 0 ||
+            (hasMrp && (mrpColumn < 0 || sellingPriceColumn < 0))) {
+          throw apiError_(422, 'The Marketplace_Listings sheet is missing required SKU or price columns.')
+        }
         const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues()
         let targetRow = 0
         let listing = null
@@ -942,9 +956,19 @@
         if (duplicate) throw apiError_(409, 'That platform SKU is already assigned to another listing on this platform.')
         createBackup_(spreadsheet)
         sheet.getRange(targetRow, skuColumn + 1).setValue(safeCellValue_(platformSku))
+        if (hasMrp) {
+          sheet.getRange(targetRow, mrpColumn + 1).setValue(mrp)
+          sheet.getRange(targetRow, sellingPriceColumn + 1).setValue(sellingPrice)
+        }
         SpreadsheetApp.flush()
         const updated = {}
-        headers.forEach(function (header, index) { updated[header] = serializeCell_(index === skuColumn ? platformSku : listing[index]) })
+        headers.forEach(function (header, index) {
+          const value = index === skuColumn ? platformSku
+            : index === mrpColumn && hasMrp ? mrp
+              : index === sellingPriceColumn && hasSellingPrice ? sellingPrice
+                : listing[index]
+          updated[header] = serializeCell_(value)
+        })
         return { listing: updated }
       })
     }
@@ -1495,7 +1519,6 @@
           }
           if (productSkuToMaster.has(skuKey)) {
             updatedProducts.push(record)
-            skipped.products += 1
             if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
             return
           }
@@ -1548,7 +1571,6 @@
           if (variantSkuToMaster.has(skuKey)) {
             if (keyOf(variantSkuToMaster.get(skuKey)) !== masterKey) throw apiError_(409, 'Existing variant SKU is linked to a different master: ' + variantSku)
             updatedVariants.push(record)
-            skipped.variants += 1
             if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
             return
           }
@@ -1583,8 +1605,11 @@
           seenListingIds.add(idKey)
           const existingIdPlatform = listingIds.get(idKey)
           const existingSkuId = listingSkuToId.get(listingKey)
-          if (existingIdPlatform !== undefined && existingIdPlatform !== listingKey) {
-            throw apiError_(409, 'Listing ID conflicts with an existing marketplace SKU: ' + listingId)
+          if (existingIdPlatform !== undefined && keyOf(existingIdPlatform.split(':')[0]) !== keyOf(platform)) {
+            throw apiError_(409, 'Listing ID is already assigned to a different marketplace: ' + listingId)
+          }
+          if (existingSkuId !== undefined && existingSkuId !== idKey) {
+            throw apiError_(409, 'Platform SKU is already assigned to another listing: ' + platformSku)
           }
           const status = importText(row, 'Status', 40) || 'Active'
           const record = {
@@ -1607,13 +1632,14 @@
             'Created By': String(payload.createdBy || ''),
             'Created At': new Date().toISOString(),
           }
-          if (existingSkuId !== undefined || existingIdPlatform === listingKey) {
+          if (existingIdPlatform !== undefined || existingSkuId !== undefined) {
             updatedListings.push(record)
-            skipped.listings += 1
             if (record.MRP !== '') {
               skuMrpUpdates.set(productKey, record.MRP)
               if (linkedMaster) skuMrpUpdates.set(keyOf(linkedMaster), record.MRP)
             }
+            listingIds.set(idKey, listingKey)
+            listingSkuToId.set(listingKey, idKey)
             return
           }
           addedListings.push(record)
@@ -1627,6 +1653,7 @@
 
         const totals = {
           added: { products: addedProducts.length, variants: addedVariants.length, listings: addedListings.length },
+          updated: { products: updatedProducts.length, variants: updatedVariants.length, listings: updatedListings.length },
           skipped: skipped,
           backupName: '',
         }

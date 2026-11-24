@@ -235,12 +235,14 @@ function sessionBoundPayload(user: SessionBoundInput) {
   return { sessionUserId: user.id, sessionRole: user.role }
 }
 
-export async function updateWorkbookMarketplaceSku(input: SessionBoundInput & {
+export async function updateWorkbookMarketplaceListing(input: SessionBoundInput & {
   platform: EcommercePlatform
   listingId: string
   platformSku: string
+  mrp?: number
+  sellingPrice?: number
 }) {
-  return callAppsScript<{ listing: Record<string, unknown> }>('updateMarketplaceSku', { ...input, ...sessionBoundPayload(input) })
+  return callAppsScript<{ listing: Record<string, unknown> }>('updateMarketplaceListing', { ...input, ...sessionBoundPayload(input) })
 }
 
 export async function uploadWorkbookEcommerceLabel(input: SessionBoundInput & {
@@ -320,6 +322,7 @@ export async function importWorkbookMarketplaceCatalog(input: {
 }) {
   return callAppsScript<{
     added: { products: number; variants: number; listings: number }
+    updated?: { products: number; variants: number; listings: number }
     skipped: { products: number; variants: number; listings: number }
     backupName: string
   }>('importMarketplaceWorkbook', input)

@@ -33,6 +33,7 @@ type MarketplaceImportRows = {
 }
 type MarketplaceImportResult = {
   added: { products: number; variants: number; listings: number }
+  updated?: { products: number; variants: number; listings: number }
   skipped: { products: number; variants: number; listings: number }
   backupName: string
 }
@@ -561,7 +562,7 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'importMarketplaceWorkbook', ...rows }),
     })
-    log(`Imported marketplace workbook: ${response.result.added.listings} listings added`)
+    log(`Imported marketplace workbook: ${response.result.added.listings} listings added, ${response.result.updated?.listings ?? 0} listings updated`)
     try {
       await refreshWorkbook()
     } catch {
@@ -1855,7 +1856,10 @@ function ModuleView(props: {
           <div className="panel-heading"><div><h2>Import complete</h2><p>Rows were merged into the existing connected Google Sheet.</p></div></div>
           <p className="marketplace-selection-note">
             Added: {marketplaceImportResult.added.products} products, {marketplaceImportResult.added.variants} variants, {marketplaceImportResult.added.listings} listings.
-            {' '}Skipped as already present: {marketplaceImportResult.skipped.products} products, {marketplaceImportResult.skipped.variants} variants, {marketplaceImportResult.skipped.listings} listings.
+            {marketplaceImportResult.updated
+              ? <> Updated: {marketplaceImportResult.updated.products} products, {marketplaceImportResult.updated.variants} variants, {marketplaceImportResult.updated.listings} listings.</>
+              : <> Latest Apps Script must be deployed to show how many existing rows were updated.</>}
+            {' '}Skipped: {marketplaceImportResult.skipped.products} products, {marketplaceImportResult.skipped.variants} variants, {marketplaceImportResult.skipped.listings} listings.
           </p>
           {marketplaceImportResult.backupName && <p className="marketplace-selection-note">Backup created in Drive: <code>{marketplaceImportResult.backupName}</code></p>}
         </div>}
@@ -2308,6 +2312,8 @@ function EcommerceWorkspace({
   const [busy, setBusy] = useState(false)
   const [editingListingId, setEditingListingId] = useState('')
   const [platformSkuDraft, setPlatformSkuDraft] = useState('')
+  const [mrpDraft, setMrpDraft] = useState('')
+  const [sellingPriceDraft, setSellingPriceDraft] = useState('')
 
   const reload = useCallback(async () => {
     try {
@@ -2343,7 +2349,29 @@ function EcommerceWorkspace({
   })
   const movements = data?.movements.filter(movement => movement.platform === selectedPlatform) || []
   const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
-  const listingRows = visibleListings.map(listing => <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>{editingListingId === listing.id ? <form className="inline-sku-form" onSubmit={event => void saveSku(event, listing)}><input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /><button className="primary" type="submit" disabled={busy}>Save</button><button className="secondary" type="button" onClick={() => setEditingListingId('')}>Cancel</button></form> : <code>{listing.platformSku || '—'}</code>}</td><td>{listing.availableStock.toLocaleString('en-IN')}</td><td>{listing.stockStatus}</td>{canEdit && <td>{editingListingId !== listing.id && <button className="secondary" type="button" onClick={() => { setEditingListingId(listing.id); setPlatformSkuDraft(listing.platformSku) }}>Update SKU</button>}</td>}</tr>)
+  const listingRows = visibleListings.map(listing => editingListingId === listing.id
+    ? <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td colSpan={6}><form className="inline-listing-form" onSubmit={event => void saveListing(event, listing)}>
+      <label>Platform SKU<input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /></label>
+      <label>MRP<input aria-label={`MRP for ${listing.productName}`} type="number" min="0" step="0.01" value={mrpDraft} onChange={event => setMrpDraft(event.target.value)} required /></label>
+      <label>Selling price<input aria-label={`Selling price for ${listing.productName}`} type="number" min="0" step="0.01" value={sellingPriceDraft} onChange={event => setSellingPriceDraft(event.target.value)} required /></label>
+      <button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save listing'}</button>
+      <button className="secondary" type="button" onClick={() => setEditingListingId('')} disabled={busy}>Cancel</button>
+    </form></td></tr>
+    : <tr key={listing.id}>
+      <td>{listing.productName}</td>
+      <td><code>{listing.productSku}</code></td>
+      <td><code>{listing.platformSku || '—'}</code></td>
+      <td>₹{listing.mrp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td>₹{listing.sellingPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td>{listing.availableStock.toLocaleString('en-IN')}</td>
+      <td>{listing.stockStatus}</td>
+      {canEdit && <td><button className="secondary" type="button" onClick={() => {
+        setEditingListingId(listing.id)
+        setPlatformSkuDraft(listing.platformSku)
+        setMrpDraft(String(listing.mrp))
+        setSellingPriceDraft(String(listing.sellingPrice))
+      }}>Edit listing</button></td>}
+    </tr>)
   const orderRows = movements.map(item => <tr key={item.id}><td>{formatIndiaDateTime(item.date)}</td><td><code>{item.orderNumber}</code></td><td>{item.type}</td><td><code>{item.sku}</code></td><td>{item.quantity}</td><td>{item.reason || '—'}</td></tr>)
   const labels = data?.labels.filter(label => label.platform === selectedPlatform) || []
   const labelRows = labels.map(label => <div className="ecommerce-label-row" key={label.id}><div><strong>{label.orderNumber}</strong><span>{label.fileName} · {formatIndiaDateTime(label.uploadedAt)}</span></div><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLabel(label)}><Download size={15} /> Download</button></div>)
@@ -2379,7 +2407,7 @@ function EcommerceWorkspace({
   const showLabels = showAll || page === 'labels'
   const showReport = user.role === 'E-commerce Executive' && (showAll || page === 'report')
 
-  const saveSku = async (event: React.FormEvent<HTMLFormElement>, listing: EcommerceListing) => {
+  const saveListing = async (event: React.FormEvent<HTMLFormElement>, listing: EcommerceListing) => {
     event.preventDefault()
     setBusy(true)
     setActionMessage('')
@@ -2387,9 +2415,16 @@ function EcommerceWorkspace({
       await apiFetch('/api/ecommerce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'updateSku', platform: selectedPlatform, listingId: listing.id, platformSku: platformSkuDraft }),
+        body: JSON.stringify({
+          action: 'updateListing',
+          platform: selectedPlatform,
+          listingId: listing.id,
+          platformSku: platformSkuDraft,
+          mrp: Number(mrpDraft),
+          sellingPrice: Number(sellingPriceDraft),
+        }),
       })
-      setActionMessage('Marketplace SKU updated.')
+      setActionMessage('Marketplace SKU and prices updated. Reports now use the updated selling price.')
       setEditingListingId('')
       await reload()
     } catch (requestError) {
@@ -2533,9 +2568,9 @@ function EcommerceWorkspace({
           <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Stored privately</small></div></div>
         </div>}
         {showStock && <section className="panel ecommerce-section">
-          <div className="panel-heading"><div><h2>{selectedPlatform} stock and SKUs</h2><p>Only listings linked to this platform are shown.</p></div></div>
+          <div className="panel-heading"><div><h2>{selectedPlatform} stock and SKUs</h2><p>Edit this platform's SKU, MRP, or selling price here. Sales reports use the current selling price; the shared Product SKU stays unchanged.</p></div></div>
           <div className="ecommerce-listing-toolbar"><label><Search size={16} /><input type="search" aria-label="Search product name, product SKU, or platform SKU" placeholder="Search product name or SKU" value={listingSearch} onChange={event => setListingSearch(event.target.value)} /></label><span>{visibleListings.length} of {listings.length} listings</span></div>
-          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : visibleListings.length === 0 ? <div className="empty-state"><Search size={24} /><strong>No matching products</strong><span>Try a different product name or SKU.</span></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedPlatform} stock and SKUs`} resetKey={`${selectedPlatform}:${listingSearch}`} header={<thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>Available stock</th><th>Status</th>{canEdit && <th />}</tr></thead>} rows={listingRows} /></div>}
+          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : visibleListings.length === 0 ? <div className="empty-state"><Search size={24} /><strong>No matching products</strong><span>Try a different product name or SKU.</span></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedPlatform} stock and SKUs`} resetKey={`${selectedPlatform}:${listingSearch}`} header={<thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>MRP</th><th>Selling price</th><th>Available stock</th><th>Status</th>{canEdit && <th />}</tr></thead>} rows={listingRows} /></div>}
         </section>}
         {showOrders && <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>Dispatches and returns</h2><p>Dispatch, return, and damage records tied to order numbers.</p></div></div>

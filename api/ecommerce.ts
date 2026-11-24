@@ -9,7 +9,7 @@ import {
   listWorkbookEcommerceTargets,
   readSheetRecords,
   setWorkbookEcommerceTarget,
-  updateWorkbookMarketplaceSku,
+  updateWorkbookMarketplaceListing,
   uploadWorkbookEcommerceLabel,
   submitWorkbookEcommerceReport,
   type EcommercePlatform,
@@ -178,13 +178,24 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const platform = requirePlatform(body.platform)
     requirePlatformAccess(user, platform)
 
-    if (action === 'updateSku') {
+    if (action === 'updateListing' || action === 'updateSku') {
       if (user.role !== 'E-commerce Executive' && user.role !== 'Super Admin') {
-        throw new ApiError(403, 'Only an E-commerce Executive or Super Admin can update a marketplace SKU.')
+        throw new ApiError(403, 'Only an E-commerce Executive or Super Admin can update a marketplace listing.')
       }
       const listingId = requireText(body.listingId, 'Marketplace listing', 120)
       const platformSku = requireText(body.platformSku, 'Platform SKU', 120)
-      const result = await updateWorkbookMarketplaceSku({ id: user.id, role: user.role, platform, listingId, platformSku })
+      const hasMrp = body.mrp !== undefined
+      const hasSellingPrice = body.sellingPrice !== undefined
+      if (hasMrp !== hasSellingPrice) throw new ApiError(400, 'Enter both MRP and selling price.')
+      let prices: { mrp?: number; sellingPrice?: number } = {}
+      if (hasMrp) {
+        if (typeof body.mrp !== 'number' || !Number.isFinite(body.mrp) || body.mrp < 0 ||
+            typeof body.sellingPrice !== 'number' || !Number.isFinite(body.sellingPrice) || body.sellingPrice < 0) {
+          throw new ApiError(400, 'MRP and selling price must be non-negative numbers.')
+        }
+        prices = { mrp: body.mrp, sellingPrice: body.sellingPrice }
+      }
+      const result = await updateWorkbookMarketplaceListing({ id: user.id, role: user.role, platform, listingId, platformSku, ...prices })
       sendJson(response, 200, result)
       return
     }
