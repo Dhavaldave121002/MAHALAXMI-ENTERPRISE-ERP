@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Archive, ArrowUpRight, BarChart3,
   Boxes, Building2, CircleDollarSign, ClipboardCheck,
   Factory, FileSpreadsheet, Gauge, LayoutDashboard, Menu, Package,
   RotateCcw, Search, Settings, ShoppingCart, Target, Truck, UserCog, Users,
-  Plus, Download, Upload, Bell, CheckCircle2, LogOut, LockKeyhole,
+  Plus, Download, Upload, Bell, CheckCircle2, LogOut, LockKeyhole, Video,
 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import * as XLSX from 'xlsx'
 import { SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
+const CameraPublisher = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraPublisher })))
+const CameraMonitoringView = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraMonitoringView })))
 import type { SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
 
@@ -16,7 +18,7 @@ type Module = 'Dashboard' | 'Sales Dashboard' | 'Leads' | 'Factory' | 'Productio
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
-  'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs'
+  'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring'
 
 type Product = {
   id: string; sku: string; masterSku: string; name: string; category: string; mrp: number; stock: number;
@@ -99,7 +101,7 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'SALES', items: ['Sales Dashboard', 'Leads', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
   { label: 'E-COMMERCE', items: ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
-  { label: 'ADMIN', items: ['Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
+  { label: 'ADMIN', items: ['Camera Monitoring', 'Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
 const deliveryChannels = ['DIRECT', 'AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
@@ -135,7 +137,7 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   Accounts: CircleDollarSign, Reports: BarChart3, 'Excel Management': FileSpreadsheet,
   'User Management': UserCog, Settings, 'Audit Logs': Archive, 'E-commerce Workspace': ShoppingCart,
   'E-commerce Stock': Boxes, 'E-commerce Orders': Truck, 'Shipping Labels': FileSpreadsheet,
-  'Daily Work Report': ClipboardCheck,
+  'Daily Work Report': ClipboardCheck, 'Camera Monitoring': Video,
   Factory: Factory,
 } as Record<Module, typeof LayoutDashboard>
 
@@ -1077,7 +1079,7 @@ export default function App() {
     }
   })
   const adminModules = navSections.flatMap(section => section.items)
-  const adminOnlyModules: Module[] = ['Employees', 'Suppliers', 'Accounts', 'Reports', 'User Management', 'Settings', 'Audit Logs']
+  const adminOnlyModules: Module[] = ['Camera Monitoring', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'User Management', 'Settings', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
@@ -1170,6 +1172,7 @@ export default function App() {
           )}
         </div>
       </main>
+      {sessionUser.role !== 'Super Admin' && <Suspense fallback={<aside className="camera-status-card" role="status">Loading scheduled camera controls…</aside>}><CameraPublisher user={{ id: sessionUser.id, name: sessionUser.name, role: sessionUser.role }} /></Suspense>}
       {toast && <div className="toast"><CheckCircle2 size={18} />{toast}</div>}
     </div>
   )
@@ -1348,6 +1351,7 @@ function ModuleView(props: {
   ) {
     return <EcommerceWorkspace user={sessionUser} module={module} setModule={setModule} />
   }
+  if (module === 'Camera Monitoring') return <Suspense fallback={<div className="panel empty-state">Loading camera monitoring…</div>}><CameraMonitoringView /></Suspense>
 
   const salesRole = sessionUser.role === 'Sales Executive' || sessionUser.role === 'Production Supervisor'
     ? sessionUser.role
@@ -3166,6 +3170,7 @@ function DashboardView({
   }
   const shortcuts: Record<Role, { module: Module; detail: string }[]> = {
     'Super Admin': [
+      { module: 'Camera Monitoring', detail: 'View scheduled team cameras and recent recordings' },
       { module: 'User Management', detail: 'Create accounts and assign team roles' },
       { module: 'Inventory', detail: 'Review raw materials and finished goods' },
       { module: 'Product Catalog', detail: 'Create products, SKUs, and marketplace listings' },

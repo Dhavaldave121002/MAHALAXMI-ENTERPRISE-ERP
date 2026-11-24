@@ -4,5 +4,8 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cameras/cleanup", "schedule": "*/15 * * * *" }
   ]
 }
