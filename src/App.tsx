@@ -272,8 +272,18 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error('Secure login API is unavailable. Configure the Vercel server environment.')
   }
-  if (!response.ok) throw new Error(result.error || 'The server request failed.')
+  if (!response.ok) throw new ApiResponseError(response.status, result.error || 'The server request failed.')
   return result as T
+}
+
+class ApiResponseError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiResponseError'
+    this.status = status
+  }
 }
 
 function recordText(record: Record<string, unknown>, key: string) {
@@ -391,8 +401,9 @@ export default function App() {
   const refreshWorkbook = useCallback(async () => {
     if (workbookRefreshInFlight.current) return workbookRefreshInFlight.current
     const request = (async () => {
-      const data = await apiFetch<WorkbookSnapshot>('/api/erp')
+      const data = await apiFetch<WorkbookSnapshot & { user: UserAccount }>('/api/erp')
       applyWorkbookSnapshot(data)
+      setSessionUser(data.user)
     })()
     workbookRefreshInFlight.current = request
     try {
@@ -478,7 +489,13 @@ export default function App() {
       if (Date.now() - workbookLastRefreshAt.current < 30_000) return
       void refreshWorkbook()
         .catch(error => {
-          if (active) setToast(error instanceof Error ? error.message : 'Could not load the shared workbook')
+          if (!active) return
+          if (error instanceof ApiResponseError && error.status === 401) {
+            setLoginError(error.message)
+            setSessionUser(null)
+            return
+          }
+          setToast(error instanceof Error ? error.message : 'Could not load the shared workbook')
         })
     }
     refresh()
@@ -799,6 +816,17 @@ export default function App() {
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Could not log out from the server')
     }
+  }
+
+  if (!sessionUser && authStatus === 'checking') {
+    return (
+      <main className="login-page">
+        <section className="login-card" role="status" aria-live="polite">
+          <div className="login-brand"><div className="brand-mark">M</div><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div>
+          <div className="login-heading"><p>SECURE WORKSPACE</p><h1>Restoring your session…</h1><span className="login-description">Checking your sign-in and loading your workspace.</span></div>
+        </section>
+      </main>
+    )
   }
 
   if (!sessionUser) {

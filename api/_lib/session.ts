@@ -123,6 +123,20 @@ export function getSessionClaims(request: ApiRequest): PublicUser | null {
   }
 }
 
+export function getSignedSessionUser(request: ApiRequest): PublicUser | null {
+  // Used for immediate UI restore only; protected APIs still revalidate the account.
+  const payload = readSessionPayload(request)
+  if (!payload.name || !payload.username || !payload.role) return null
+  return {
+    id: payload.userId,
+    name: payload.name,
+    username: payload.username,
+    role: payload.role,
+    active: true,
+    platforms: payload.platforms || [],
+  }
+}
+
 export function requireAdmin(user: PublicUser) {
   if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can perform this action.')
 }

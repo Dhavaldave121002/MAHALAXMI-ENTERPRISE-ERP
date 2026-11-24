@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse } from '../_lib/http.js'
 import { ApiError, handleApiError, sendJson } from '../_lib/http.js'
 import { getSessionSecret, getWorkbookData, readUsers, validateWorkbookConfiguration, type PublicUser } from '../_lib/workbook.js'
-import { getSessionUser, hasSignedSession, refreshSessionCookie } from '../_lib/session.js'
+import { getSessionUser, getSignedSessionUser, hasSignedSession, refreshSessionCookie } from '../_lib/session.js'
 import { getSnapshot } from '../erp.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -14,6 +14,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (!hasSignedSession(request)) {
       validateWorkbookConfiguration()
       sendJson(response, 200, { configured: true, user: null })
+      return
+    }
+
+    const signedInUser = getSignedSessionUser(request)
+    if (signedInUser) {
+      sendJson(response, 200, { configured: true, user: signedInUser })
       return
     }
 

@@ -735,7 +735,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       const users = readUsers(data.sheets.Users || [])
       const user = await getSessionUser(request, users)
       refreshSessionCookie(response, request, user, data.capabilities?.sessionBoundWrites === true)
-      sendJson(response, 200, getSnapshot(data, user))
+      sendJson(response, 200, { ...getSnapshot(data, user), user })
       return
     }
 
