@@ -355,9 +355,9 @@ export default function App() {
   const [clock, setClock] = useState(new Date())
   const [sessionUser, setSessionUser] = useState<UserAccount | null>(null)
   const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
-  const [needsAdminSetup, setNeedsAdminSetup] = useState(false)
   const [serverMessage, setServerMessage] = useState('')
   const [loginError, setLoginError] = useState('')
+  const [loginBusy, setLoginBusy] = useState(false)
   const [setupMode, setSetupMode] = useState(false)
   const [users, setUsers] = useState<UserAccount[]>([])
   const [machines, setMachines] = useState<Machine[]>([])
@@ -422,13 +422,11 @@ export default function App() {
         const statusData = await statusResponse.json() as {
           error?: string
           configured?: boolean
-          needsAdminSetup?: boolean
           user?: UserAccount | null
           workbook?: WorkbookSnapshot
         }
         if (!statusResponse.ok || !statusData.configured) throw new Error(statusData.error || 'Google Sheets Apps Script is not configured.')
         if (!active) return
-        setNeedsAdminSetup(Boolean(statusData.needsAdminSetup))
         if (statusData.user) {
           setSessionUser(statusData.user)
           setModule(landingModuleForRole(statusData.user.role))
@@ -775,6 +773,7 @@ export default function App() {
     const username = String(form.get('username')).trim().toLowerCase()
     const password = String(form.get('password'))
     setLoginError('')
+    setLoginBusy(true)
     try {
       const result = await apiFetch<{ user: UserAccount }>('/api/auth/login', {
         method: 'POST',
@@ -785,6 +784,8 @@ export default function App() {
       setModule(landingModuleForRole(result.user.role))
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : 'Login failed')
+    } finally {
+      setLoginBusy(false)
     }
   }
 
@@ -827,7 +828,6 @@ export default function App() {
           body: JSON.stringify({ name, username, password }),
         })
         setSessionUser(result.user)
-        setNeedsAdminSetup(false)
         setSetupMode(false)
         setModule('Dashboard')
       } catch (error) {
@@ -835,11 +835,7 @@ export default function App() {
       }
     }
 
-    if (authStatus === 'checking') {
-      return <main className="login-page"><section className="login-card"><div className="login-brand"><div className="brand-mark">M</div><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div><div className="login-heading"><p>SECURE LOGIN</p><h1>Checking account setup…</h1></div></section></main>
-    }
-
-    if (authStatus === 'ready' && needsAdminSetup && setupMode) {
+    if (!isAdminRoute && setupMode) {
       return (
         <main className="login-page">
           <section className="login-card">
@@ -869,9 +865,9 @@ export default function App() {
             <label>Password<div className="password-field"><LockKeyhole size={16} /><input name="password" type="password" autoComplete="current-password" required placeholder="Enter password" /></div></label>
             {loginError && <div className="login-error">{loginError}</div>}
             {authStatus === 'unavailable' && <div className="login-error">{serverMessage}</div>}
-            <button className="primary wide" type="submit" disabled={authStatus !== 'ready'}>Sign in</button>
+            <button className="primary wide" type="submit" disabled={loginBusy}>{loginBusy ? 'Signing in…' : 'Sign in'}</button>
           </form>
-          {authStatus === 'ready' && needsAdminSetup && <div className="first-admin-setup"><span>First time here? Create the one-time Admin account to begin.</span><button type="button" onClick={() => { setSetupMode(true); setLoginError('') }}>Create first Admin</button></div>}
+          {!isAdminRoute && <div className="first-admin-setup"><span>First-time setup only: create the one-time Admin account. If it is already set up, sign in instead.</span><button type="button" onClick={() => { setSetupMode(true); setLoginError('') }}>Create first Admin</button></div>}
           {authStatus === 'ready' && <a className="login-route-link" href={isAdminRoute ? '/' : '/admin'}>{isAdminRoute ? 'Team login' : 'Admin login'}</a>}
         </section>
       </main>

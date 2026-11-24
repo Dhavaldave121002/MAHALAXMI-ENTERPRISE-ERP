@@ -13,7 +13,11 @@
     const ERP_FINISHED_GOODS_HEADERS = ['Product SKU', 'Product Name', 'Opening Stock', 'Production Received', 'Quality Approved', 'Rejected', 'Reserved Stock', 'Available Stock', 'Dispatched Stock', 'Returned Stock', 'Damaged Stock', 'Last Updated', 'Adjustment In', 'Adjustment Out', 'Status']
     const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner']
 
-    function onOpen() {
+    function onOpen(event) {
+      if (!event || !event.source) {
+        Logger.log('Open the bound spreadsheet to create the Mahalaxmi ERP menu.')
+        return
+      }
       SpreadsheetApp.getUi()
         .createMenu('Mahalaxmi ERP')
         .addItem('Configure API access', 'configureMahalaxmiErp')
@@ -107,7 +111,7 @@
         case 'getWorkbookData':
           return getWorkbookData_(spreadsheet)
         case 'getUsers':
-          return { users: readSheetRecords_(spreadsheet, 'Users') }
+          return { users: readCachedSheetRecords_(spreadsheet, 'Users') }
         case 'createInitialAdmin':
           return createInitialAdmin_(spreadsheet, payload.user)
         case 'appendUser':
@@ -186,7 +190,7 @@
     }
 
     function workbookCacheKey_(spreadsheet, name) {
-      return 'ERP_WORKBOOK_V1_' + spreadsheet.getId() + '_' + name
+      return 'ERP_WORKBOOK_V2_' + spreadsheet.getId() + '_' + name
     }
 
     function readCachedSheetRecords_(spreadsheet, name) {
@@ -201,7 +205,10 @@
       }
       if (cached !== null) {
         try {
-          const records = JSON.parse(cached)
+          const serialized = cached.indexOf('gz:') === 0
+            ? Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(cached.slice(3)))).getDataAsString()
+            : cached.indexOf('json:') === 0 ? cached.slice(5) : cached
+          const records = JSON.parse(serialized)
           if (Array.isArray(records)) return records
           Logger.log('Ignoring invalid ERP workbook cache entry for ' + name + '.')
         } catch (error) {
@@ -216,9 +223,19 @@
 
       const records = readSheetRecords_(spreadsheet, name)
       const serialized = JSON.stringify(records)
-      if (Utilities.newBlob(serialized).getBytes().length <= ERP_WORKBOOK_CACHE_MAX_BYTES) {
+      let cacheValue = ''
+      try {
+        const compressed = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(serialized, 'application/json')).getBytes())
+        if (compressed.length + 3 <= ERP_WORKBOOK_CACHE_MAX_BYTES) cacheValue = 'gz:' + compressed
+      } catch (error) {
+        Logger.log('Workbook cache compression failed for ' + name + ': ' + String(error))
+      }
+      if (!cacheValue && Utilities.newBlob(serialized).getBytes().length + 5 <= ERP_WORKBOOK_CACHE_MAX_BYTES) {
+        cacheValue = 'json:' + serialized
+      }
+      if (cacheValue) {
         try {
-          cache.put(key, serialized, ERP_WORKBOOK_CACHE_SECONDS)
+          cache.put(key, cacheValue, ERP_WORKBOOK_CACHE_SECONDS)
         } catch (error) {
           Logger.log('Workbook cache write failed for ' + name + ': ' + String(error))
         }

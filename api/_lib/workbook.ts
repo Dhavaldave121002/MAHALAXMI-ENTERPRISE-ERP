@@ -42,6 +42,25 @@ export type WorkbookData = {
   capabilities?: WorkbookCapabilities
 }
 
+const WORKBOOK_DATA_CACHE_MS = 2_000
+const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
+  'getWorkbookData',
+  'getUsers',
+  'listEcommerceLabels',
+  'downloadEcommerceLabel',
+  'listEcommerceReports',
+  'getEcommerceTargets',
+])
+let workbookDataCache: { data: WorkbookData; expiresAt: number } | null = null
+let workbookDataRequest: Promise<WorkbookData> | null = null
+let workbookDataGeneration = 0
+
+function invalidateWorkbookDataCache() {
+  workbookDataGeneration += 1
+  workbookDataCache = null
+  workbookDataRequest = null
+}
+
 function getAppsScriptConfiguration() {
   const { GOOGLE_APPS_SCRIPT_URL, GOOGLE_APPS_SCRIPT_SECRET } = process.env
   if (!GOOGLE_APPS_SCRIPT_URL || !GOOGLE_APPS_SCRIPT_SECRET) {
@@ -61,6 +80,10 @@ function getAppsScriptConfiguration() {
     throw new ApiError(503, 'GOOGLE_APPS_SCRIPT_SECRET must contain at least 32 characters.')
   }
   return { url: GOOGLE_APPS_SCRIPT_URL, secret: GOOGLE_APPS_SCRIPT_SECRET }
+}
+
+export function validateWorkbookConfiguration() {
+  getAppsScriptConfiguration()
 }
 
 export function getSessionSecret() {
@@ -100,15 +123,30 @@ async function callAppsScript<T>(action: string, payload: Record<string, unknown
     throw new ApiError(status >= 400 && status < 500 ? status : 503, message)
   }
   if (!('data' in result)) throw new ApiError(503, 'Google Apps Script response is missing its data.')
+  if (!READ_ONLY_APPS_SCRIPT_ACTIONS.has(action)) invalidateWorkbookDataCache()
   return result.data as T
 }
 
 export async function getWorkbookData(): Promise<WorkbookData> {
-  const data = await callAppsScript<WorkbookData>('getWorkbookData')
-  if (!data || !Array.isArray(data.sheetNames) || !data.sheets || typeof data.sheets !== 'object') {
-    throw new ApiError(503, 'Google Apps Script returned an invalid workbook structure.')
+  if (workbookDataCache && workbookDataCache.expiresAt > Date.now()) return workbookDataCache.data
+  if (workbookDataRequest) return workbookDataRequest
+
+  const generation = workbookDataGeneration
+  const request = callAppsScript<WorkbookData>('getWorkbookData').then(data => {
+    if (!data || !Array.isArray(data.sheetNames) || !data.sheets || typeof data.sheets !== 'object') {
+      throw new ApiError(503, 'Google Apps Script returned an invalid workbook structure.')
+    }
+    if (generation === workbookDataGeneration) {
+      workbookDataCache = { data, expiresAt: Date.now() + WORKBOOK_DATA_CACHE_MS }
+    }
+    return data
+  })
+  workbookDataRequest = request
+  try {
+    return await request
+  } finally {
+    if (workbookDataRequest === request) workbookDataRequest = null
   }
-  return data
 }
 
 export function readSheetRecords(data: WorkbookData, sheetName: string) {
