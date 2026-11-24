@@ -35,6 +35,7 @@ type MarketplaceImportResult = {
   added: { products: number; variants: number; listings: number }
   updated?: { products: number; variants: number; listings: number }
   skipped: { products: number; variants: number; listings: number }
+  renamedProducts?: number
   backupName: string
 }
 type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
@@ -579,14 +580,14 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'importMarketplaceWorkbook', ...rows }),
     })
-    log(`Imported marketplace workbook: ${response.result.added.listings} listings added, ${response.result.updated?.listings ?? 0} listings updated`)
+    log(`Imported marketplace workbook: ${response.result.added.listings} listings added, ${response.result.updated?.listings ?? 0} listings updated, ${response.result.renamedProducts ?? 0} product SKUs renamed`)
     try {
       await refreshWorkbook()
     } catch {
       notify('Import saved, but the live workbook could not be refreshed. Reload the page before retrying.')
       throw new Error('Import succeeded, but the live workbook could not be refreshed. Reload the page before retrying.')
     }
-    notify(`Import complete: ${response.result.added.listings} listings added; existing rows skipped.`)
+    notify(`Import complete: ${response.result.added.products + response.result.added.variants + response.result.added.listings} rows added; ${response.result.updated ? response.result.updated.products + response.result.updated.variants + response.result.updated.listings : 0} rows updated; ${response.result.renamedProducts ?? 0} product SKUs renamed.`)
     return response.result
   }
 
@@ -1866,7 +1867,7 @@ function ModuleView(props: {
             Platforms: {Object.entries(importPlatformCounts || {}).map(([platform, count]) => `${platform} ${count}`).join(' · ')}.
             {' '}Workbook issues flagged: {marketplaceImportPreview.issues.length}.
           </p>
-          <p className="local-storage-note">This imports missing rows into the existing connected Google Sheet. Existing SKUs/listings are skipped; nothing is deleted. Stock, machines, and user accounts are not imported. If rows need adding, a Drive backup is created before changes.</p>
+          <p className="local-storage-note">Matching products, variants, and listings are updated only when imported values differ; blank cells never erase saved values. A product SKU change matches by product ID, then by a unique exact title, and updates linked current records while leaving historical stock and production logs unchanged. Unchanged rows are preserved, and nothing is deleted. A Drive backup is created before changes.</p>
           {marketplaceImportPreview.issues.length > 0 && <details className="marketplace-import-issues">
             <summary>Review {marketplaceImportPreview.issues.length} source issues</summary>
             <ul>{marketplaceImportPreview.issues.slice(0, 20).map((issue, index) => (
@@ -1887,6 +1888,7 @@ function ModuleView(props: {
             {marketplaceImportResult.updated
               ? <> Updated: {marketplaceImportResult.updated.products} products, {marketplaceImportResult.updated.variants} variants, {marketplaceImportResult.updated.listings} listings.</>
               : <> Latest Apps Script must be deployed to show how many existing rows were updated.</>}
+            {marketplaceImportResult.renamedProducts !== undefined && <> Product SKU renames: {marketplaceImportResult.renamedProducts}.</>}
             {' '}Skipped: {marketplaceImportResult.skipped.products} products, {marketplaceImportResult.skipped.variants} variants, {marketplaceImportResult.skipped.listings} listings.
           </p>
           {marketplaceImportResult.backupName && <p className="marketplace-selection-note">Backup created in Drive: <code>{marketplaceImportResult.backupName}</code></p>}
@@ -2593,7 +2595,7 @@ function EcommerceWorkspace({
           <div className="stat-card"><div className="stat-icon blue"><Boxes size={20} /></div><div className="stat-body"><span>Available stock</span><strong>{Array.from(uniqueStock.values()).reduce((total, stock) => total + stock, 0).toLocaleString('en-IN')}</strong><small>Across {listings.length} assigned listings</small></div></div>
           <div className="stat-card"><div className="stat-icon green"><Truck size={20} /></div><div className="stat-body"><span>Orders dispatched this month</span><strong>{selectedSummary?.dispatchedOrders || 0}</strong><small>{selectedSummary?.dispatchedUnits || 0} units · {selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returns / damage this month</span><strong>{(selectedSummary?.returnedOrders || 0) + (selectedSummary?.damagedOrders || 0)}</strong><small>Order events · {selectedMonth}</small></div></div>
-          <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Stored privately</small></div></div>
+          <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Permanently deleted after 7 days</small></div></div>
         </div>}
         {showStock && <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>{selectedPlatform} stock and SKUs</h2><p>Edit this platform's SKU, MRP, or selling price here. Sales reports use the current selling price; the shared Product SKU stays unchanged.</p></div></div>
@@ -2606,7 +2608,7 @@ function EcommerceWorkspace({
         </section>}
         {(showLabels || showReport) && <div className={`ecommerce-panels${showLabels !== showReport ? ' ecommerce-single-panel' : ''}`}>
           {showLabels && <section className="panel ecommerce-section" id="ecommerce-shipping-labels">
-            <div className="panel-heading"><div><h2>Shipping labels</h2><p>PDFs are stored in private Drive and downloaded through this signed-in account.</p></div></div>
+            <div className="panel-heading"><div><h2>Shipping labels</h2><p>PDFs are stored privately and permanently deleted after 7 days.</p></div></div>
             {canEdit && <form className="ecommerce-form" onSubmit={event => void uploadLabel(event)}><label>Marketplace order number<input name="orderNumber" required maxLength={120} /></label><label>Label PDF<input name="label" type="file" accept="application/pdf,.pdf" required /></label><small>PDF only · maximum 3 MB</small><button className="primary" type="submit" disabled={busy}><Upload size={15} /> Upload label</button></form>}
             {labels.length === 0 ? <div className="empty-state"><FileSpreadsheet size={24} /><strong>No labels for {selectedPlatform}</strong><span>Uploaded shipping labels will be listed here.</span></div> : <PaginatedList label={`${selectedPlatform} shipping labels`} resetKey={selectedPlatform} items={labelRows} className="ecommerce-label-list" />}
           </section>}

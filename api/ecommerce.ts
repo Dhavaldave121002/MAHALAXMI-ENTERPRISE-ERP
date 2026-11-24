@@ -65,6 +65,13 @@ function availableStock(row: Record<string, unknown>) {
 function workspaceData(data: WorkbookData, user: PublicUser) {
   const platforms = user.role === 'E-commerce Executive' ? user.platforms : [...ECOMMERCE_PLATFORMS]
   const finishedRows = readSheetRecords(data, 'Finished_Goods')
+  const previousSkusByCurrent = new Map<string, string[]>()
+  readSheetRecords(data, 'Products').forEach(row => {
+    const currentSku = text(row['Master SKU']).toLowerCase()
+    if (!currentSku) return
+    const previousSkus = text(row['Previous SKUs']).split('|').map(sku => sku.trim().toLowerCase()).filter(Boolean)
+    if (previousSkus.length) previousSkusByCurrent.set(currentSku, previousSkus)
+  })
   const stockBySku = new Map(finishedRows.map(row => [text(row['Product SKU']).toLowerCase(), {
     availableStock: availableStock(row),
     status: text(row.Status) || 'Active',
@@ -88,15 +95,26 @@ function workspaceData(data: WorkbookData, user: PublicUser) {
       status: text(row.Status) || 'Active',
     }]
   })
-  const listingPriceBySku = new Map(listings.map(row => [row.productSku.toLowerCase(), row.sellingPrice]))
+  const listingPriceBySku = new Map<string, number>()
   const movementListings = readSheetRecords(data, 'Marketplace_Listings')
   movementListings.forEach(row => {
     const platform = platformOf(row.Platform)
     if (!platform || !platforms.includes(platform)) return
     const productSku = text(row['Product SKU']).toLowerCase()
+    const masterSku = text(row['Master SKU']).toLowerCase()
     const platformSku = text(row['Platform SKU']).toLowerCase()
     const sellingPrice = number(row['Selling Price'])
-    if (productSku) listingPriceBySku.set(`${platform}:${productSku}`, sellingPrice)
+    if (productSku) {
+      listingPriceBySku.set(`${platform}:${productSku}`, sellingPrice)
+      listingPriceBySku.set(productSku, sellingPrice)
+      if (productSku === masterSku) {
+        const previousSkus = previousSkusByCurrent.get(masterSku) ?? []
+        previousSkus.forEach(previousSku => {
+          listingPriceBySku.set(`${platform}:${previousSku}`, sellingPrice)
+          listingPriceBySku.set(previousSku, sellingPrice)
+        })
+      }
+    }
     if (platformSku) listingPriceBySku.set(`${platform}:${platformSku}`, sellingPrice)
   })
   const movements = readSheetRecords(data, 'Stock_Movement').flatMap(row => {
@@ -108,8 +126,8 @@ function workspaceData(data: WorkbookData, user: PublicUser) {
         !['Dispatch', 'Return', 'Damage'].includes(type) || !referenceId) return []
     const sku = text(row.SKU)
     const sellingPrice = listingPriceBySku.get(`${platform}:${sku.toLowerCase()}`)
-      || listingPriceBySku.get(sku.toLowerCase())
-      || 0
+      ?? listingPriceBySku.get(sku.toLowerCase())
+      ?? 0
     return [{
       id: text(row['Movement ID']),
       date: text(row['Date/Time']),

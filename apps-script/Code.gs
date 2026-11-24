@@ -4,6 +4,8 @@
     const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget']
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
+    const ERP_ECOMMERCE_LABEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+    const ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER = 'cleanupExpiredEcommerceLabels_'
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
     const ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_DAILY_TARGET_'
     const ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_'
@@ -1004,6 +1006,63 @@
       }
     }
 
+    function ensureEcommerceLabelCleanupTrigger_() {
+      return withWriteLock_(function () {
+        const exists = ScriptApp.getProjectTriggers().some(function (trigger) {
+          return trigger.getHandlerFunction() === ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER
+        })
+        if (!exists) {
+          ScriptApp.newTrigger(ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER).timeBased().everyHours(1).create()
+        }
+      })
+    }
+
+    function ecommerceLabelExpired_(file, cutoff) {
+      let metadata
+      try {
+        metadata = JSON.parse(file.getDescription() || '{}')
+      } catch (error) {
+        Logger.log('Using Drive creation date to expire a shipping label with invalid metadata: ' + file.getId())
+        return file.getDateCreated().getTime() <= cutoff
+      }
+      if (metadata.kind !== 'mahalaxmi-erp-ecommerce-label') return false
+      const uploadedAt = Date.parse(String(metadata.uploadedAt || ''))
+      const createdAt = file.getDateCreated().getTime()
+      return (Number.isFinite(uploadedAt) ? uploadedAt : createdAt) <= cutoff
+    }
+
+    function permanentlyDeleteEcommerceLabel_(file) {
+      const response = UrlFetchApp.fetch(
+        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(file.getId()),
+        {
+          method: 'delete',
+          headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+          muteHttpExceptions: true,
+        }
+      )
+      const status = response.getResponseCode()
+      if (status !== 200 && status !== 204) {
+        Logger.log('Drive API could not permanently delete expired shipping label ' + file.getId() + '; HTTP status ' + status)
+        throw apiError_(500, 'Expired shipping labels could not be deleted. Please retry shortly.')
+      }
+    }
+
+    function cleanupExpiredEcommerceLabels_() {
+      return withWriteLock_(function () {
+        const folder = getEcommerceLabelFolder_(false)
+        if (!folder) return 0
+        const cutoff = Date.now() - ERP_ECOMMERCE_LABEL_RETENTION_MS
+        const expired = []
+        const files = folder.getFiles()
+        while (files.hasNext()) {
+          const file = files.next()
+          if (ecommerceLabelExpired_(file, cutoff)) expired.push(file)
+        }
+        expired.forEach(permanentlyDeleteEcommerceLabel_)
+        return expired.length
+      })
+    }
+
     function uploadEcommerceLabel_(payload) {
       assertEcommerceWriteRole_(payload)
       const platform = assertEcommercePlatformAccess_(payload, payload.platform)
@@ -1020,6 +1079,8 @@
       const safeName = requestedName.replace(/[\\/:*?"<>|]/g, '_')
       const uploadedAt = new Date().toISOString()
       const folder = getEcommerceLabelFolder_(true)
+      ensureEcommerceLabelCleanupTrigger_()
+      cleanupExpiredEcommerceLabels_()
       const blob = Utilities.newBlob(bytes, 'application/pdf', safeName)
       const file = folder.createFile(blob)
       try {
@@ -1046,6 +1107,8 @@
       if (platform) assertEcommercePlatformAccess_(payload, platform)
       const folder = getEcommerceLabelFolder_(false)
       if (!folder) return { labels: [] }
+      ensureEcommerceLabelCleanupTrigger_()
+      cleanupExpiredEcommerceLabels_()
       const labels = []
       const files = folder.getFiles()
       while (files.hasNext()) {
@@ -1065,6 +1128,8 @@
       if (!fileId) throw apiError_(400, 'A shipping-label ID is required.')
       const folder = getEcommerceLabelFolder_(false)
       if (!folder) throw apiError_(404, 'Shipping label was not found.')
+      ensureEcommerceLabelCleanupTrigger_()
+      cleanupExpiredEcommerceLabels_()
       const files = folder.getFiles()
       while (files.hasNext()) {
         const file = files.next()
@@ -1409,6 +1474,31 @@
           return normalized.toLowerCase()
         }
 
+        function sameImportValue(current, incoming) {
+          const currentValue = current instanceof Date ? current.toISOString() : String(current === null || current === undefined ? '' : current).trim()
+          const incomingValue = incoming instanceof Date ? incoming.toISOString() : String(incoming === null || incoming === undefined ? '' : incoming).trim()
+          return currentValue === incomingValue
+        }
+
+        function hasImportChanges(current, incoming) {
+          return Object.keys(incoming).some(function (header) {
+            return incoming[header] !== undefined && incoming[header] !== '' &&
+              !sameImportValue(current[header], incoming[header])
+          })
+        }
+
+        function mergeImportRecord(current, incoming) {
+          const merged = Object.assign({}, current)
+          Object.keys(incoming).forEach(function (header) {
+            if (incoming[header] !== undefined && incoming[header] !== '') merged[header] = incoming[header]
+          })
+          return merged
+        }
+
+        function previousSkuList(value) {
+          return String(value || '').split('|').map(function (sku) { return sku.trim() }).filter(Boolean)
+        }
+
         function appendImportRows(target, rows) {
           if (!rows.length) return
           const values = rows.map(function (record) {
@@ -1427,16 +1517,20 @@
           const values = target.sheet.getRange(2, 1, target.sheet.getLastRow() - 1, target.headers.length).getValues()
           let updated = 0
           rows.forEach(function (record) {
-            const key = keyOf(record[keyColumn])
+            const key = keyOf(record.__importMatchKey === undefined ? record[keyColumn] : record.__importMatchKey)
             if (!key) return
             for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
               if (keyOf(values[rowIndex][keyIndex]) !== key) continue
+              let rowChanged = false
               target.headers.forEach(function (header, columnIndex) {
-                if (record[header] !== undefined && record[header] !== '') {
-                  values[rowIndex][columnIndex] = safeCellValue_(record[header])
-                }
+                if (record[header] === undefined || record[header] === '' ||
+                    sameImportValue(values[rowIndex][columnIndex], record[header])) return
+                values[rowIndex][columnIndex] = safeCellValue_(record[header])
+                rowChanged = true
               })
-              updated += 1
+              if (rowChanged) {
+                updated += 1
+              }
               break
             }
           })
@@ -1447,38 +1541,81 @@
         const inputProducts = rowsFor('products', 'Products', 5000)
         const inputVariants = rowsFor('variants', 'SKU variants', 10000)
         const inputListings = rowsFor('listings', 'Marketplace listings', 10000)
-        const productHeaders = ['Internal Product ID', 'Master SKU', 'Product Title', 'Category', 'MRP', 'Status', 'Created Date', 'Updated Date', 'ASIN', 'Shopify Product ID']
+        const productHeaders = ['Internal Product ID', 'Master SKU', 'Product Title', 'Category', 'MRP', 'Status', 'Created Date', 'Updated Date', 'ASIN', 'Shopify Product ID', 'Previous SKUs']
         const variantHeaders = ['Variant ID', 'Master SKU', 'Variant SKU', 'Size', 'Color', 'Pack Quantity', 'MRP', 'Selling Price', 'Status', 'Variant Title', 'Shopify Product ID', 'Shopify Variant ID', 'Shopify Inventory']
         const listingHeaders = ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name', 'ASIN', 'Amazon Listing ID', 'Selling Price', 'MRP', 'Fulfillment Channel', 'Status', 'Variant Title', 'Shopify Product ID', 'Shopify Variant ID', 'Shopify Inventory', 'Created By', 'Created At']
         const currentProducts = readSheetRecords_(spreadsheet, 'Products')
         const currentVariants = readSheetRecords_(spreadsheet, 'SKU_Variants')
         const currentListings = readSheetRecords_(spreadsheet, 'Marketplace_Listings')
         const productSkuToMaster = new Map()
-        const productIds = new Map()
+        const productById = new Map()
+        const productBySku = new Map()
+        const productsByTitle = new Map()
+        const productAliasToMaster = new Map()
         const variantSkuToMaster = new Map()
         const variantIds = new Map()
+        const variantById = new Map()
+        const variantBySku = new Map()
         const listingSkuToId = new Map()
         const listingIds = new Map()
+        const listingById = new Map()
+        const skuRenames = []
+
+        function titleKey(value) {
+          return keyOf(String(value || '').trim().replace(/\s+/g, ' '))
+        }
 
         currentProducts.forEach(function (row) {
           const sku = String(row['Master SKU'] || '').trim()
           const key = keyOf(sku)
           const id = keyOf(row['Internal Product ID'])
+          if (key && productBySku.has(key)) throw apiError_(409, 'Existing products contain a duplicate Master SKU: ' + sku)
+          if (id && productById.has(id)) throw apiError_(409, 'Existing products contain a duplicate Internal Product ID: ' + row['Internal Product ID'])
           if (key) productSkuToMaster.set(key, sku)
-          if (id) productIds.set(id, key)
+          if (id) {
+            productById.set(id, row)
+          }
+          if (key) productBySku.set(key, row)
+          const title = titleKey(row['Product Title'])
+          if (title) {
+            const matches = productsByTitle.get(title) || []
+            matches.push(row)
+            productsByTitle.set(title, matches)
+          }
+          previousSkuList(row['Previous SKUs']).forEach(function (previousSku) {
+            const aliasKey = keyOf(previousSku)
+            const existingAlias = productAliasToMaster.get(aliasKey)
+            if (existingAlias && keyOf(existingAlias) !== key) {
+              throw apiError_(409, 'Existing products share a previous SKU alias: ' + previousSku)
+            }
+            productAliasToMaster.set(aliasKey, sku)
+          })
         })
         currentVariants.forEach(function (row) {
           const sku = String(row['Variant SKU'] || '').trim()
           const key = keyOf(sku)
           const master = String(row['Master SKU'] || '').trim()
           const id = keyOf(row['Variant ID'])
+          if (key && variantBySku.has(key)) throw apiError_(409, 'Existing variants contain a duplicate Variant SKU: ' + sku)
+          if (id && variantById.has(id)) throw apiError_(409, 'Existing variants contain a duplicate Variant ID: ' + row['Variant ID'])
           if (key) variantSkuToMaster.set(key, master)
-          if (id) variantIds.set(id, key)
+          if (id) {
+            variantIds.set(id, key)
+            variantById.set(id, row)
+          }
+          if (key) variantBySku.set(key, row)
         })
         currentListings.forEach(function (row) {
           const id = keyOf(row['Listing ID'])
           const platformKey = keyOf(row.Platform) + ':' + keyOf(row['Platform SKU'])
-          if (id) listingIds.set(id, platformKey)
+          if (id && listingById.has(id)) throw apiError_(409, 'Existing listings contain a duplicate Listing ID: ' + row['Listing ID'])
+          if (row.Platform && row['Platform SKU'] && listingSkuToId.has(platformKey)) {
+            throw apiError_(409, 'Existing listings contain a duplicate platform SKU: ' + row['Platform SKU'])
+          }
+          if (id) {
+            listingIds.set(id, platformKey)
+            listingById.set(id, row)
+          }
           if (row.Platform && row['Platform SKU']) listingSkuToId.set(platformKey, id)
         })
 
@@ -1488,10 +1625,11 @@
         const updatedProducts = []
         const updatedVariants = []
         const updatedListings = []
+        const matched = { products: 0, variants: 0, listings: 0 }
         const skuMrpUpdates = new Map()
-        const skipped = { products: 0, variants: 0, listings: 0 }
         const seenProductSkus = new Set()
         const seenProductIds = new Set()
+        const claimedProductIds = new Set()
         inputProducts.forEach(function (row, index) {
           const label = 'Products row ' + (index + 1)
           const productId = requiredImportText(row, 'Internal Product ID', label + ' Internal Product ID', 160)
@@ -1500,31 +1638,88 @@
           const skuKey = keyOf(masterSku)
           const idKey = keyOf(productId)
           if (seenProductSkus.has(skuKey)) throw apiError_(409, 'Duplicate product Master SKU in import: ' + masterSku)
-          seenProductSkus.add(skuKey)
-          if (seenProductIds.has(idKey) || (productIds.has(idKey) && productIds.get(idKey) !== skuKey)) {
-            throw apiError_(409, 'Product ID conflicts with an existing product: ' + productId)
+          if (seenProductIds.has(idKey)) throw apiError_(409, 'Duplicate product ID in import: ' + productId)
+          const byId = productById.get(idKey)
+          const bySku = productBySku.get(skuKey)
+          const matchingTitles = productsByTitle.get(titleKey(title)) || []
+          if (!byId && !bySku && matchingTitles.length > 1) {
+            throw apiError_(409, 'Product title matches more than one existing product; keep its Internal Product ID unchanged: ' + title)
           }
+          const existing = byId || bySku || (matchingTitles.length === 1 ? matchingTitles[0] : null)
+          if ((byId && bySku && keyOf(byId['Internal Product ID']) !== keyOf(bySku['Internal Product ID'])) ||
+              (!byId && bySku && matchingTitles.length === 1 &&
+                keyOf(bySku['Internal Product ID']) !== keyOf(matchingTitles[0]['Internal Product ID']))) {
+            throw apiError_(409, 'Product ID, SKU, and title identify different existing products: ' + title)
+          }
+          const existingId = existing ? String(existing['Internal Product ID'] || '').trim() : productId
+          const existingIdKey = keyOf(existingId)
+          if (existing && claimedProductIds.has(existingIdKey)) {
+            throw apiError_(409, 'More than one imported row matches the same existing product: ' + title)
+          }
+          const inputIdOwner = productById.get(idKey)
+          if (inputIdOwner && (!existing || keyOf(inputIdOwner['Internal Product ID']) !== existingIdKey)) {
+            throw apiError_(409, 'Product ID conflicts with a different existing product: ' + productId)
+          }
+          const skuOwner = productBySku.get(skuKey)
+          if (skuOwner && (!existing || keyOf(skuOwner['Internal Product ID']) !== existingIdKey)) {
+            throw apiError_(409, 'Master SKU is already assigned to a different product: ' + masterSku)
+          }
+          if (variantSkuToMaster.has(skuKey)) throw apiError_(409, 'Master SKU conflicts with an existing variant SKU: ' + masterSku)
+          const aliasTarget = productAliasToMaster.get(skuKey)
+          const aliasOwner = aliasTarget ? productBySku.get(keyOf(aliasTarget)) : null
+          if (aliasOwner && (!existing || keyOf(aliasOwner['Internal Product ID']) !== existingIdKey)) {
+            throw apiError_(409, 'Master SKU is already recorded as a previous SKU for another product: ' + masterSku)
+          }
+          seenProductSkus.add(skuKey)
           seenProductIds.add(idKey)
+          if (existing) claimedProductIds.add(existingIdKey)
           const record = {
-            'Internal Product ID': productId,
+            'Internal Product ID': existingId || productId,
             'Master SKU': masterSku,
             'Product Title': title,
             Category: importText(row, 'Category', 160),
             MRP: importAmount(row.MRP !== undefined ? row.MRP : (row['MRP (INR)'] !== undefined ? row['MRP (INR)'] : row['List Price']), label + ' MRP'),
-            Status: importText(row, 'Status', 40) || 'Active',
+            Status: importText(row, 'Status', 40),
             'Created Date': importText(row, 'Created Date', 100),
             'Updated Date': importText(row, 'Updated Date', 100),
             ASIN: importText(row, 'ASIN', 100),
             'Shopify Product ID': importText(row, 'Shopify Product ID', 100),
+            'Previous SKUs': '',
           }
-          if (productSkuToMaster.has(skuKey)) {
-            updatedProducts.push(record)
+          if (existing) {
+            matched.products += 1
+            const oldSku = String(existing['Master SKU'] || '').trim()
+            const oldSkuKey = keyOf(oldSku)
+            const aliases = previousSkuList(existing['Previous SKUs'])
+            if (oldSku && oldSkuKey !== skuKey) {
+              if (!aliases.some(function (alias) { return keyOf(alias) === oldSkuKey })) aliases.push(oldSku)
+              skuRenames.push({
+                oldSku: oldSku,
+                newSku: masterSku,
+                oldTitle: String(existing['Product Title'] || '').trim(),
+                newTitle: title,
+              })
+            }
+            record['Previous SKUs'] = aliases.join(' | ')
+            const merged = mergeImportRecord(existing, record)
+            if (hasImportChanges(existing, merged)) updatedProducts.push(merged)
+            if (oldSkuKey && oldSkuKey !== skuKey) {
+              productSkuToMaster.delete(oldSkuKey)
+              productBySku.delete(oldSkuKey)
+              productAliasToMaster.set(oldSkuKey, masterSku)
+            }
+            aliases.forEach(function (alias) { productAliasToMaster.set(keyOf(alias), masterSku) })
+            productSkuToMaster.set(skuKey, masterSku)
+            productBySku.set(skuKey, merged)
+            productById.set(existingIdKey, merged)
             if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
             return
           }
+          record.Status = record.Status || 'Active'
           addedProducts.push(record)
           productSkuToMaster.set(skuKey, masterSku)
-          productIds.set(idKey, skuKey)
+          productById.set(idKey, record)
+          productBySku.set(skuKey, record)
           if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
         })
 
@@ -1533,20 +1728,26 @@
         inputVariants.forEach(function (row, index) {
           const label = 'SKU variants row ' + (index + 1)
           const variantId = requiredImportText(row, 'Variant ID', label + ' Variant ID', 160)
-          const masterSku = requiredImportText(row, 'Master SKU', label + ' Master SKU', 100)
+          const importedMasterSku = requiredImportText(row, 'Master SKU', label + ' Master SKU', 100)
           const variantSku = requiredImportText(row, 'Variant SKU', label + ' Variant SKU', 100)
           const skuKey = keyOf(variantSku)
           const idKey = keyOf(variantId)
+          const importedMasterKey = keyOf(importedMasterSku)
+          const masterSku = productSkuToMaster.get(importedMasterKey) || productAliasToMaster.get(importedMasterKey) || ''
           const masterKey = keyOf(masterSku)
           if (seenVariantSkus.has(skuKey)) throw apiError_(409, 'Duplicate variant SKU in import: ' + variantSku)
           seenVariantSkus.add(skuKey)
           if (productSkuToMaster.has(skuKey)) throw apiError_(409, 'Variant SKU conflicts with an existing master SKU: ' + variantSku)
-          if (!productSkuToMaster.has(masterKey)) throw apiError_(422, 'Variant ' + variantSku + ' references a missing master product.')
-          if (keyOf(productSkuToMaster.get(masterKey)) !== masterKey) throw apiError_(422, 'Variant ' + variantSku + ' references an inconsistent master SKU.')
+          if (!masterSku) throw apiError_(422, 'Variant ' + variantSku + ' references a missing master product.')
           if (seenVariantIds.has(idKey) || (variantIds.has(idKey) && variantIds.get(idKey) !== skuKey)) {
             throw apiError_(409, 'Variant ID conflicts with an existing SKU: ' + variantId)
           }
           seenVariantIds.add(idKey)
+          const existingMaster = variantSkuToMaster.get(skuKey)
+          const canonicalExistingMaster = productAliasToMaster.get(keyOf(existingMaster)) || existingMaster
+          if (existingMaster && keyOf(canonicalExistingMaster) !== masterKey) {
+            throw apiError_(409, 'Existing variant SKU is linked to a different master: ' + variantSku)
+          }
           const packQuantity = row['Pack Quantity'] === '' || row['Pack Quantity'] === null || row['Pack Quantity'] === undefined
             ? ''
             : Number(row['Pack Quantity'])
@@ -1562,18 +1763,23 @@
             'Pack Quantity': packQuantity,
             MRP: importAmount(row.MRP !== undefined ? row.MRP : (row['MRP (INR)'] !== undefined ? row['MRP (INR)'] : row['List Price']), label + ' MRP'),
             'Selling Price': importAmount(row['Selling Price'], label + ' Selling Price'),
-            Status: importText(row, 'Status', 40) || 'Active',
+            Status: importText(row, 'Status', 40),
             'Variant Title': importText(row, 'Variant Title', 200),
             'Shopify Product ID': importText(row, 'Shopify Product ID', 100),
             'Shopify Variant ID': importText(row, 'Shopify Variant ID', 100),
             'Shopify Inventory': importAmount(row['Shopify Inventory'], label + ' Shopify Inventory'),
           }
-          if (variantSkuToMaster.has(skuKey)) {
-            if (keyOf(variantSkuToMaster.get(skuKey)) !== masterKey) throw apiError_(409, 'Existing variant SKU is linked to a different master: ' + variantSku)
-            updatedVariants.push(record)
+          const existingVariant = variantById.get(idKey) || variantBySku.get(skuKey)
+          if (existingVariant) {
+            matched.variants += 1
+            const merged = mergeImportRecord(existingVariant, record)
+            if (hasImportChanges(existingVariant, merged)) updatedVariants.push(merged)
+            variantSkuToMaster.set(skuKey, masterSku)
+            variantIds.set(idKey, skuKey)
             if (record.MRP !== '') skuMrpUpdates.set(skuKey, record.MRP)
             return
           }
+          record.Status = record.Status || 'Active'
           addedVariants.push(record)
           variantSkuToMaster.set(skuKey, masterSku)
           variantIds.set(idKey, skuKey)
@@ -1588,16 +1794,25 @@
           const listingId = requiredImportText(row, 'Listing ID', label + ' Listing ID', 180)
           const platform = requiredImportText(row, 'Platform', label + ' Platform', 40)
           const platformSku = requiredImportText(row, 'Platform SKU', label + ' Platform SKU', 100)
-          const productSku = requiredImportText(row, 'Product SKU', label + ' Product SKU', 100)
-          const masterSku = requiredImportText(row, 'Master SKU', label + ' Master SKU', 100)
+          const importedProductSku = requiredImportText(row, 'Product SKU', label + ' Product SKU', 100)
+          const importedMasterSku = requiredImportText(row, 'Master SKU', label + ' Master SKU', 100)
           const productName = requiredImportText(row, 'Product Name', label + ' Product Name', 300)
           if (allowedPlatforms.indexOf(platform) < 0) throw apiError_(400, 'Unsupported marketplace: ' + platform)
           const listingKey = keyOf(platform) + ':' + keyOf(platformSku)
           const idKey = keyOf(listingId)
+          const importedProductKey = keyOf(importedProductSku)
+          const importedMasterKey = keyOf(importedMasterSku)
+          const productSku = productAliasToMaster.get(importedProductKey) ||
+            productSkuToMaster.get(importedProductKey) || importedProductSku
           const productKey = keyOf(productSku)
-          const linkedMaster = variantSkuToMaster.get(productKey) || productSkuToMaster.get(productKey)
+          const rawLinkedMaster = variantSkuToMaster.get(importedProductKey) ||
+            productSkuToMaster.get(importedProductKey) || productAliasToMaster.get(importedProductKey)
+          const linkedMaster = productAliasToMaster.get(keyOf(rawLinkedMaster)) || rawLinkedMaster
+          const declaredMaster = productSkuToMaster.get(importedMasterKey) ||
+            productAliasToMaster.get(importedMasterKey) || importedMasterSku
           if (!linkedMaster) throw apiError_(422, 'Listing SKU ' + platformSku + ' references a missing product SKU.')
-          if (keyOf(linkedMaster) !== keyOf(masterSku)) throw apiError_(422, 'Listing SKU ' + platformSku + ' has an inconsistent Master SKU.')
+          if (keyOf(linkedMaster) !== keyOf(declaredMaster)) throw apiError_(422, 'Listing SKU ' + platformSku + ' has an inconsistent Master SKU.')
+          const masterSku = linkedMaster
           if (seenListingSkus.has(listingKey) || seenListingIds.has(idKey)) {
             throw apiError_(409, 'Duplicate marketplace listing in import: ' + platformSku)
           }
@@ -1611,7 +1826,7 @@
           if (existingSkuId !== undefined && existingSkuId !== idKey) {
             throw apiError_(409, 'Platform SKU is already assigned to another listing: ' + platformSku)
           }
-          const status = importText(row, 'Status', 40) || 'Active'
+          const status = importText(row, 'Status', 40)
           const record = {
             'Listing ID': listingId,
             Platform: platform,
@@ -1629,19 +1844,31 @@
             'Shopify Product ID': importText(row, 'Shopify Product ID', 100),
             'Shopify Variant ID': importText(row, 'Shopify Variant ID', 100),
             'Shopify Inventory': importAmount(row['Shopify Inventory'], label + ' Shopify Inventory'),
-            'Created By': String(payload.createdBy || ''),
-            'Created At': new Date().toISOString(),
+            'Created By': '',
+            'Created At': '',
           }
+          const existingListing = listingById.get(idKey) ||
+            currentListings.find(function (item) {
+              return keyOf(item.Platform) + ':' + keyOf(item['Platform SKU']) === listingKey
+            })
           if (existingIdPlatform !== undefined || existingSkuId !== undefined) {
-            updatedListings.push(record)
+            if (existingListing) {
+              matched.listings += 1
+              record['Listing ID'] = String(existingListing['Listing ID'] || listingId)
+              const merged = mergeImportRecord(existingListing, record)
+              if (hasImportChanges(existingListing, merged)) updatedListings.push(merged)
+            }
             if (record.MRP !== '') {
               skuMrpUpdates.set(productKey, record.MRP)
               if (linkedMaster) skuMrpUpdates.set(keyOf(linkedMaster), record.MRP)
             }
             listingIds.set(idKey, listingKey)
-            listingSkuToId.set(listingKey, idKey)
+            listingSkuToId.set(listingKey, keyOf(record['Listing ID']))
             return
           }
+          record.Status = record.Status || 'Active'
+          record['Created By'] = String(payload.createdBy || '')
+          record['Created At'] = new Date().toISOString()
           addedListings.push(record)
           listingSkuToId.set(listingKey, idKey)
           listingIds.set(idKey, listingKey)
@@ -1651,38 +1878,131 @@
           }
         })
 
+        currentProducts.forEach(function (row) {
+          const currentSku = String(row['Master SKU'] || '').trim()
+          const currentSkuKey = keyOf(currentSku)
+          const canonicalSku = productAliasToMaster.get(currentSkuKey) || currentSku
+          const mrp = skuMrpUpdates.get(keyOf(canonicalSku))
+          if (mrp === undefined || mrp === '' || !currentSku) return
+          const idKey = keyOf(row['Internal Product ID'])
+          const staged = updatedProducts.find(function (item) { return keyOf(item['Internal Product ID']) === idKey })
+          const base = staged || row
+          const merged = mergeImportRecord(base, { 'Master SKU': canonicalSku, MRP: mrp })
+          if (hasImportChanges(base, merged)) {
+            if (staged) Object.assign(staged, merged)
+            else {
+              merged.__importMatchKey = row['Internal Product ID']
+              updatedProducts.push(merged)
+            }
+          }
+        })
+        addedProducts.forEach(function (row) {
+          const mrp = skuMrpUpdates.get(keyOf(row['Master SKU']))
+          if (mrp !== undefined && mrp !== '') row.MRP = mrp
+        })
+
+        currentVariants.forEach(function (row) {
+          const existingMaster = String(row['Master SKU'] || '').trim()
+          const canonicalMaster = productAliasToMaster.get(keyOf(existingMaster)) || existingMaster
+          const sku = String(row['Variant SKU'] || '').trim()
+          const mrp = skuMrpUpdates.get(keyOf(sku))
+          const idKey = keyOf(row['Variant ID'])
+          const staged = updatedVariants.find(function (item) { return keyOf(item['Variant ID']) === idKey })
+          const base = staged || row
+          const patch = { 'Master SKU': canonicalMaster }
+          if (mrp !== undefined && mrp !== '') patch.MRP = mrp
+          const merged = mergeImportRecord(base, patch)
+          if (hasImportChanges(base, merged)) {
+            if (staged) Object.assign(staged, merged)
+            else {
+              merged.__importMatchKey = row['Variant ID']
+              updatedVariants.push(merged)
+            }
+          }
+        })
+        addedVariants.forEach(function (row) {
+          const mrp = skuMrpUpdates.get(keyOf(row['Variant SKU']))
+          if (mrp !== undefined && mrp !== '') row.MRP = mrp
+        })
+
+        const stagedListingIds = new Set(updatedListings.map(function (row) { return keyOf(row['Listing ID']) }))
+        currentListings.forEach(function (row) {
+          const listingId = keyOf(row['Listing ID'])
+          if (stagedListingIds.has(listingId)) return
+          const previousMaster = String(row['Master SKU'] || '').trim()
+          const previousProduct = String(row['Product SKU'] || '').trim()
+          const canonicalMaster = productAliasToMaster.get(keyOf(previousMaster))
+          const canonicalProduct = productAliasToMaster.get(keyOf(previousProduct))
+          if (!canonicalMaster && !canonicalProduct) return
+          const patch = {}
+          if (canonicalMaster) patch['Master SKU'] = canonicalMaster
+          if (canonicalProduct) patch['Product SKU'] = canonicalProduct
+          const merged = mergeImportRecord(row, patch)
+          if (hasImportChanges(row, merged)) {
+            merged.__importMatchKey = row['Listing ID']
+            updatedListings.push(merged)
+            stagedListingIds.add(listingId)
+          }
+        })
+
+        const finishedRows = readSheetRecords_(spreadsheet, 'Finished_Goods')
+        const finishedUpdates = []
+        const finishedSkuKeys = new Set(finishedRows.map(function (row) { return keyOf(row['Product SKU']) }).filter(Boolean))
+        const renameTargets = new Set()
+        skuRenames.forEach(function (rename) {
+          const oldKey = keyOf(rename.oldSku)
+          const newKey = keyOf(rename.newSku)
+          if (renameTargets.has(newKey)) throw apiError_(409, 'Multiple products cannot be renamed to the same Master SKU: ' + rename.newSku)
+          renameTargets.add(newKey)
+          if (finishedSkuKeys.has(newKey)) {
+            throw apiError_(409, 'Finished-goods stock already has the new SKU; resolve the stock-row collision before renaming: ' + rename.newSku)
+          }
+          const stockRow = finishedRows.find(function (item) { return keyOf(item['Product SKU']) === oldKey })
+          if (finishedRows.filter(function (item) { return keyOf(item['Product SKU']) === oldKey }).length > 1) {
+            throw apiError_(409, 'Finished-goods stock contains duplicate rows for the SKU being renamed: ' + rename.oldSku)
+          }
+          if (stockRow) {
+            const merged = mergeImportRecord(stockRow, { 'Product SKU': rename.newSku })
+            if (hasImportChanges(stockRow, merged)) {
+              merged.__importMatchKey = rename.oldSku
+              finishedUpdates.push(merged)
+            }
+          }
+        })
+
         const totals = {
           added: { products: addedProducts.length, variants: addedVariants.length, listings: addedListings.length },
-          updated: { products: updatedProducts.length, variants: updatedVariants.length, listings: updatedListings.length },
-          skipped: skipped,
+          updated: { products: 0, variants: 0, listings: 0 },
+          skipped: { products: 0, variants: 0, listings: 0 },
+          renamedProducts: skuRenames.length,
           backupName: '',
         }
         if (!addedProducts.length && !addedVariants.length && !addedListings.length
-          && !updatedProducts.length && !updatedVariants.length && !updatedListings.length) return totals
+          && !updatedProducts.length && !updatedVariants.length && !updatedListings.length && !finishedUpdates.length) {
+          totals.skipped = matched
+          return totals
+        }
 
         const backupState = { created: false, backupName: '' }
         createBackupOnce_(spreadsheet, backupState)
         const productTarget = ensureStockSheet_(spreadsheet, 'Products', productHeaders, backupState)
         const variantTarget = ensureStockSheet_(spreadsheet, 'SKU_Variants', variantHeaders, backupState)
         const listingTarget = ensureStockSheet_(spreadsheet, 'Marketplace_Listings', listingHeaders, backupState)
-        currentProducts.forEach(function (row) {
-          const sku = String(row['Master SKU'] || '').trim()
-          if (sku && skuMrpUpdates.has(keyOf(sku))) {
-            updatedProducts.push({ 'Master SKU': sku, MRP: skuMrpUpdates.get(keyOf(sku)) })
-          }
-        })
-        currentVariants.forEach(function (row) {
-          const sku = String(row['Variant SKU'] || '').trim()
-          if (sku && skuMrpUpdates.has(keyOf(sku))) {
-            updatedVariants.push({ 'Variant SKU': sku, MRP: skuMrpUpdates.get(keyOf(sku)) })
-          }
-        })
+        const finishedTarget = finishedUpdates.length
+          ? ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
+          : null
         appendImportRows(productTarget, addedProducts)
         appendImportRows(variantTarget, addedVariants)
         appendImportRows(listingTarget, addedListings)
-        updateImportRows(productTarget, updatedProducts, 'Master SKU')
-        updateImportRows(variantTarget, updatedVariants, 'Variant SKU')
-        updateImportRows(listingTarget, updatedListings, 'Listing ID')
+        totals.updated.products = updateImportRows(productTarget, updatedProducts, 'Internal Product ID')
+        totals.updated.variants = updateImportRows(variantTarget, updatedVariants, 'Variant ID')
+        totals.updated.listings = updateImportRows(listingTarget, updatedListings, 'Listing ID')
+        if (finishedTarget) updateImportRows(finishedTarget, finishedUpdates, 'Product SKU')
+        totals.skipped = {
+          products: Math.max(0, matched.products - totals.updated.products),
+          variants: Math.max(0, matched.variants - totals.updated.variants),
+          listings: Math.max(0, matched.listings - totals.updated.listings),
+        }
         SpreadsheetApp.flush()
         totals.backupName = backupState.backupName
         return totals
