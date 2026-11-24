@@ -48,6 +48,11 @@ const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'getUsers',
   'listEcommerceLabels',
   'downloadEcommerceLabel',
+  'startCameraClipUpload',
+  'uploadCameraClipChunk',
+  'listCameraClips',
+  'readCameraClipRange',
+  'cleanupExpiredCameraClips',
   'listEcommerceReports',
   'listSalesReports',
   'getEcommerceTargets',
@@ -260,6 +265,62 @@ export async function uploadWorkbookEcommerceLabel(input: SessionBoundInput & {
     uploadedBy: string
     uploadedAt: string
   }>('uploadEcommerceLabel', { ...input, ...sessionBoundPayload(input) })
+}
+
+export async function startCameraClipUpload(input: SessionBoundInput & {
+  fileName: string
+  startedAt: number
+  totalBytes: number
+}) {
+  return callAppsScript<{ uploadUrl: string; chunkSize: number }>('startCameraClipUpload', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function uploadCameraClipChunk(input: SessionBoundInput & {
+  uploadUrl: string
+  startByte: number
+  endByte: number
+  totalBytes: number
+  base64: string
+}) {
+  return callAppsScript<{ complete: boolean; nextOffset?: number; fileId?: string }>('uploadCameraClipChunk', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function listCameraClips() {
+  return callAppsScript<{
+    clips: {
+      id: string
+      userId: string
+      userName: string
+      startedAt: string
+      uploadedAt: string
+      size: number
+      mimeType: string
+    }[]
+  }>('listCameraClips')
+}
+
+export async function readCameraClipRange(input: {
+  fileId: string
+  startByte: number
+  endByte: number
+}) {
+  return callAppsScript<{
+    base64: string
+    startByte: number
+    endByte: number
+    totalBytes: number
+    mimeType: string
+  }>('readCameraClipRange', input)
+}
+
+export async function cleanupCameraClips() {
+  return callAppsScript<number>('cleanupExpiredCameraClips')
 }
 
 export async function listWorkbookEcommerceLabels(user: SessionBoundInput, platform?: EcommercePlatform) {

@@ -1,17 +1,6 @@
-import { S3Client } from '@aws-sdk/client-s3'
 import {
   AccessToken,
-  EgressClient,
-  EgressInfo,
-  EncodingOptions,
-  FileOutput,
-  MediaSource,
-  Output,
-  ParticipantVideo,
   RoomServiceClient,
-  S3Upload,
-  StartEgressRequest,
-  StorageConfig,
   TrackSource,
 } from 'livekit-server-sdk'
 import { ApiError } from './http.js'
@@ -44,30 +33,10 @@ function getLiveKitConfig() {
   return { apiUrl: apiUrl.origin, browserUrl: browserUrl.toString().replace(/\/$/, ''), apiKey, apiSecret }
 }
 
-function getS3Config() {
-  const endpoint = process.env.CAMERA_S3_ENDPOINT?.trim() || ''
-  if (endpoint) {
-    try {
-      const url = new URL(endpoint)
-      if (!['https:', 'http:'].includes(url.protocol)) throw new Error('Unsupported protocol')
-    } catch {
-      throw new ApiError(503, 'Camera monitoring has an invalid S3 endpoint configuration.')
-    }
-  }
-  return {
-    bucket: requiredEnv('CAMERA_S3_BUCKET'),
-    region: requiredEnv('CAMERA_S3_REGION'),
-    endpoint,
-    forcePathStyle: process.env.CAMERA_S3_FORCE_PATH_STYLE === 'true',
-  }
-}
-
 export function createCameraClients() {
   const config = getLiveKitConfig()
   return {
-    ...config,
     roomService: new RoomServiceClient(config.apiUrl, config.apiKey, config.apiSecret),
-    egress: new EgressClient(config.apiUrl, config.apiKey, config.apiSecret),
   }
 }
 
@@ -104,88 +73,4 @@ export function isScheduledCameraUser(user: PublicUser) {
     throw new ApiError(403, schedule.message)
   }
   return schedule
-}
-
-export function isCameraEgressForUser(egress: EgressInfo, userId: string) {
-  if (egress.request.case !== 'egress' || !egress.request.value) return false
-  const media = egress.request.value.source
-  return media.case === 'media'
-    && media.value.video.case === 'participantVideo'
-    && media.value.video.value.identity === userId
-}
-
-export function createCameraEgressRequest(roomName: string, user: PublicUser, startedAt: number) {
-  const s3 = getS3Config()
-  const accessKey = requiredEnv('LIVEKIT_S3_ACCESS_KEY')
-  const secret = requiredEnv('LIVEKIT_S3_SECRET_KEY')
-  const request = new StartEgressRequest({
-    roomName,
-    source: {
-      case: 'media',
-      value: new MediaSource({
-        video: {
-          case: 'participantVideo',
-          value: new ParticipantVideo({ identity: user.id }),
-        },
-      }),
-    },
-    encoding: {
-      case: 'advanced',
-      value: new EncodingOptions({
-        width: 640,
-        height: 360,
-        framerate: 15,
-        videoBitrate: 500,
-      }),
-    },
-    outputs: [
-      new Output({
-        config: {
-          case: 'file',
-          value: new FileOutput({
-            filepath: `recordings/${user.id}/${startedAt}.mp4`,
-            disableManifest: true,
-          }),
-        },
-      }),
-    ],
-    storage: new StorageConfig({
-      provider: {
-        case: 's3',
-        value: new S3Upload({
-          bucket: s3.bucket,
-          region: s3.region,
-          endpoint: s3.endpoint || undefined,
-          forcePathStyle: s3.forcePathStyle,
-          accessKey,
-          secret,
-        }),
-      },
-    }),
-  })
-  return request
-}
-
-export function createCameraS3Client() {
-  const s3 = getS3Config()
-  return {
-    ...s3,
-    client: new S3Client({
-      region: s3.region,
-      endpoint: s3.endpoint || undefined,
-      forcePathStyle: s3.forcePathStyle,
-      credentials: {
-        accessKeyId: requiredEnv('CAMERA_S3_ACCESS_KEY'),
-        secretAccessKey: requiredEnv('CAMERA_S3_SECRET_KEY'),
-      },
-    }),
-  }
-}
-
-export function parseCameraRecordingKey(key: string) {
-  const match = /^recordings\/([a-zA-Z0-9_-]{1,128})\/(\d{13})\.mp4$/.exec(key)
-  if (!match) return null
-  const startedAt = Number(match[2])
-  if (!Number.isSafeInteger(startedAt)) return null
-  return { userId: match[1], startedAt }
 }

@@ -1,11 +1,15 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
     const ERP_ECOMMERCE_LABEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
     const ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER = 'cleanupExpiredEcommerceLabels_'
+    const ERP_CAMERA_RECORDING_FOLDER_PROPERTY = 'ERP_CAMERA_RECORDING_FOLDER_ID'
+    const ERP_CAMERA_RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000
+    const ERP_CAMERA_RECORDING_KIND = 'mahalaxmi-erp-camera-recording'
+    const ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES = 2 * 1024 * 1024
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
     const ERP_SALES_REPORT_FOLDER_PROPERTY = 'ERP_SALES_REPORT_FOLDER_ID'
     const ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_DAILY_TARGET_'
@@ -78,7 +82,7 @@
           payload.sessionUserPlatforms = user.platforms
         }
         const data = dispatch_(spreadsheet, request.action, payload)
-        if (['getWorkbookData', 'getUsers', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
+        if (['getWorkbookData', 'getUsers', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -134,6 +138,16 @@
           return listEcommerceLabels_(payload)
         case 'downloadEcommerceLabel':
           return downloadEcommerceLabel_(payload)
+        case 'startCameraClipUpload':
+          return startCameraClipUpload_(payload)
+        case 'uploadCameraClipChunk':
+          return uploadCameraClipChunk_(payload)
+        case 'listCameraClips':
+          return listCameraClips_()
+        case 'readCameraClipRange':
+          return readCameraClipRange_(payload)
+        case 'cleanupExpiredCameraClips':
+          return withWriteLock_(function () { return cleanupExpiredCameraClips_() })
         case 'submitEcommerceReport':
           return submitEcommerceReport_(spreadsheet, payload)
         case 'listEcommerceReports':
@@ -1529,6 +1543,287 @@
       })
     }
 
+    function getCameraRecordingFolder_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(ERP_CAMERA_RECORDING_FOLDER_PROPERTY)
+      if (folderId) return DriveApp.getFolderById(folderId)
+      if (!createIfMissing) return null
+      const folder = DriveApp.createFolder('Mahalaxmi ERP Private Camera Recordings')
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      properties.setProperty(ERP_CAMERA_RECORDING_FOLDER_PROPERTY, folder.getId())
+      return folder
+    }
+
+    function getCameraUserRecordingFolder_(userId, userName, createIfMissing) {
+      const propertyName = 'ERP_CAMERA_RECORDING_USER_FOLDER_' + userId
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(propertyName)
+      if (folderId) return DriveApp.getFolderById(folderId)
+      if (!createIfMissing) return null
+      const root = getCameraRecordingFolder_(true)
+      const safeName = String(userName || 'Team member').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80) || 'Team member'
+      const folder = root.createFolder(safeName + ' (' + userId + ')')
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      properties.setProperty(propertyName, folder.getId())
+      return folder
+    }
+
+    function startCameraClipUpload_(payload) {
+      const userId = String(payload.sessionUserId || '').trim()
+      const userName = String(payload.createdBy || '').trim()
+      const startedAt = Number(payload.startedAt)
+      const totalBytes = Number(payload.totalBytes)
+      const fileName = String(payload.fileName || '').trim()
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(userId)) throw apiError_(400, 'A valid camera user is required.')
+      if (!userName || userName.length > 180) throw apiError_(400, 'A valid camera user name is required.')
+      if (!Number.isSafeInteger(startedAt) || String(startedAt).length !== 13 || startedAt > Date.now() + 60000) {
+        throw apiError_(400, 'A valid camera clip start time is required.')
+      }
+      if (!Number.isSafeInteger(totalBytes) || totalBytes < 1 || totalBytes > 100 * 1024 * 1024) {
+        throw apiError_(413, 'Camera clips must be 100 MB or smaller.')
+      }
+      const expectedName = 'camera-' + userId + '-' + startedAt + '.webm'
+      if (fileName !== expectedName) throw apiError_(400, 'The camera clip name is invalid.')
+
+      const folder = getCameraUserRecordingFolder_(userId, userName, true)
+      const uploadedAt = new Date().toISOString()
+      const metadata = {
+        name: fileName,
+        mimeType: 'video/webm',
+        parents: [folder.getId()],
+        description: JSON.stringify({
+          kind: ERP_CAMERA_RECORDING_KIND,
+          userId: userId,
+          userName: userName,
+          startedAt: startedAt,
+          uploadedAt: uploadedAt,
+        }),
+      }
+      const response = UrlFetchApp.fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,size,createdTime',
+        {
+          method: 'post',
+          contentType: 'application/json; charset=utf-8',
+          headers: {
+            Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+            'X-Upload-Content-Type': 'video/webm',
+            'X-Upload-Content-Length': String(totalBytes),
+          },
+          payload: JSON.stringify(metadata),
+          muteHttpExceptions: true,
+          followRedirects: false,
+        }
+      )
+      const status = response.getResponseCode()
+      const headers = response.getAllHeaders()
+      const locationKey = Object.keys(headers).filter(function (key) { return key.toLowerCase() === 'location' })[0]
+      const uploadUrl = locationKey ? String(headers[locationKey] || '') : ''
+      if ((status !== 200 && status !== 201) || !uploadUrl) {
+        Logger.log('Google Drive could not create a camera upload session; HTTP status ' + status)
+        throw apiError_(502, 'Google Drive could not start the camera clip upload.')
+      }
+      return { uploadUrl: uploadUrl, chunkSize: ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES }
+    }
+
+    function uploadCameraClipChunk_(payload) {
+      const uploadUrl = String(payload.uploadUrl || '')
+      if (
+        !/^https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files\?/.test(uploadUrl) ||
+        !/[?&]uploadType=resumable(?:&|$)/.test(uploadUrl) ||
+        !/[?&]upload_id=[^&]+/.test(uploadUrl)
+      ) throw apiError_(400, 'The camera clip upload session is invalid.')
+
+      const startByte = Number(payload.startByte)
+      const endByte = Number(payload.endByte)
+      const totalBytes = Number(payload.totalBytes)
+      const base64 = String(payload.base64 || '')
+      if (
+        !Number.isSafeInteger(startByte) ||
+        !Number.isSafeInteger(endByte) ||
+        !Number.isSafeInteger(totalBytes) ||
+        startByte < 0 ||
+        endByte < startByte ||
+        endByte >= totalBytes ||
+        totalBytes > 100 * 1024 * 1024 ||
+        base64.length > Math.ceil(ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES / 3) * 4 + 4
+      ) throw apiError_(400, 'The camera clip upload range is invalid.')
+      const bytes = Utilities.base64Decode(base64)
+      if (
+        bytes.length !== endByte - startByte + 1 ||
+        bytes.length > ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES ||
+        (endByte + 1 < totalBytes && bytes.length % (256 * 1024) !== 0)
+      ) throw apiError_(400, 'The camera clip upload chunk is invalid.')
+
+      const response = UrlFetchApp.fetch(uploadUrl, {
+        method: 'put',
+        contentType: 'video/webm',
+        headers: { 'Content-Range': 'bytes ' + startByte + '-' + endByte + '/' + totalBytes },
+        payload: bytes,
+        muteHttpExceptions: true,
+        followRedirects: false,
+      })
+      const status = response.getResponseCode()
+      if (status === 308) {
+        const headers = response.getAllHeaders()
+        const rangeKey = Object.keys(headers).filter(function (key) { return key.toLowerCase() === 'range' })[0]
+        const range = rangeKey ? String(headers[rangeKey] || '') : ''
+        const match = /^bytes=0-(\d+)$/.exec(range)
+        if (!match) throw apiError_(502, 'Google Drive did not confirm camera clip upload progress. Retry the upload.')
+        return { complete: false, nextOffset: Number(match[1]) + 1 }
+      }
+      if (status !== 200 && status !== 201) {
+        Logger.log('Google Drive camera clip upload failed; HTTP status ' + status)
+        throw apiError_(502, 'Google Drive could not save a camera clip. Retry the upload.')
+      }
+      let result = {}
+      try {
+        result = JSON.parse(response.getContentText())
+      } catch (error) {
+        throw apiError_(502, 'Google Drive returned an invalid camera clip response.')
+      }
+      if (!result.id) throw apiError_(502, 'Google Drive did not confirm the saved camera clip.')
+      return { complete: true, fileId: String(result.id) }
+    }
+
+    function parseCameraRecordingMetadata_(file) {
+      let metadata
+      try {
+        metadata = JSON.parse(file.getDescription() || '{}')
+      } catch (error) {
+        return null
+      }
+      if (
+        metadata.kind !== ERP_CAMERA_RECORDING_KIND ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(String(metadata.userId || '')) ||
+        !Number.isSafeInteger(Number(metadata.startedAt))
+      ) return null
+      return metadata
+    }
+
+    function listCameraClips_() {
+      const root = getCameraRecordingFolder_(false)
+      if (!root) return { clips: [] }
+      const cutoff = Date.now() - ERP_CAMERA_RECORDING_RETENTION_MS
+      const clips = []
+      const folders = root.getFolders()
+      while (folders.hasNext()) {
+        const files = folders.next().getFiles()
+        while (files.hasNext()) {
+          const file = files.next()
+          const metadata = parseCameraRecordingMetadata_(file)
+          const startedAt = metadata ? Number(metadata.startedAt) : 0
+          if (!metadata || startedAt < cutoff || startedAt > Date.now() + 60000 || file.getSize() < 1) continue
+          clips.push({
+            id: file.getId(),
+            userId: String(metadata.userId),
+            userName: String(metadata.userName || 'Team member'),
+            startedAt: new Date(startedAt).toISOString(),
+            uploadedAt: String(metadata.uploadedAt || ''),
+            size: file.getSize(),
+            mimeType: file.getMimeType(),
+          })
+        }
+      }
+      clips.sort(function (left, right) { return String(right.startedAt).localeCompare(String(left.startedAt)) })
+      return { clips: clips }
+    }
+
+    function readCameraClipRange_(payload) {
+      const fileId = String(payload.fileId || '').trim()
+      const startByte = Number(payload.startByte)
+      const endByte = Number(payload.endByte)
+      if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) throw apiError_(400, 'A valid camera clip is required.')
+      if (!Number.isSafeInteger(startByte) || !Number.isSafeInteger(endByte) || startByte < 0 || endByte < startByte) {
+        throw apiError_(400, 'The camera clip range is invalid.')
+      }
+      if (endByte - startByte + 1 > ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES) {
+        throw apiError_(413, 'Camera clip playback range is too large.')
+      }
+      if (!getCameraRecordingFolder_(false)) throw apiError_(404, 'Camera clip was not found.')
+      let file
+      try {
+        file = DriveApp.getFileById(fileId)
+      } catch (error) {
+        throw apiError_(404, 'Camera clip was not found.')
+      }
+      const metadata = parseCameraRecordingMetadata_(file)
+      const parents = file.getParents()
+      const userFolder = metadata
+        ? getCameraUserRecordingFolder_(String(metadata.userId), String(metadata.userName || ''), false)
+        : null
+      if (
+        !metadata ||
+        Number(metadata.startedAt) < Date.now() - ERP_CAMERA_RECORDING_RETENTION_MS ||
+        !userFolder ||
+        !parents.hasNext() ||
+        parents.next().getId() !== userFolder.getId()
+      ) {
+        throw apiError_(404, 'Camera clip was not found.')
+      }
+      const totalBytes = file.getSize()
+      if (startByte >= totalBytes) throw apiError_(416, 'The camera clip range is outside the file.')
+      const actualEnd = Math.min(endByte, totalBytes - 1)
+      const response = UrlFetchApp.fetch(
+        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media',
+        {
+          method: 'get',
+          headers: {
+            Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+            Range: 'bytes=' + startByte + '-' + actualEnd,
+          },
+          muteHttpExceptions: true,
+        }
+      )
+      if (response.getResponseCode() !== 206) {
+        Logger.log('Google Drive camera clip range read failed; HTTP status ' + response.getResponseCode())
+        throw apiError_(502, 'Google Drive could not stream the camera clip.')
+      }
+      const bytes = response.getContent()
+      if (bytes.length !== actualEnd - startByte + 1) throw apiError_(502, 'Google Drive returned an incomplete camera clip range.')
+      return {
+        base64: Utilities.base64Encode(bytes),
+        startByte: startByte,
+        endByte: actualEnd,
+        totalBytes: totalBytes,
+        mimeType: file.getMimeType() || 'video/webm',
+      }
+    }
+
+    function permanentlyDeleteCameraClip_(file) {
+      const response = UrlFetchApp.fetch(
+        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(file.getId()),
+        {
+          method: 'delete',
+          headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+          muteHttpExceptions: true,
+        }
+      )
+      const status = response.getResponseCode()
+      if (status !== 200 && status !== 204) {
+        Logger.log('Drive API could not permanently delete expired camera clip ' + file.getId() + '; HTTP status ' + status)
+        throw apiError_(500, 'Expired camera clips could not be deleted. Please retry shortly.')
+      }
+    }
+
+    function cleanupExpiredCameraClips_() {
+      const root = getCameraRecordingFolder_(false)
+      if (!root) return 0
+      const cutoff = Date.now() - ERP_CAMERA_RECORDING_RETENTION_MS
+      const expired = []
+      const folders = root.getFolders()
+      while (folders.hasNext()) {
+        const files = folders.next().getFiles()
+        while (files.hasNext()) {
+          const file = files.next()
+          const metadata = parseCameraRecordingMetadata_(file)
+          if (!metadata || Number(metadata.startedAt) > cutoff) continue
+          expired.push(file)
+        }
+      }
+      expired.forEach(permanentlyDeleteCameraClip_)
+      return expired.length
+    }
+
     function getEcommerceLabelFolder_(createIfMissing) {
       const properties = PropertiesService.getScriptProperties()
       const folderId = properties.getProperty(ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY)
@@ -1609,16 +1904,17 @@
     function cleanupExpiredEcommerceLabels_() {
       return withWriteLock_(function () {
         const folder = getEcommerceLabelFolder_(false)
-        if (!folder) return 0
-        const cutoff = Date.now() - ERP_ECOMMERCE_LABEL_RETENTION_MS
         const expired = []
-        const files = folder.getFiles()
-        while (files.hasNext()) {
-          const file = files.next()
-          if (ecommerceLabelExpired_(file, cutoff)) expired.push(file)
+        if (folder) {
+          const cutoff = Date.now() - ERP_ECOMMERCE_LABEL_RETENTION_MS
+          const files = folder.getFiles()
+          while (files.hasNext()) {
+            const file = files.next()
+            if (ecommerceLabelExpired_(file, cutoff)) expired.push(file)
+          }
+          expired.forEach(permanentlyDeleteEcommerceLabel_)
         }
-        expired.forEach(permanentlyDeleteEcommerceLabel_)
-        return expired.length
+        return expired.length + cleanupExpiredCameraClips_()
       })
     }
 

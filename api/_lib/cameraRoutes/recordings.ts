@@ -1,90 +1,78 @@
-import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { ApiRequest, ApiResponse } from '../http.js'
-import { ApiError, handleApiError, readJsonBody, sendJson } from '../http.js'
-import { createCameraS3Client, parseCameraRecordingKey } from '../camera.js'
+import { ApiError, handleApiError, sendJson } from '../http.js'
 import { getSessionUser, requireAdmin } from '../session.js'
-import { listUsers } from '../workbook.js'
+import { listCameraClips, readCameraClipRange } from '../workbook.js'
 
-const RETENTION_MS = 48 * 60 * 60 * 1000
+const RETENTION_MS = 24 * 60 * 60 * 1000
+const MAX_PLAYBACK_RANGE_BYTES = 2 * 1024 * 1024
+
+function parseRange(value: string | undefined) {
+  if (!value) return { startByte: 0, endByte: MAX_PLAYBACK_RANGE_BYTES - 1 }
+  const match = /^bytes=(\d+)-(\d*)$/.exec(value)
+  if (!match) throw new ApiError(416, 'The requested camera clip range is invalid.')
+  const startByte = Number(match[1])
+  const requestedEnd = match[2] ? Number(match[2]) : startByte + MAX_PLAYBACK_RANGE_BYTES - 1
+  if (
+    !Number.isSafeInteger(startByte) ||
+    !Number.isSafeInteger(requestedEnd) ||
+    startByte < 0 ||
+    requestedEnd < startByte
+  ) throw new ApiError(416, 'The requested camera clip range is invalid.')
+  return {
+    startByte,
+    endByte: Math.min(requestedEnd, startByte + MAX_PLAYBACK_RANGE_BYTES - 1),
+  }
+}
+
+async function streamClip(request: ApiRequest, response: ApiResponse, fileId: string) {
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) throw new ApiError(404, 'Camera clip was not found.')
+  const range = parseRange(request.headers.range)
+  const clip = await readCameraClipRange({ fileId, ...range })
+  if (
+    clip.startByte !== range.startByte ||
+    clip.endByte < clip.startByte ||
+    clip.totalBytes <= clip.endByte ||
+    clip.endByte - clip.startByte + 1 > MAX_PLAYBACK_RANGE_BYTES
+  ) throw new ApiError(502, 'Google Drive returned an invalid camera clip range.')
+
+  const bytes = Buffer.from(clip.base64, 'base64')
+  if (bytes.length !== clip.endByte - clip.startByte + 1) {
+    throw new ApiError(502, 'Google Drive returned an incomplete camera clip range.')
+  }
+  response.statusCode = 206
+  response.setHeader('Accept-Ranges', 'bytes')
+  response.setHeader('Cache-Control', 'private, no-store')
+  response.setHeader('Content-Length', String(bytes.length))
+  response.setHeader('Content-Range', `bytes ${clip.startByte}-${clip.endByte}/${clip.totalBytes}`)
+  response.setHeader('Content-Type', clip.mimeType || 'video/webm')
+  response.setHeader('X-Content-Type-Options', 'nosniff')
+  response.end(bytes)
+}
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
-  if (!['GET', 'POST'].includes(request.method || '')) {
-    response.setHeader('Allow', 'GET, POST')
+  if (request.method !== 'GET') {
+    response.setHeader('Allow', 'GET')
     sendJson(response, 405, { error: 'Method not allowed' })
     return
   }
   try {
     const currentUser = await getSessionUser(request)
     requireAdmin(currentUser)
-    const storage = createCameraS3Client()
-    const now = Date.now()
-    if (request.method === 'POST') {
-      const body = await readJsonBody(request)
-      const key = typeof body.key === 'string' ? body.key : ''
-      const recording = parseCameraRecordingKey(key)
-      if (!recording || recording.startedAt < now - RETENTION_MS || recording.startedAt > now + 60_000) {
-        throw new ApiError(404, 'Recording is unavailable or has expired.')
-      }
-      let object
-      try {
-        object = await storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: key }))
-      } catch (error) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'name' in error &&
-          ['NotFound', 'NoSuchKey'].includes(String(error.name))
-        ) throw new ApiError(404, 'Recording is unavailable or has expired.')
-        throw error
-      }
-      if (!object.LastModified || object.LastModified.getTime() < now - RETENTION_MS) {
-        throw new ApiError(404, 'Recording is unavailable or has expired.')
-      }
-      const url = await getSignedUrl(
-        storage.client,
-        new GetObjectCommand({ Bucket: storage.bucket, Key: key }),
-        { expiresIn: 15 * 60 },
-      )
-      sendJson(response, 200, { url })
+    const url = new URL(request.url || '/', 'http://localhost')
+    const fileId = url.searchParams.get('fileId')
+    if (fileId) {
+      await streamClip(request, response, fileId)
       return
     }
 
-    const names = new Map((await listUsers()).map(user => [user.id, user.name]))
-    const recordings: { key: string; userId: string; userName: string; startedAt: string; size: number }[] = []
-    let continuationToken: string | undefined
-    do {
-      const page = await storage.client.send(new ListObjectsV2Command({
-        Bucket: storage.bucket,
-        Prefix: 'recordings/',
-        ContinuationToken: continuationToken,
-      }))
-      for (const object of page.Contents || []) {
-        if (!object.Key) continue
-        const recording = parseCameraRecordingKey(object.Key)
-        if (
-          !recording ||
-          recording.startedAt > now + 60_000 ||
-          !object.LastModified ||
-          object.LastModified.getTime() < now - RETENTION_MS
-        ) continue
-        recordings.push({
-          key: object.Key,
-          userId: recording.userId,
-          userName: names.get(recording.userId) || 'Inactive or removed account',
-          startedAt: new Date(recording.startedAt).toISOString(),
-          size: object.Size || 0,
-        })
-      }
-      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined
-    } while (continuationToken)
-    recordings.sort((left, right) => right.startedAt.localeCompare(left.startedAt))
-    sendJson(response, 200, { recordings: recordings.slice(0, 100) })
+    const result = await listCameraClips()
+    const cutoff = Date.now() - RETENTION_MS
+    const clips = result.clips.filter(clip => {
+      const startedAt = Date.parse(clip.startedAt)
+      return Number.isFinite(startedAt) && startedAt >= cutoff && startedAt <= Date.now() + 60_000
+    })
+    sendJson(response, 200, { recordings: clips })
   } catch (error) {
-    if (error instanceof ApiError) {
-      handleApiError(response, error, 'Camera recordings')
-      return
-    }
     handleApiError(response, error, 'Camera recordings')
   }
 }
