@@ -8,9 +8,11 @@ import {
 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import * as XLSX from 'xlsx'
+import { SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
+import type { SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
 
-type Module = 'Dashboard' | 'Factory' | 'Production' | 'Production Targets' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
+type Module = 'Dashboard' | 'Sales Dashboard' | 'Leads' | 'Factory' | 'Production' | 'Production Targets' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
@@ -44,7 +46,7 @@ type ProductionTarget = {
   id: string; period: ProductionTargetPeriod; startDate: string; endDate: string; machineId: string; machineName: string;
   sku: string; productName: string; targetQuantity: number; actual: number; createdBy: string
 }
-type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator' | 'E-commerce Executive'
+type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator' | 'E-commerce Executive' | 'Sales Executive'
 type EcommercePlatform = 'AMAZON' | 'FLIPKART' | 'MEESHO' | 'SHOPIFY' | 'MYNTRA'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean; platforms: EcommercePlatform[] }
 type EcommerceListing = { id: string; platform: EcommercePlatform; platformSku: string; productSku: string; productName: string; mrp: number; sellingPrice: number; availableStock: number; stockStatus: string; status: string }
@@ -81,6 +83,11 @@ type WorkbookSnapshot = {
   rawMaterials: RawMaterial[]
   finishedGoods: FinishedGood[]
   stockMovements: StockMovement[]
+  salesLeads: SalesLead[]
+  salesActivities: SalesActivity[]
+  salesOrders: SalesOrder[]
+  salesTargets: SalesTarget[]
+  salesUsers: SalesAccount[]
   workbookMeta: { loaded: boolean; name: string; sheetCount: number }
 }
 type AuthStatus = 'checking' | 'ready' | 'unavailable'
@@ -89,15 +96,16 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Quality Control'] as Module[] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
-  { label: 'SALES', items: ['Orders', 'Shipping & Delivery', 'Returns & RTO'] },
+  { label: 'SALES', items: ['Sales Dashboard', 'Leads', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
   { label: 'E-COMMERCE', items: ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
-const deliveryChannels = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
+const deliveryChannels = ['DIRECT', 'AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const ecommercePlatforms: EcommercePlatform[] = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const deliveryPartnersByChannel: Record<string, string[]> = {
+  DIRECT: ['CUSTOMER PICKUP', 'OWN DELIVERY', 'OTHER'],
   AMAZON: ['AMAZON', 'AMAZON FLEX', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   FLIPKART: ['FLIPKART', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   MEESHO: ['MEESHO', 'SHREE ANJI COURIER', 'DELIVERY APP'],
@@ -105,6 +113,7 @@ const deliveryPartnersByChannel: Record<string, string[]> = {
   MYNTRA: ['MYNTRA DELIVERY', 'SHREE ANJI COURIER', 'DELIVERY APP'],
 }
 const deliveryMarketplacePlatforms: Record<string, string[]> = {
+  DIRECT: [],
   AMAZON: ['AMAZON', 'AMAZON.IN', 'AMAZON.COM'],
   FLIPKART: ['FLIPKART'],
   MEESHO: ['MEESHO'],
@@ -118,7 +127,7 @@ const productionBlocks = [
 ]
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
-  Dashboard: LayoutDashboard, Production: Factory, 'Production Targets': Target, Stitching: ClipboardCheck, 'Raw Material': Boxes,
+  Dashboard: LayoutDashboard, 'Sales Dashboard': BarChart3, Leads: Users, Production: Factory, 'Production Targets': Target, Stitching: ClipboardCheck, 'Raw Material': Boxes,
   'Finished Goods': Package, 'Product Catalog': Archive, Orders: ShoppingCart, Inventory: Boxes,
   'Stock Movement': ArrowUpRight,
   'Shipping & Delivery': Truck, 'Returns & RTO': RotateCcw, Machines: Gauge,
@@ -135,7 +144,9 @@ function readStored<T>(key: string, fallback: T): T {
 }
 
 function landingModuleForRole(role: Role): Module {
-  return role === 'E-commerce Executive' ? 'E-commerce Workspace' : 'Dashboard'
+  if (role === 'E-commerce Executive') return 'E-commerce Workspace'
+  if (role === 'Sales Executive') return 'Sales Dashboard'
+  return 'Dashboard'
 }
 
 function indiaDateKey(date = new Date()) {
@@ -400,6 +411,11 @@ export default function App() {
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [finishedGoods, setFinishedGoods] = useState<FinishedGood[]>([])
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
+  const [salesLeads, setSalesLeads] = useState<SalesLead[]>([])
+  const [salesActivities, setSalesActivities] = useState<SalesActivity[]>([])
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([])
+  const [salesTargets, setSalesTargets] = useState<SalesTarget[]>([])
+  const [salesAccounts, setSalesAccounts] = useState<SalesAccount[]>([])
   const [audit, setAudit] = useState<string[]>(() => readStored('erp-audit', ['Workbook connection pending', 'System initialized']))
   const [toast, setToast] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
@@ -417,6 +433,11 @@ export default function App() {
     setRawMaterials(data.rawMaterials)
     setFinishedGoods(data.finishedGoods)
     setStockMovements(data.stockMovements)
+    setSalesLeads(data.salesLeads)
+    setSalesActivities(data.salesActivities)
+    setSalesOrders(data.salesOrders)
+    setSalesTargets(data.salesTargets)
+    setSalesAccounts(data.salesUsers)
     setWorkbookMeta(data.workbookMeta)
     workbookLastRefreshAt.current = Date.now()
   }, [])
@@ -504,6 +525,11 @@ export default function App() {
       setRawMaterials([])
       setFinishedGoods([])
       setStockMovements([])
+      setSalesLeads([])
+      setSalesActivities([])
+      setSalesOrders([])
+      setSalesTargets([])
+      setSalesAccounts([])
       setWorkbookMeta({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
       return () => { active = false }
     }
@@ -675,6 +701,87 @@ export default function App() {
     return result.target
   }
 
+  const refreshAfterSalesWrite = async () => {
+    workbookLastRefreshAt.current = 0
+    try {
+      await refreshWorkbook()
+    } catch {
+      notify('Sales data was saved, but this view could not refresh. Reload before retrying.')
+    }
+  }
+
+  const importSalesLeads = async (rows: SalesLeadImportRow[], assignedUserId: string) => {
+    const result = await apiFetch<{ added: number; skipped: number }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'importSalesLeads', rows, assignedUserId }),
+    })
+    await refreshAfterSalesWrite()
+    log(`Imported ${result.added} sales leads; skipped ${result.skipped} duplicates`)
+    return result
+  }
+
+  const addSalesLead = async (lead: Omit<SalesLeadImportRow, 'assignedUserId'> & { assignedUserId: string }) => {
+    await apiFetch('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addSalesLead', lead }),
+    })
+    await refreshAfterSalesWrite()
+    log(`Added sales lead ${lead.name}`)
+  }
+
+  const assignSalesLead = async (leadId: string, assignedUserId: string) => {
+    await apiFetch('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'assignSalesLead', leadId, assignedUserId }),
+    })
+    await refreshAfterSalesWrite()
+    notify('Lead reassigned.')
+  }
+
+  const updateSalesLead = async (input: { leadId: string; status: SalesLeadStatus; activityType: SalesActivityType; outcome: string; notes: string; nextFollowUp: string }) => {
+    await apiFetch('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'recordSalesActivity', ...input }),
+    })
+    await refreshAfterSalesWrite()
+    log(`Recorded ${input.activityType.toLowerCase()} update for lead ${input.leadId}`)
+    notify('Call update saved.')
+  }
+
+  const createSalesOrder = async (input: { leadId: string; sku: string; quantity: number; unitPrice: number; notes: string }) => {
+    await apiFetch('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'createSalesOrder', ...input }),
+    })
+    await refreshAfterSalesWrite()
+    log(`Booked sales order for SKU ${input.sku} · ${input.quantity} units`)
+  }
+
+  const cancelSalesOrder = async (orderId: string) => {
+    await apiFetch('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancelSalesOrder', orderId }),
+    })
+    await refreshAfterSalesWrite()
+    log(`Cancelled remaining units of sales order ${orderId}`)
+  }
+
+  const setSalesTarget = async (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => {
+    await apiFetch('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'setSalesTarget', salesUserId, period, periodKey, targetAmount }),
+    })
+    await refreshAfterSalesWrite()
+    log(`Set ${period} sales target for ${salesUserId} to ${targetAmount}`)
+  }
+
   const saveRawMaterial = async (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => {
     const result = await apiFetch<{ material: RawMaterial; movement: StockMovement | null }>('/api/erp', {
       method: 'POST',
@@ -711,6 +818,9 @@ export default function App() {
     }
     setStockMovements(prev => [movement, ...prev.filter(existing => existing.id !== movement.id)])
     workbookLastRefreshAt.current = Date.now()
+    if (input.kind === 'finished' && input.type === 'Dispatch' && input.salesChannel === 'DIRECT') {
+      await refreshAfterSalesWrite()
+    }
     log(`${input.type} · ${input.sku} · ${input.quantity}`)
     notify('Stock movement saved to the ledger')
   }
@@ -974,6 +1084,7 @@ export default function App() {
     'Machine Operator': ['Dashboard', 'Production', 'Production Targets'],
     'Store Manager': ['Dashboard'],
     'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'],
+    'Sales Executive': ['Sales Dashboard', 'Leads', 'Orders'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -1050,7 +1161,12 @@ export default function App() {
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
-              allowedModules={roleModules[sessionUser.role]} />
+              allowedModules={roleModules[sessionUser.role]}
+              salesLeads={salesLeads} salesActivities={salesActivities} salesOrders={salesOrders} salesTargets={salesTargets}
+              salesUsers={salesAccounts} setSalesUsers={setSalesAccounts}
+              importSalesLeads={importSalesLeads} addSalesLead={addSalesLead} assignSalesLead={assignSalesLead}
+              updateSalesLead={updateSalesLead} createSalesOrder={createSalesOrder} cancelSalesOrder={cancelSalesOrder}
+              setSalesTarget={setSalesTarget} />
           )}
         </div>
       </main>
@@ -1082,8 +1198,17 @@ function ModuleView(props: {
   machines: Machine[];
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
   allowedModules: Module[]
+  salesLeads: SalesLead[]; salesActivities: SalesActivity[]; salesOrders: SalesOrder[]; salesTargets: SalesTarget[]
+  salesUsers: SalesAccount[]; setSalesUsers: React.Dispatch<React.SetStateAction<SalesAccount[]>>
+  importSalesLeads: (rows: SalesLeadImportRow[], assignedUserId: string) => Promise<{ added: number; skipped: number }>
+  addSalesLead: (lead: Omit<SalesLeadImportRow, 'assignedUserId'> & { assignedUserId: string }) => Promise<void>
+  assignSalesLead: (leadId: string, assignedUserId: string) => Promise<void>
+  updateSalesLead: (input: { leadId: string; status: SalesLeadStatus; activityType: SalesActivityType; outcome: string; notes: string; nextFollowUp: string }) => Promise<void>
+  createSalesOrder: (input: { leadId: string; sku: string; quantity: number; unitPrice: number; notes: string }) => Promise<void>
+  cancelSalesOrder: (orderId: string) => Promise<void>
+  setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
   const [catalogFormOpen, setCatalogFormOpen] = useState<'product' | 'variant' | 'listing' | null>(null)
   const [selectedCatalogMasterSku, setSelectedCatalogMasterSku] = useState('')
   const [stockFormOpen, setStockFormOpen] = useState(false)
@@ -1100,6 +1225,9 @@ function ModuleView(props: {
   const [deliveryPartnerChoice, setDeliveryPartnerChoice] = useState('')
   const [customDeliveryPartner, setCustomDeliveryPartner] = useState('')
   const [deliverySku, setDeliverySku] = useState('')
+  const [deliverySalesOrderId, setDeliverySalesOrderId] = useState('')
+  const [deliveryReferenceId, setDeliveryReferenceId] = useState('')
+  const [deliveryQuantity, setDeliveryQuantity] = useState('')
   const [returnChannel, setReturnChannel] = useState('')
   const [returnDispatchId, setReturnDispatchId] = useState('')
   const [productionTargetPeriodChoice, setProductionTargetPeriodChoice] = useState<ProductionTargetPeriod>('daily')
@@ -1219,6 +1347,46 @@ function ModuleView(props: {
     module === 'Daily Work Report'
   ) {
     return <EcommerceWorkspace user={sessionUser} module={module} setModule={setModule} />
+  }
+
+  const salesRole = sessionUser.role === 'Sales Executive' || sessionUser.role === 'Production Supervisor'
+    ? sessionUser.role
+    : 'Super Admin'
+  if (module === 'Sales Dashboard') {
+    return <SalesDashboardView
+      role={salesRole}
+      currentUser={{ id: sessionUser.id, name: sessionUser.name }}
+      salesUsers={salesUsers}
+      leads={salesLeads}
+      activities={salesActivities}
+      orders={salesOrders}
+      targets={salesTargets}
+      products={products}
+      setTarget={setSalesTarget}
+    />
+  }
+  if (module === 'Leads') {
+    return <SalesLeadsView
+      role={salesRole}
+      leads={salesLeads}
+      activities={salesActivities}
+      salesUsers={salesUsers}
+      importLeads={importSalesLeads}
+      addLead={addSalesLead}
+      assignLead={assignSalesLead}
+      updateLead={updateSalesLead}
+    />
+  }
+  if (module === 'Orders') {
+    return <SalesOrdersView
+      role={salesRole}
+      currentUserId={sessionUser.id}
+      leads={salesLeads}
+      orders={salesOrders}
+      products={products}
+      createOrder={createSalesOrder}
+      cancelOrder={cancelSalesOrder}
+    />
   }
 
   const submitProduction = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -1454,6 +1622,9 @@ function ModuleView(props: {
       setDeliveryPartnerChoice('')
       setCustomDeliveryPartner('')
       setDeliverySku('')
+      setDeliverySalesOrderId('')
+      setDeliveryReferenceId('')
+      setDeliveryQuantity('')
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Delivery could not be saved')
     }
@@ -1647,9 +1818,13 @@ function ModuleView(props: {
       )
       .map(listing => listing.productSku.toLowerCase()))
     const deliveryVariantMasters = new Set(products.filter(product => product.isVariant && product.status === 'Active').map(product => product.masterSku.toLowerCase()))
+    const pendingSalesOrders = salesOrders.filter(order =>
+      order.quantity - order.fulfilledQuantity - order.cancelledQuantity > 0
+    )
+    const selectedBookedOrder = pendingSalesOrders.find(order => order.id === deliverySalesOrderId)
     const deliveryProducts = products.filter(product =>
       product.status === 'Active' &&
-      channelProductSkus.has(product.sku.toLowerCase()) &&
+      (deliveryChannel === 'DIRECT' || channelProductSkus.has(product.sku.toLowerCase())) &&
       (product.isVariant || !deliveryVariantMasters.has(product.sku.toLowerCase()))
     )
     const selectedDeliveryProduct = deliveryProducts.find(product => product.sku === deliverySku)
@@ -1658,13 +1833,16 @@ function ModuleView(props: {
       <section>
         <div className="page-heading"><div><p>FINISHED GOODS · {isShipping ? 'DISPATCH' : 'RETURNS'}</p><h1>{module}</h1></div></div>
         {isShipping ? <form className="panel form-card delivery-form" onSubmit={submitDelivery}>
-          <div className="panel-heading"><div><h2>Create delivery</h2><p>Select the sales channel, courier, and SKU. Dispatches require available stock; initialize eligible zero-stock SKUs from Finished Goods before shipping.</p></div></div>
+          <div className="panel-heading"><div><h2>Create delivery</h2><p>Dispatch booked sales orders by selecting their order ID; the dispatch consumes reserved stock. Marketplace dispatches use available stock.</p></div></div>
           <div className="field-grid">
             <label>Platform / channel<select name="salesChannel" required value={deliveryChannel} onChange={event => {
               setDeliveryChannel(event.target.value)
               setDeliveryPartnerChoice('')
               setCustomDeliveryPartner('')
               setDeliverySku('')
+              setDeliverySalesOrderId('')
+              setDeliveryReferenceId('')
+              setDeliveryQuantity('')
             }}>
               <option value="">Select platform first</option>
               {deliveryChannels.map(channel => <option key={channel} value={channel}>{channel}</option>)}
@@ -1676,13 +1854,23 @@ function ModuleView(props: {
             </select></label>}
             {deliveryPartnerChoice === 'Other' && <label>Partner name<input name="customDeliveryPartner" required maxLength={100} value={customDeliveryPartner} onChange={event => setCustomDeliveryPartner(event.target.value)} placeholder="Enter delivery partner name" /></label>}
             {deliveryPartnerReady && <>
-            <label>Product SKU<select name="sku" required value={deliverySku} onChange={event => setDeliverySku(event.target.value)} disabled={deliveryProducts.length === 0}>
+            {deliveryChannel === 'DIRECT' && <label>Booked sales order<select value={deliverySalesOrderId} onChange={event => {
+              const order = pendingSalesOrders.find(item => item.id === event.target.value)
+              setDeliverySalesOrderId(order?.id || '')
+              setDeliverySku(order?.sku || '')
+              setDeliveryReferenceId(order?.id || '')
+              setDeliveryQuantity(order ? String(order.quantity - order.fulfilledQuantity - order.cancelledQuantity) : '')
+            }}>
+              <option value="">Select a booked sales order</option>
+              {pendingSalesOrders.map(order => <option key={order.id} value={order.id}>{order.id} · {order.customerName} · {order.sku} · {order.quantity - order.fulfilledQuantity - order.cancelledQuantity} remaining</option>)}
+            </select></label>}
+            <label>Product SKU<select name="sku" required value={deliverySku} onChange={event => { setDeliverySku(event.target.value); setDeliverySalesOrderId('') }} disabled={deliveryProducts.length === 0 || Boolean(selectedBookedOrder)}>
               <option value="">{deliveryProducts.length ? 'Select platform SKU' : 'No active SKUs for this platform'}</option>
               {deliveryProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku} · Available {product.stock}</option>)}
             </select></label>
-            {selectedDeliveryProduct && <div className="delivery-stock"><span>Available stock</span><strong>{selectedDeliveryProduct.stock.toLocaleString('en-IN')} units</strong></div>}
-            <label>Quantity<input name="quantity" type="number" min="1" step="1" required /></label>
-            <label>Order / shipment reference<input name="referenceId" maxLength={100} required placeholder="Marketplace order number (required for returns)" /></label>
+            {selectedDeliveryProduct && <div className="delivery-stock"><span>{selectedBookedOrder ? 'Reserved for this order' : 'Available stock'}</span><strong>{selectedBookedOrder ? selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity : selectedDeliveryProduct.stock.toLocaleString('en-IN')} units</strong></div>}
+            <label>Quantity<input name="quantity" type="number" min="1" max={selectedBookedOrder ? selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity : undefined} step="1" required value={deliveryQuantity} onChange={event => setDeliveryQuantity(event.target.value)} /></label>
+            <label>Order / shipment reference<input name="referenceId" maxLength={100} required placeholder={deliveryChannel === 'DIRECT' ? 'Select sales order above' : 'Marketplace order number'} value={deliveryReferenceId} onChange={event => setDeliveryReferenceId(event.target.value)} /></label>
             <label className="delivery-note">Delivery notes<input name="reason" maxLength={300} placeholder="Optional delivery note" /></label>
             </>}
           </div>
@@ -2201,7 +2389,7 @@ function ModuleView(props: {
         notify('Password must be at least 10 characters')
         return
       }
-      if (!['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive'].includes(requestedRole)) {
+      if (!['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive', 'Sales Executive'].includes(requestedRole)) {
         notify('Only one Super Admin is allowed')
         return
       }
@@ -2217,6 +2405,15 @@ function ModuleView(props: {
           body: JSON.stringify({ name: String(form.get('name')), username, password, role: requestedRole, platforms: requestedPlatforms }),
         })
         setUsers(prev => [...prev, result.user])
+        if (result.user.role === 'Sales Executive') {
+          setSalesUsers(prev => [...prev.filter(account => account.id !== result.user.id), {
+            id: result.user.id,
+            name: result.user.name,
+            username: result.user.username,
+            role: 'Sales Executive',
+            active: true,
+          }])
+        }
         log(`Created ${result.user.role} account ${result.user.username}`)
         notify('Account saved to the master workbook')
         formElement.reset()
@@ -2234,6 +2431,11 @@ function ModuleView(props: {
           body: JSON.stringify({ id: user.id, active: !user.active }),
         })
         setUsers(prev => prev.map(item => item.id === user.id ? { ...item, active: !item.active } : item))
+        if (user.role === 'Sales Executive') {
+          setSalesUsers(prev => user.active
+            ? prev.filter(account => account.id !== user.id)
+            : [...prev.filter(account => account.id !== user.id), { id: user.id, name: user.name, username: user.username, role: 'Sales Executive', active: true }])
+        }
         notify(`Account ${user.active ? 'deactivated' : 'activated'}`)
       } catch (error) {
         notify(error instanceof Error ? error.message : 'Account status could not be changed')
@@ -2251,8 +2453,8 @@ function ModuleView(props: {
               <label>Full name<input name="name" required placeholder="Employee name" /></label>
               <label>Username<input name="username" required autoComplete="off" placeholder="login name" /></label>
               <label>Password<input name="password" type="password" required minLength={10} placeholder="Minimum 10 characters" /></label>
-              <label>Role<select name="role" required value={newUserRole} onChange={event => setNewUserRole(event.target.value as Role)}><option>Production Supervisor</option><option>Machine Operator</option><option>Store Manager</option><option>E-commerce Executive</option></select></label>
-              {newUserRole === 'E-commerce Executive' && <fieldset className="platform-assignment"><legend>Assigned platform access</legend>{deliveryChannels.map(platform => <label key={platform}><input type="checkbox" name="platforms" value={platform} /> {platform}</label>)}</fieldset>}
+              <label>Role<select name="role" required value={newUserRole} onChange={event => setNewUserRole(event.target.value as Role)}><option>Production Supervisor</option><option>Machine Operator</option><option>Store Manager</option><option>E-commerce Executive</option><option>Sales Executive</option></select></label>
+              {newUserRole === 'E-commerce Executive' && <fieldset className="platform-assignment"><legend>Assigned platform access</legend>{ecommercePlatforms.map(platform => <label key={platform}><input type="checkbox" name="platforms" value={platform} /> {platform}</label>)}</fieldset>}
             </div>
             <button className="primary wide" type="submit"><Plus size={17} /> Create account</button>
           </form>
@@ -2914,7 +3116,7 @@ function DashboardView({
   const zeroStockCount = activeProducts.filter(product => product.stock <= 0).length
   const availableStock = activeProducts.reduce((sum, product) => sum + product.stock, 0)
   const activeUsers = users.filter(account => account.active)
-  const roleCounts = (['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive'] as Role[])
+  const roleCounts = (['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive', 'Sales Executive'] as Role[])
     .map(accountRole => ({
       role: accountRole,
       count: users.filter(account => account.role === accountRole).length,
@@ -2928,6 +3130,7 @@ function DashboardView({
     'Machine Operator': 'Record your daily output and review your own production entries.',
     'Store Manager': 'This account has dashboard-only access. Contact the Super Admin if your assigned workspace needs to change.',
     'E-commerce Executive': 'Review assigned-platform stock and dispatches, upload labels, update marketplace SKUs, and submit your daily report.',
+    'Sales Executive': 'Manage assigned leads, record call updates, view available stock, book orders, and track your monthly and yearly targets.',
   }
   const statsByRole: Record<Role, { label: string; value: string; detail: string; icon: typeof Package; tone: string }[]> = {
     'Super Admin': [
@@ -2957,6 +3160,9 @@ function DashboardView({
     'E-commerce Executive': [
       { label: 'Assigned platforms', value: '—', detail: 'Open your e-commerce workspace', icon: ShoppingCart, tone: 'blue' },
     ],
+    'Sales Executive': [
+      { label: 'Sales workspace', value: 'Ready', detail: 'Open assigned leads and targets', icon: BarChart3, tone: 'blue' },
+    ],
   }
   const shortcuts: Record<Role, { module: Module; detail: string }[]> = {
     'Super Admin': [
@@ -2965,6 +3171,9 @@ function DashboardView({
       { module: 'Product Catalog', detail: 'Create products, SKUs, and marketplace listings' },
       { module: 'Machines', detail: 'Configure machines and availability' },
       { module: 'Production Targets', detail: 'Assign daily, weekly, and monthly machine targets' },
+      { module: 'Sales Dashboard', detail: 'Set monthly and yearly targets; review booked sales' },
+      { module: 'Leads', detail: 'Import leads and review call follow-ups' },
+      { module: 'Orders', detail: 'Review all booked orders and fulfillment' },
       { module: 'Stock Movement', detail: 'Audit the complete stock ledger' },
     ],
     'Production Supervisor': [
@@ -2974,6 +3183,8 @@ function DashboardView({
       { module: 'Product Catalog', detail: 'Manage products, SKUs, and marketplace listings' },
       { module: 'Stitching', detail: 'Review stitching work' },
       { module: 'Quality Control', detail: 'Review quality checks' },
+      { module: 'Sales Dashboard', detail: 'Review sales target progress and orders' },
+      { module: 'Orders', detail: 'View sales bookings and fulfillment status' },
     ],
     'Machine Operator': [
       { module: 'Production', detail: 'Record output by machine and SKU' },
@@ -2982,6 +3193,11 @@ function DashboardView({
     'Store Manager': [],
     'E-commerce Executive': [
       { module: 'E-commerce Workspace', detail: 'View assigned platforms, shipping labels, and daily tasks' },
+    ],
+    'Sales Executive': [
+      { module: 'Sales Dashboard', detail: 'View your monthly and yearly booked sales targets' },
+      { module: 'Leads', detail: 'Update call outcomes and follow-up dates' },
+      { module: 'Orders', detail: 'Book orders and see stock reserved' },
     ],
   }
   const recentProduction = [...production].reverse().slice(0, 5)

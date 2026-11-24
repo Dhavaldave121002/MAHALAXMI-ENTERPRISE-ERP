@@ -1,7 +1,7 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
-    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets']
+    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
     const ERP_ECOMMERCE_LABEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
@@ -14,6 +14,10 @@
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
     const ERP_FINISHED_GOODS_HEADERS = ['Product SKU', 'Product Name', 'Opening Stock', 'Production Received', 'Quality Approved', 'Rejected', 'Reserved Stock', 'Available Stock', 'Dispatched Stock', 'Returned Stock', 'Damaged Stock', 'Last Updated', 'Adjustment In', 'Adjustment Out', 'Status']
     const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner']
+    const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At']
+    const ERP_SALES_ACTIVITY_HEADERS = ['Activity ID', 'Lead ID', 'Activity Type', 'Outcome', 'Notes', 'Next Follow-Up', 'Created At', 'Created By', 'Created By Name']
+    const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes']
+    const ERP_SALES_TARGET_HEADERS = ['Target ID', 'Sales User ID', 'Sales User Name', 'Period', 'Period Key', 'Target Amount', 'Updated At', 'Updated By']
 
     function onOpen(event) {
       if (!event || !event.source) {
@@ -139,6 +143,20 @@
           return setEcommerceTarget_(spreadsheet, payload)
         case 'setProductionTarget':
           return setProductionTarget_(spreadsheet, payload)
+        case 'importSalesLeads':
+          return importSalesLeads_(spreadsheet, payload)
+        case 'addSalesLead':
+          return addSalesLead_(spreadsheet, payload)
+        case 'assignSalesLead':
+          return assignSalesLead_(spreadsheet, payload)
+        case 'recordSalesActivity':
+          return recordSalesActivity_(spreadsheet, payload)
+        case 'createSalesOrder':
+          return createSalesOrder_(spreadsheet, payload)
+        case 'cancelSalesOrder':
+          return cancelSalesOrder_(spreadsheet, payload)
+        case 'setSalesTarget':
+          return setSalesTarget_(spreadsheet, payload)
         case 'appendRecord':
           return appendRecord_(spreadsheet, payload)
         case 'addMarketplaceListing':
@@ -468,7 +486,7 @@
           if (kind !== 'finished' || (!linkedOrderReturn && type !== 'Dispatch') || (type === 'Dispatch' && (!salesChannel || !deliveryPartner))) {
             throw apiError_(400, 'A supported platform is required for dispatches and linked returns.')
           }
-          if (['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA'].indexOf(salesChannel) < 0 || deliveryPartner.length > 100) {
+          if (['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA', 'DIRECT'].indexOf(salesChannel) < 0 || deliveryPartner.length > 100) {
             throw apiError_(400, 'Choose a supported delivery channel and a valid delivery partner.')
           }
           if (type === 'Dispatch' && !referenceId) throw apiError_(400, 'Enter the marketplace order number to enable order-linked returns.')
@@ -487,6 +505,18 @@
         const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
         const rowNumber = findStockRow_(stockSheet.sheet, stockSheet.headers, key, sku)
         let item = readStockRow_(stockSheet.sheet, stockSheet.headers, rowNumber)
+        let salesOrderSheet = null
+        let salesOrderHeaders = []
+        let salesOrderRowNumber = 0
+        let linkedSalesOrder = null
+        if (!isRaw && type === 'Dispatch' && referenceId) {
+          salesOrderSheet = spreadsheet.getSheetByName('Sales_Orders')
+          if (salesOrderSheet && salesOrderSheet.getLastRow() > 1) {
+            salesOrderHeaders = salesOrderSheet.getRange(1, 1, 1, salesOrderSheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+            salesOrderRowNumber = findStockRow_(salesOrderSheet, salesOrderHeaders, 'Order ID', referenceId)
+            if (salesOrderRowNumber) linkedSalesOrder = readStockRow_(salesOrderSheet, salesOrderHeaders, salesOrderRowNumber)
+          }
+        }
         if (!item && !isRaw && (['Opening Stock', 'Adjustment In'].indexOf(type) >= 0 || (type === 'Dispatch' && salesChannel && deliveryPartner))) {
           item = {
             'Product SKU': sku, 'Product Name': catalogProductName,
@@ -523,11 +553,20 @@
             if (alreadyReturnedOrDamaged + quantity > dispatchedQuantity) {
               throw apiError_(409, 'Return and damage quantities cannot exceed the remaining quantity from this order.')
             }
-          } else if (matchingReference.some(function (row) {
+          } else if (!linkedSalesOrder && matchingReference.some(function (row) {
             return type !== 'Dispatch' || !salesChannel || !String(row['Sales Channel'] || '') || String(row['Sales Channel'] || '') === salesChannel
           })) {
             throw apiError_(409, 'That reference was already used for this stock item.')
           }
+        }
+        if (linkedSalesOrder) {
+          const remainingOrderQuantity = stockNumber_(linkedSalesOrder.Quantity, 'Sales order quantity')
+            - stockNumber_(linkedSalesOrder['Fulfilled Quantity'], 'Fulfilled quantity')
+            - stockNumber_(linkedSalesOrder['Cancelled Quantity'], 'Cancelled quantity')
+          if (String(linkedSalesOrder['Product SKU'] || '').trim().toLowerCase() !== sku.toLowerCase()) {
+            throw apiError_(409, 'The selected sales order is for a different product SKU.')
+          }
+          if (quantity > remainingOrderQuantity) throw apiError_(409, 'Dispatch quantity exceeds the remaining sales order quantity.')
         }
 
         const opening = isRaw ? rawClosingStock_(item) : finishedAvailableStock_(item)
@@ -569,7 +608,14 @@
           }
           const mapping = fields[type]
           if (!mapping) throw apiError_(400, 'Choose a supported finished-goods movement type.')
-          if (linkedOrderReturn && type === 'Damage') {
+          if (type === 'Dispatch' && linkedSalesOrder) {
+            const reserved = stockNumber_(item['Reserved Stock'], 'Reserved stock')
+            if (reserved < quantity) throw apiError_(409, 'The sales order reservation is missing. Ask a supervisor to review it.')
+            item['Reserved Stock'] = reserved - quantity
+            item['Dispatched Stock'] = stockNumber_(item['Dispatched Stock'], 'Dispatched stock') + quantity
+            linkedSalesOrder['Fulfilled Quantity'] = stockNumber_(linkedSalesOrder['Fulfilled Quantity'], 'Fulfilled quantity') + quantity
+            linkedSalesOrder.Status = salesOrderStatus_(linkedSalesOrder)
+          } else if (linkedOrderReturn && type === 'Damage') {
             item['Returned Stock'] = stockNumber_(item['Returned Stock'], 'Returned stock') + quantity
             item['Damaged Stock'] = stockNumber_(item['Damaged Stock'], 'Damaged stock') + quantity
           } else {
@@ -587,6 +633,9 @@
         createBackupOnce_(spreadsheet, backupState)
         if (rowNumber) updateStockRow_(stockSheet.sheet, stockSheet.headers, rowNumber, item)
         else appendStockRow_(stockSheet.sheet, stockSheet.headers, item)
+        if (linkedSalesOrder && salesOrderSheet && salesOrderRowNumber) {
+          updateStockRow_(salesOrderSheet, salesOrderHeaders, salesOrderRowNumber, linkedSalesOrder)
+        }
         const movement = stockMovementRecord_({
           sku: sku, type: type, quantity: quantity, referenceId: referenceId,
           machineId: payload.machineId, reason: reason, opening: opening, closing: closing,
@@ -972,6 +1021,383 @@
       })
     }
 
+    function assertSalesExecutive_(spreadsheet, userId) {
+      const executive = readSheetRecords_(spreadsheet, 'Users').find(function (row) {
+        const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+        return active && String(row['User ID'] || '').trim() === String(userId || '').trim() &&
+          String(row.Role || '').trim() === 'Sales Executive'
+      })
+      if (!executive) throw apiError_(404, 'The selected active Sales Executive account was not found.')
+      return executive
+    }
+
+    function salesLeadInput_(input, assignedUserId) {
+      const name = String(input.name || '').trim()
+      const company = String(input.company || '').trim()
+      const phone = String(input.phone || '').trim()
+      const email = String(input.email || '').trim()
+      const productInterest = String(input.productInterest || '').trim()
+      const notes = String(input.notes || '').trim()
+      const referenceUrl = String(input.referenceUrl || '').trim()
+      if (!name || name.length > 150 || /[\u0000-\u001f]/.test(name)) throw apiError_(400, 'Lead name is required and must be 150 characters or fewer.')
+      if (company.length > 180 || phone.length > 40 || email.length > 180 || productInterest.length > 180 || notes.length > 1000) {
+        throw apiError_(400, 'A lead field exceeds its allowed length.')
+      }
+      if (phone.replace(/\D/g, '').length < 7) throw apiError_(400, 'Enter a valid contact phone number.')
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw apiError_(400, 'Enter a valid email address.')
+      if (referenceUrl && (referenceUrl.length > 2000 || !/^https:\/\/[^\s]+$/i.test(referenceUrl))) {
+        throw apiError_(400, 'Reference must be a valid HTTPS PDF or form link.')
+      }
+      if (!assignedUserId) throw apiError_(400, 'Assign the lead to an active Sales Executive.')
+      return {
+        name: name,
+        company: company,
+        phone: phone,
+        email: email,
+        productInterest: productInterest,
+        notes: notes,
+        referenceUrl: referenceUrl,
+        assignedUserId: assignedUserId,
+      }
+    }
+
+    function makeSalesLeadRecord_(input, executive, payload, now) {
+      return {
+        'Lead ID': 'LEAD-' + Utilities.getUuid(),
+        Name: input.name,
+        Company: input.company,
+        Phone: input.phone,
+        Email: input.email,
+        'Product Interest': input.productInterest,
+        Notes: input.notes,
+        'Reference URL': input.referenceUrl,
+        'Assigned User ID': String(executive['User ID'] || ''),
+        'Assigned User Name': String(executive.Name || ''),
+        Status: 'New',
+        'Next Follow-Up': '',
+        'Created At': now,
+        'Created By': String(payload.createdBy || ''),
+        'Updated At': now,
+      }
+    }
+
+    function importSalesLeads_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') throw apiError_(403, 'Only the Super Admin can import or assign sales leads.')
+      const rows = payload.rows
+      if (!Array.isArray(rows) || rows.length < 1 || rows.length > 500) throw apiError_(400, 'Import between 1 and 500 lead rows at a time.')
+      return withWriteLock_(function () {
+        const defaultAssignedUserId = String(payload.assignedUserId || '').trim()
+        assertSalesExecutive_(spreadsheet, defaultAssignedUserId)
+        const backupState = { created: false, backupName: '' }
+        const leadSheet = ensureStockSheet_(spreadsheet, 'Sales_Leads', ERP_SALES_LEAD_HEADERS, backupState)
+        const existingPhones = new Set(readSheetRecords_(spreadsheet, 'Sales_Leads').map(function (row) {
+          return String(row.Phone || '').replace(/\D/g, '')
+        }).filter(Boolean))
+        const now = new Date().toISOString()
+        const leads = []
+        let skipped = 0
+        rows.forEach(function (row) {
+          if (!row || typeof row !== 'object' || Array.isArray(row)) throw apiError_(400, 'Every imported lead must be a row of named fields.')
+          const assignedUserId = String(row.assignedUserId || defaultAssignedUserId).trim()
+          const executive = assertSalesExecutive_(spreadsheet, assignedUserId)
+          const input = salesLeadInput_(row, assignedUserId)
+          const phoneKey = input.phone.replace(/\D/g, '')
+          if (existingPhones.has(phoneKey)) {
+            skipped += 1
+            return
+          }
+          existingPhones.add(phoneKey)
+          leads.push(makeSalesLeadRecord_(input, executive, payload, now))
+        })
+        if (leads.length) {
+          createBackupOnce_(spreadsheet, backupState)
+          leads.forEach(function (lead) { appendStockRow_(leadSheet.sheet, leadSheet.headers, lead) })
+          SpreadsheetApp.flush()
+        }
+        return { added: leads.length, skipped: skipped, backupName: backupState.backupName }
+      })
+    }
+
+    function addSalesLead_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') throw apiError_(403, 'Only the Super Admin can create sales leads.')
+      return withWriteLock_(function () {
+        const source = payload.lead
+        if (!source || typeof source !== 'object' || Array.isArray(source)) throw apiError_(400, 'Enter lead details.')
+        const executive = assertSalesExecutive_(spreadsheet, source.assignedUserId)
+        const input = salesLeadInput_(source, String(executive['User ID'] || ''))
+        const backupState = { created: false, backupName: '' }
+        const leadSheet = ensureStockSheet_(spreadsheet, 'Sales_Leads', ERP_SALES_LEAD_HEADERS, backupState)
+        const phoneKey = input.phone.replace(/\D/g, '')
+        if (readSheetRecords_(spreadsheet, 'Sales_Leads').some(function (row) {
+          return String(row.Phone || '').replace(/\D/g, '') === phoneKey
+        })) throw apiError_(409, 'A lead with this phone number already exists.')
+        createBackupOnce_(spreadsheet, backupState)
+        const lead = makeSalesLeadRecord_(input, executive, payload, new Date().toISOString())
+        appendStockRow_(leadSheet.sheet, leadSheet.headers, lead)
+        SpreadsheetApp.flush()
+        return { lead: lead, backupName: backupState.backupName }
+      })
+    }
+
+    function assignSalesLead_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') throw apiError_(403, 'Only the Super Admin can reassign sales leads.')
+      return withWriteLock_(function () {
+        const leadId = String(payload.leadId || '').trim()
+        const userId = String(payload.assignedUserId || '').trim()
+        if (!leadId) throw apiError_(400, 'Choose a lead to assign.')
+        const executive = assertSalesExecutive_(spreadsheet, userId)
+        const backupState = { created: false, backupName: '' }
+        const leadSheet = ensureStockSheet_(spreadsheet, 'Sales_Leads', ERP_SALES_LEAD_HEADERS, backupState)
+        const rowNumber = findStockRow_(leadSheet.sheet, leadSheet.headers, 'Lead ID', leadId)
+        if (!rowNumber) throw apiError_(404, 'Sales lead was not found.')
+        const lead = readStockRow_(leadSheet.sheet, leadSheet.headers, rowNumber)
+        lead['Assigned User ID'] = userId
+        lead['Assigned User Name'] = String(executive.Name || '')
+        lead['Updated At'] = new Date().toISOString()
+        createBackupOnce_(spreadsheet, backupState)
+        updateStockRow_(leadSheet.sheet, leadSheet.headers, rowNumber, lead)
+        SpreadsheetApp.flush()
+        return { lead: lead }
+      })
+    }
+
+    function recordSalesActivity_(spreadsheet, payload) {
+      if (['Sales Executive', 'Super Admin'].indexOf(String(payload.sessionUserRole || '')) < 0) {
+        throw apiError_(403, 'Only the assigned Sales Executive or Super Admin can update a lead.')
+      }
+      return withWriteLock_(function () {
+        const leadId = String(payload.leadId || '').trim()
+        const backupState = { created: false, backupName: '' }
+        const leadSheet = ensureStockSheet_(spreadsheet, 'Sales_Leads', ERP_SALES_LEAD_HEADERS, backupState)
+        const leadRowNumber = findStockRow_(leadSheet.sheet, leadSheet.headers, 'Lead ID', leadId)
+        if (!leadRowNumber) throw apiError_(404, 'Sales lead was not found.')
+        const lead = readStockRow_(leadSheet.sheet, leadSheet.headers, leadRowNumber)
+        if (payload.sessionUserRole === 'Sales Executive' &&
+            String(lead['Assigned User ID'] || '') !== String(payload.sessionUserId || '')) {
+          throw apiError_(403, 'This lead is assigned to another Sales Executive.')
+        }
+        const allowedStatuses = ['New', 'Contacted', 'Qualified', 'Follow-up', 'Converted', 'Lost']
+        const allowedTypes = ['Call', 'WhatsApp', 'Meeting', 'Note']
+        const status = String(payload.status || '')
+        const activityType = String(payload.activityType || '')
+        const outcome = String(payload.outcome || '').trim()
+        const notes = String(payload.notes || '').trim()
+        const nextFollowUp = String(payload.nextFollowUp || '').trim()
+        if (allowedStatuses.indexOf(status) < 0 || allowedTypes.indexOf(activityType) < 0) {
+          throw apiError_(400, 'Choose a valid lead status and activity type.')
+        }
+        if (!outcome || outcome.length > 180 || !notes || notes.length > 1000) {
+          throw apiError_(400, 'Enter a short call outcome and notes of up to 1,000 characters.')
+        }
+        if (nextFollowUp) {
+          const parsed = /^\d{4}-\d{2}-\d{2}$/.test(nextFollowUp) ? new Date(nextFollowUp + 'T12:00:00Z') : new Date('invalid')
+          if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== nextFollowUp) {
+            throw apiError_(400, 'Choose a valid follow-up date.')
+          }
+        }
+        const activitySheet = ensureStockSheet_(spreadsheet, 'Sales_Activities', ERP_SALES_ACTIVITY_HEADERS, backupState)
+        const now = new Date().toISOString()
+        const activity = {
+          'Activity ID': Utilities.getUuid(),
+          'Lead ID': leadId,
+          'Activity Type': activityType,
+          Outcome: outcome,
+          Notes: notes,
+          'Next Follow-Up': nextFollowUp,
+          'Created At': now,
+          'Created By': String(payload.sessionUserId || ''),
+          'Created By Name': String(payload.createdBy || ''),
+        }
+        lead.Status = status
+        lead['Next Follow-Up'] = nextFollowUp
+        lead['Updated At'] = now
+        createBackupOnce_(spreadsheet, backupState)
+        updateStockRow_(leadSheet.sheet, leadSheet.headers, leadRowNumber, lead)
+        appendStockRow_(activitySheet.sheet, activitySheet.headers, activity)
+        SpreadsheetApp.flush()
+        return { lead: lead, activity: activity }
+      })
+    }
+
+    function salesOrderStatus_(order) {
+      const quantity = Number(order.Quantity) || 0
+      const fulfilled = Number(order['Fulfilled Quantity']) || 0
+      const cancelled = Number(order['Cancelled Quantity']) || 0
+      if (cancelled >= quantity) return 'Cancelled'
+      if (fulfilled >= quantity - cancelled) return cancelled ? 'Partially Cancelled' : 'Fulfilled'
+      if (fulfilled || cancelled) return cancelled ? 'Partially Cancelled' : 'Partially Fulfilled'
+      return 'Booked'
+    }
+
+    function createSalesOrder_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Sales Executive') throw apiError_(403, 'Only a Sales Executive can book a sales order.')
+      return withWriteLock_(function () {
+        const leadId = String(payload.leadId || '').trim()
+        const sku = String(payload.sku || '').trim()
+        const quantity = Number(payload.quantity)
+        const unitPrice = Number(payload.unitPrice)
+        const notes = String(payload.notes || '').trim()
+        if (!leadId || !sku || !Number.isInteger(quantity) || quantity < 1 || quantity > 100000) {
+          throw apiError_(400, 'Choose a lead, product, and whole-number quantity greater than zero.')
+        }
+        if (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 100000000 || notes.length > 500) {
+          throw apiError_(400, 'Enter a valid unit price and optional order note.')
+        }
+        const backupState = { created: false, backupName: '' }
+        const leadSheet = ensureStockSheet_(spreadsheet, 'Sales_Leads', ERP_SALES_LEAD_HEADERS, backupState)
+        const leadRowNumber = findStockRow_(leadSheet.sheet, leadSheet.headers, 'Lead ID', leadId)
+        if (!leadRowNumber) throw apiError_(404, 'Sales lead was not found.')
+        const lead = readStockRow_(leadSheet.sheet, leadSheet.headers, leadRowNumber)
+        if (String(lead['Assigned User ID'] || '') !== String(payload.sessionUserId || '')) {
+          throw apiError_(403, 'You can only book orders for your assigned leads.')
+        }
+        if (String(lead.Status || '').toLowerCase() === 'lost') throw apiError_(409, 'A lost lead cannot be converted into an order.')
+        const productName = findCatalogProductName_(spreadsheet, sku)
+        if (!productName) throw apiError_(404, 'Choose an active SKU from the product catalog.')
+
+        const stockSheet = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
+        const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
+        const orderSheet = ensureStockSheet_(spreadsheet, 'Sales_Orders', ERP_SALES_ORDER_HEADERS, backupState)
+        const stockRowNumber = findStockRow_(stockSheet.sheet, stockSheet.headers, 'Product SKU', sku)
+        if (!stockRowNumber) throw apiError_(409, 'This SKU has no finished-goods stock record.')
+        const item = readStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber)
+        if (String(item.Status || 'Active').toLowerCase() === 'archived') throw apiError_(409, 'This product is archived.')
+        const opening = finishedAvailableStock_(item)
+        if (opening < quantity) throw apiError_(409, 'Not enough available stock to book this order.')
+        const now = new Date().toISOString()
+        const orderId = 'ORD-' + Utilities.getUuid()
+        const normalizedUnitPrice = Math.round(unitPrice * 100) / 100
+        const order = {
+          'Order ID': orderId,
+          'Created At': now,
+          'Sales User ID': String(payload.sessionUserId || ''),
+          'Sales User Name': String(payload.createdBy || ''),
+          'Lead ID': leadId,
+          'Customer Name': String(lead.Name || ''),
+          'Product SKU': sku,
+          'Product Name': productName,
+          Quantity: quantity,
+          'Unit Price': normalizedUnitPrice,
+          Amount: Math.round(quantity * normalizedUnitPrice * 100) / 100,
+          'Fulfilled Quantity': 0,
+          'Cancelled Quantity': 0,
+          Status: 'Booked',
+          Notes: notes,
+        }
+        item['Reserved Stock'] = stockNumber_(item['Reserved Stock'], 'Reserved stock') + quantity
+        item['Available Stock'] = finishedAvailableStock_(item)
+        item['Last Updated'] = now
+        createBackupOnce_(spreadsheet, backupState)
+        updateStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber, item)
+        appendStockRow_(orderSheet.sheet, orderSheet.headers, order)
+        const movement = appendStockMovement_(spreadsheet, stockMovementRecord_({
+          sku: sku, type: 'Reserve', quantity: quantity, referenceId: orderId,
+          reason: 'Sales order booking', opening: opening, closing: item['Available Stock'],
+          createdBy: payload.createdBy, itemType: 'Finished Goods',
+        }), backupState)
+        lead.Status = 'Converted'
+        lead['Updated At'] = now
+        updateStockRow_(leadSheet.sheet, leadSheet.headers, leadRowNumber, lead)
+        SpreadsheetApp.flush()
+        return { order: order, item: item, movement: movement }
+      })
+    }
+
+    function cancelSalesOrder_(spreadsheet, payload) {
+      if (['Sales Executive', 'Super Admin'].indexOf(String(payload.sessionUserRole || '')) < 0) {
+        throw apiError_(403, 'This account cannot cancel sales orders.')
+      }
+      return withWriteLock_(function () {
+        const orderId = String(payload.orderId || '').trim()
+        const backupState = { created: false, backupName: '' }
+        const orderSheet = ensureStockSheet_(spreadsheet, 'Sales_Orders', ERP_SALES_ORDER_HEADERS, backupState)
+        const orderRowNumber = findStockRow_(orderSheet.sheet, orderSheet.headers, 'Order ID', orderId)
+        if (!orderRowNumber) throw apiError_(404, 'Sales order was not found.')
+        const order = readStockRow_(orderSheet.sheet, orderSheet.headers, orderRowNumber)
+        if (payload.sessionUserRole === 'Sales Executive' &&
+            String(order['Sales User ID'] || '') !== String(payload.sessionUserId || '')) {
+          throw apiError_(403, 'You can only cancel your own sales orders.')
+        }
+        const quantity = stockNumber_(order.Quantity, 'Order quantity')
+        const fulfilled = stockNumber_(order['Fulfilled Quantity'], 'Fulfilled quantity')
+        const cancelled = stockNumber_(order['Cancelled Quantity'], 'Cancelled quantity')
+        const remaining = quantity - fulfilled - cancelled
+        if (remaining <= 0) throw apiError_(409, 'This sales order has no remaining units to cancel.')
+        const sku = String(order['Product SKU'] || '').trim()
+        const stockSheet = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
+        const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
+        const stockRowNumber = findStockRow_(stockSheet.sheet, stockSheet.headers, 'Product SKU', sku)
+        if (!stockRowNumber) throw apiError_(409, 'The reserved stock record for this order is missing.')
+        const item = readStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber)
+        const opening = finishedAvailableStock_(item)
+        const reserved = stockNumber_(item['Reserved Stock'], 'Reserved stock')
+        if (reserved < remaining) throw apiError_(409, 'Reserved stock no longer matches this order. Ask a supervisor to review it.')
+        item['Reserved Stock'] = reserved - remaining
+        item['Available Stock'] = finishedAvailableStock_(item)
+        item['Last Updated'] = new Date().toISOString()
+        order['Cancelled Quantity'] = cancelled + remaining
+        order.Status = salesOrderStatus_(order)
+        createBackupOnce_(spreadsheet, backupState)
+        updateStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber, item)
+        updateStockRow_(orderSheet.sheet, orderSheet.headers, orderRowNumber, order)
+        const movement = stockMovementRecord_({
+          sku: sku, type: 'Release Reservation', quantity: remaining, referenceId: orderId,
+          reason: 'Sales order cancellation', opening: opening, closing: item['Available Stock'],
+          createdBy: payload.createdBy, itemType: 'Finished Goods',
+        })
+        appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
+        SpreadsheetApp.flush()
+        return { order: order, item: item, movement: movement }
+      })
+    }
+
+    function setSalesTarget_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') throw apiError_(403, 'Only the Super Admin can set sales targets.')
+      const period = String(payload.period || '').toLowerCase()
+      const periodKey = String(payload.periodKey || '').trim()
+      const expectedKey = period === 'monthly' ? /^\d{4}-(0[1-9]|1[0-2])$/ : /^\d{4}$/
+      if (!['monthly', 'yearly'].includes(period) || !expectedKey.test(periodKey)) throw apiError_(400, 'Choose a valid month or year for the sales target.')
+      const targetAmount = Number(payload.targetAmount)
+      if (!Number.isFinite(targetAmount) || targetAmount < 0 || targetAmount > 100000000000) {
+        throw apiError_(400, 'Sales target must be between 0 and 100,000,000,000.')
+      }
+      return withWriteLock_(function () {
+        const executive = assertSalesExecutive_(spreadsheet, payload.salesUserId)
+        const backupState = { created: false, backupName: '' }
+        const targetSheet = ensureStockSheet_(spreadsheet, 'Sales_Targets', ERP_SALES_TARGET_HEADERS, backupState)
+        const records = readSheetRecords_(spreadsheet, 'Sales_Targets').filter(function (row) {
+          return String(row['Sales User ID'] || '') === String(payload.salesUserId || '') &&
+            String(row.Period || '').toLowerCase() === period &&
+            String(row['Period Key'] || '') === periodKey
+        })
+        if (records.length > 1) throw apiError_(409, 'Duplicate target records exist for this sales account and period.')
+        const existing = records[0]
+        const target = {
+          'Target ID': String(existing && existing['Target ID'] || Utilities.getUuid()),
+          'Sales User ID': String(payload.salesUserId || ''),
+          'Sales User Name': String(executive.Name || ''),
+          Period: period,
+          'Period Key': periodKey,
+          'Target Amount': Math.round(targetAmount * 100) / 100,
+          'Updated At': new Date().toISOString(),
+          'Updated By': String(payload.createdBy || ''),
+        }
+        if (existing && Number(existing['Target Amount']) === target['Target Amount']) {
+          return { target: existing, backupName: backupState.backupName }
+        }
+        createBackupOnce_(spreadsheet, backupState)
+        if (existing) {
+          const rowNumber = findStockRow_(targetSheet.sheet, targetSheet.headers, 'Target ID', target['Target ID'])
+          if (!rowNumber) throw apiError_(409, 'The existing sales target could not be located.')
+          updateStockRow_(targetSheet.sheet, targetSheet.headers, rowNumber, target)
+        } else {
+          appendStockRow_(targetSheet.sheet, targetSheet.headers, target)
+        }
+        SpreadsheetApp.flush()
+        return { target: target, backupName: backupState.backupName }
+      })
+    }
+
     function createInitialAdmin_(spreadsheet, user) {
       return withWriteLock_(function () {
         const users = readSheetRecords_(spreadsheet, 'Users')
@@ -1129,6 +1555,11 @@
       })
     }
 
+    function installEcommerceLabelCleanupTrigger() {
+      ensureEcommerceLabelCleanupTrigger_()
+      return cleanupExpiredEcommerceLabels_()
+    }
+
     function ecommerceLabelExpired_(file, cutoff) {
       let metadata
       try {
@@ -1191,7 +1622,6 @@
       const safeName = requestedName.replace(/[\\/:*?"<>|]/g, '_')
       const uploadedAt = new Date().toISOString()
       const folder = getEcommerceLabelFolder_(true)
-      ensureEcommerceLabelCleanupTrigger_()
       cleanupExpiredEcommerceLabels_()
       const blob = Utilities.newBlob(bytes, 'application/pdf', safeName)
       const file = folder.createFile(blob)
@@ -1219,7 +1649,6 @@
       if (platform) assertEcommercePlatformAccess_(payload, platform)
       const folder = getEcommerceLabelFolder_(false)
       if (!folder) return { labels: [] }
-      ensureEcommerceLabelCleanupTrigger_()
       cleanupExpiredEcommerceLabels_()
       const labels = []
       const files = folder.getFiles()
@@ -1240,7 +1669,6 @@
       if (!fileId) throw apiError_(400, 'A shipping-label ID is required.')
       const folder = getEcommerceLabelFolder_(false)
       if (!folder) throw apiError_(404, 'Shipping label was not found.')
-      ensureEcommerceLabelCleanupTrigger_()
       cleanupExpiredEcommerceLabels_()
       const files = folder.getFiles()
       while (files.hasNext()) {

@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 import { ApiError } from './http.js'
 
 const pbkdf2 = promisify(pbkdf2Callback)
-const USER_ROLES = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive'] as const
+const USER_ROLES = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive', 'Sales Executive'] as const
 export const ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA'] as const
 const USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
 
@@ -369,6 +369,83 @@ export async function setWorkbookProductionTarget(input: SessionBoundInput & {
     unchanged: boolean
     backupName: string
   }>('setProductionTarget', { ...input, ...sessionBoundPayload(input) })
+}
+
+export async function importWorkbookSalesLeads(input: SessionBoundInput & {
+  rows: Record<string, unknown>[]
+  assignedUserId: string
+}) {
+  return callAppsScript<{ added: number; skipped: number; backupName: string }>(
+    'importSalesLeads',
+    { ...input, ...sessionBoundPayload(input) },
+  )
+}
+
+export async function addWorkbookSalesLead(input: SessionBoundInput & {
+  lead: Record<string, unknown>
+}) {
+  return callAppsScript<{ lead: Record<string, unknown>; backupName: string }>(
+    'addSalesLead',
+    { ...input, ...sessionBoundPayload(input) },
+  )
+}
+
+export async function assignWorkbookSalesLead(input: SessionBoundInput & {
+  leadId: string
+  assignedUserId: string
+}) {
+  return callAppsScript<{ lead: Record<string, unknown> }>(
+    'assignSalesLead',
+    { ...input, ...sessionBoundPayload(input) },
+  )
+}
+
+export async function recordWorkbookSalesActivity(input: SessionBoundInput & {
+  leadId: string
+  status: string
+  activityType: string
+  outcome: string
+  notes: string
+  nextFollowUp: string
+}) {
+  return callAppsScript<{ lead: Record<string, unknown>; activity: Record<string, unknown> }>(
+    'recordSalesActivity',
+    { ...input, ...sessionBoundPayload(input) },
+  )
+}
+
+export async function createWorkbookSalesOrder(input: SessionBoundInput & {
+  leadId: string
+  sku: string
+  quantity: number
+  unitPrice: number
+  notes: string
+}) {
+  return callAppsScript<{
+    order: Record<string, unknown>
+    item: Record<string, unknown>
+    movement: Record<string, unknown>
+  }>('createSalesOrder', { ...input, ...sessionBoundPayload(input) })
+}
+
+export async function cancelWorkbookSalesOrder(input: SessionBoundInput & { orderId: string }) {
+  return callAppsScript<{
+    order: Record<string, unknown>
+    item: Record<string, unknown>
+    movement: Record<string, unknown>
+  }>('cancelSalesOrder', { ...input, ...sessionBoundPayload(input) })
+}
+
+export async function setWorkbookSalesTarget(input: SessionBoundInput & {
+  salesUserId: string
+  period: 'monthly' | 'yearly'
+  periodKey: string
+  targetAmount: number
+}) {
+  return callAppsScript<{ target: Record<string, unknown>; backupName: string }>(
+    'setSalesTarget',
+    { ...input, ...sessionBoundPayload(input) },
+  )
 }
 
 export function publicUser(user: WorkbookUser): PublicUser {
