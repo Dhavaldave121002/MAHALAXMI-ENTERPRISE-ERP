@@ -2342,13 +2342,13 @@ function EcommerceWorkspace({
     return !query || [listing.productName, listing.productSku, listing.platformSku].some(value => value.toLowerCase().includes(query))
   })
   const movements = data?.movements.filter(movement => movement.platform === selectedPlatform) || []
+  const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
   const listingRows = visibleListings.map(listing => <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>{editingListingId === listing.id ? <form className="inline-sku-form" onSubmit={event => void saveSku(event, listing)}><input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /><button className="primary" type="submit" disabled={busy}>Save</button><button className="secondary" type="button" onClick={() => setEditingListingId('')}>Cancel</button></form> : <code>{listing.platformSku || '—'}</code>}</td><td>{listing.availableStock.toLocaleString('en-IN')}</td><td>{listing.stockStatus}</td>{canEdit && <td>{editingListingId !== listing.id && <button className="secondary" type="button" onClick={() => { setEditingListingId(listing.id); setPlatformSkuDraft(listing.platformSku) }}>Update SKU</button>}</td>}</tr>)
   const orderRows = movements.map(item => <tr key={item.id}><td>{formatIndiaDateTime(item.date)}</td><td><code>{item.orderNumber}</code></td><td>{item.type}</td><td><code>{item.sku}</code></td><td>{item.quantity}</td><td>{item.reason || '—'}</td></tr>)
   const labels = data?.labels.filter(label => label.platform === selectedPlatform) || []
   const labelRows = labels.map(label => <div className="ecommerce-label-row" key={label.id}><div><strong>{label.orderNumber}</strong><span>{label.fileName} · {formatIndiaDateTime(label.uploadedAt)}</span></div><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLabel(label)}><Download size={15} /> Download</button></div>)
   const latestOwnReport = ownReports.find(report => report.platform === selectedPlatform)
   const uniqueStock = new Map(listings.map(listing => [listing.productSku.toLowerCase(), listing.availableStock]))
-  const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
   const monthlySummaries = (data?.platforms || []).map(platform =>
     summarizeEcommercePlatform(platform, data?.movements || [], [], selectedMonth),
   )
