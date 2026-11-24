@@ -10,7 +10,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import * as XLSX from 'xlsx'
 import './App.css'
 
-type Module = 'Dashboard' | 'Factory' | 'Production' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
+type Module = 'Dashboard' | 'Factory' | 'Production' | 'Production Targets' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
@@ -39,6 +39,11 @@ type MarketplaceImportResult = {
   backupName: string
 }
 type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
+type ProductionTargetPeriod = 'daily' | 'weekly' | 'monthly'
+type ProductionTarget = {
+  id: string; period: ProductionTargetPeriod; startDate: string; endDate: string; machineId: string; machineName: string;
+  sku: string; productName: string; targetQuantity: number; actual: number; createdBy: string
+}
 type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator' | 'E-commerce Executive'
 type EcommercePlatform = 'AMAZON' | 'FLIPKART' | 'MEESHO' | 'SHOPIFY' | 'MYNTRA'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean; platforms: EcommercePlatform[] }
@@ -72,6 +77,7 @@ type WorkbookSnapshot = {
   marketplaceListings: MarketplaceListing[]
   machines: Machine[]
   production: Production[]
+  productionTargets: ProductionTarget[]
   rawMaterials: RawMaterial[]
   finishedGoods: FinishedGood[]
   stockMovements: StockMovement[]
@@ -80,7 +86,7 @@ type WorkbookSnapshot = {
 type AuthStatus = 'checking' | 'ready' | 'unavailable'
 
 const navSections: { label: string; items: Module[] }[] = [
-  { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Stitching', 'Quality Control'] as Module[] },
+  { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Quality Control'] as Module[] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
   { label: 'SALES', items: ['Orders', 'Shipping & Delivery', 'Returns & RTO'] },
@@ -112,7 +118,7 @@ const productionBlocks = [
 ]
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
-  Dashboard: LayoutDashboard, Production: Factory, Stitching: ClipboardCheck, 'Raw Material': Boxes,
+  Dashboard: LayoutDashboard, Production: Factory, 'Production Targets': Target, Stitching: ClipboardCheck, 'Raw Material': Boxes,
   'Finished Goods': Package, 'Product Catalog': Archive, Orders: ShoppingCart, Inventory: Boxes,
   'Stock Movement': ArrowUpRight,
   'Shipping & Delivery': Truck, 'Returns & RTO': RotateCcw, Machines: Gauge,
@@ -211,6 +217,20 @@ function shiftDateKey(dateKey: string, days: number) {
   const [year, month, day] = dateKey.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day + days, 12))
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
+function productionTargetPeriodRange(period: ProductionTargetPeriod, dateKey: string) {
+  if (period === 'daily') return { startDate: dateKey, endDate: dateKey }
+  if (period === 'weekly') {
+    const weekday = new Date(`${dateKey}T12:00:00Z`).getUTCDay()
+    const startDate = shiftDateKey(dateKey, weekday === 0 ? -6 : 1 - weekday)
+    return { startDate, endDate: shiftDateKey(startDate, 6) }
+  }
+  const [year, month] = dateKey.split('-').map(Number)
+  return {
+    startDate: `${dateKey.slice(0, 7)}-01`,
+    endDate: new Date(Date.UTC(year, month, 0, 12)).toISOString().slice(0, 10),
+  }
 }
 
 function formatIndiaDate(dateKey: string) {
@@ -376,6 +396,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([])
   const [marketplaceListings, setMarketplaceListings] = useState<MarketplaceListing[]>([])
   const [production, setProduction] = useState<Production[]>([])
+  const [productionTargets, setProductionTargets] = useState<ProductionTarget[]>([])
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [finishedGoods, setFinishedGoods] = useState<FinishedGood[]>([])
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
@@ -392,6 +413,7 @@ export default function App() {
     setMarketplaceListings(data.marketplaceListings)
     setMachines(data.machines)
     setProduction(data.production)
+    setProductionTargets(data.productionTargets)
     setRawMaterials(data.rawMaterials)
     setFinishedGoods(data.finishedGoods)
     setStockMovements(data.stockMovements)
@@ -611,6 +633,16 @@ export default function App() {
       body: JSON.stringify({ action: 'addProduction', ...input }),
     })
     setProduction(prev => [result.record, ...prev.filter(item => item.id !== result.record.id)])
+    setProductionTargets(previous => previous.map(target => {
+      const inPeriod = result.record.date >= target.startDate && result.record.date <= target.endDate
+      const sameMachine = result.record.machine.toLowerCase() === target.machineId.toLowerCase()
+      const sameProduct = target.sku
+        ? result.record.sku.toLowerCase() === target.sku.toLowerCase()
+        : !result.record.sku && result.record.product.toLowerCase() === target.productName.toLowerCase()
+      return inPeriod && sameMachine && sameProduct
+        ? { ...target, actual: target.actual + result.record.actual }
+        : target
+    }))
     const finishedGood = result.record.finishedGood
     if (finishedGood) {
       setFinishedGoods(prev => [finishedGood, ...prev.filter(item => item.sku.toLowerCase() !== finishedGood.sku.toLowerCase())])
@@ -626,6 +658,21 @@ export default function App() {
     log(`Recorded production ${result.record.actual} units for ${result.record.sku}`)
     notify('Production entry saved to the shared workbook')
     return result.record
+  }
+
+  const saveProductionTarget = async (input: {
+    period: ProductionTargetPeriod; date: string; machineId: string; sku: string; productName: string; targetQuantity: number
+  }) => {
+    const result = await apiFetch<{ target: ProductionTarget; unchanged: boolean; backupName: string }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'setProductionTarget', ...input }),
+    })
+    setProductionTargets(previous => [result.target, ...previous.filter(target => target.id !== result.target.id)])
+    workbookLastRefreshAt.current = Date.now()
+    log(`${result.unchanged ? 'Confirmed' : 'Set'} ${result.target.period} target of ${result.target.targetQuantity} for ${result.target.productName} on ${result.target.machineId}`)
+    notify(result.unchanged ? 'This production target is already up to date.' : 'Production target saved to the shared workbook.')
+    return result.target
   }
 
   const saveRawMaterial = async (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => {
@@ -924,7 +971,7 @@ export default function App() {
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
-    'Machine Operator': ['Dashboard', 'Production'],
+    'Machine Operator': ['Dashboard', 'Production', 'Production Targets'],
     'Store Manager': ['Dashboard'],
     'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'],
   }
@@ -997,9 +1044,9 @@ export default function App() {
               exportExcel={exportExcel}
             />
           ) : (
-            <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
+            <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
-              saveProduction={saveProduction} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
+              saveProduction={saveProduction} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
@@ -1013,7 +1060,7 @@ export default function App() {
 }
 
 function ModuleView(props: {
-  module: Module; clock: Date; products: Product[]; marketplaceListings: MarketplaceListing[]; production: Production[];
+  module: Module; clock: Date; products: Product[]; marketplaceListings: MarketplaceListing[]; production: Production[]; productionTargets: ProductionTarget[];
   rawMaterials: RawMaterial[]; finishedGoods: FinishedGood[]; stockMovements: StockMovement[]; audit: string[]; search: string;
   workbookMeta: { loaded: boolean; name: string; sheetCount: number };
   setSearch: (v: string) => void; exportExcel: () => void;
@@ -1022,6 +1069,7 @@ function ModuleView(props: {
   saveMarketplaceListing: (input: { platform: string; platformSku: string; productSku: string; mrp: number; sellingPrice: number }) => Promise<MarketplaceListing>;
   importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => Promise<MarketplaceImportResult>;
   saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
+  saveProductionTarget: (input: { period: ProductionTargetPeriod; date: string; machineId: string; sku: string; productName: string; targetQuantity: number }) => Promise<ProductionTarget>;
   saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
   applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string; linkToDispatch?: boolean }) => Promise<void>;
   initializeZeroFinishedStock: () => Promise<void>; zeroStockInitializationBusy: boolean;
@@ -1035,7 +1083,7 @@ function ModuleView(props: {
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
   allowedModules: Module[]
 }) {
-  const { module, clock, products, marketplaceListings, production, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules } = props
   const [catalogFormOpen, setCatalogFormOpen] = useState<'product' | 'variant' | 'listing' | null>(null)
   const [selectedCatalogMasterSku, setSelectedCatalogMasterSku] = useState('')
   const [stockFormOpen, setStockFormOpen] = useState(false)
@@ -1054,6 +1102,10 @@ function ModuleView(props: {
   const [deliverySku, setDeliverySku] = useState('')
   const [returnChannel, setReturnChannel] = useState('')
   const [returnDispatchId, setReturnDispatchId] = useState('')
+  const [productionTargetPeriodChoice, setProductionTargetPeriodChoice] = useState<ProductionTargetPeriod>('daily')
+  const [productionTargetDate, setProductionTargetDate] = useState(() => indiaDateKey(clock))
+  const [productionTargetProduct, setProductionTargetProduct] = useState('')
+  const [productionTargetBusy, setProductionTargetBusy] = useState(false)
 
   useEffect(() => {
     if (module !== 'User Management' || sessionUser.role !== 'Super Admin') return
@@ -1196,6 +1248,41 @@ function ModuleView(props: {
       formElement.reset()
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Production entry could not be saved')
+    }
+  }
+
+  const submitProductionTarget = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const skuChoice = String(form.get('sku') || '')
+    const customProduct = skuChoice === '__custom__'
+    const product = products.find(item => item.sku === skuChoice && item.status === 'Active')
+    if (!customProduct && !product) {
+      notify('Choose an active catalog product or the custom product option.')
+      return
+    }
+    const targetQuantity = Number(form.get('targetQuantity'))
+    if (!Number.isInteger(targetQuantity) || targetQuantity < 1 || targetQuantity > 1000000) {
+      notify('Enter a whole-number target from 1 to 1,000,000.')
+      return
+    }
+    setProductionTargetBusy(true)
+    try {
+      await saveProductionTarget({
+        period: productionTargetPeriodChoice,
+        date: String(form.get('date') || ''),
+        machineId: String(form.get('machineId') || ''),
+        sku: product?.sku || '',
+        productName: product?.name || String(form.get('customProductName') || '').trim(),
+        targetQuantity,
+      })
+      formElement.reset()
+      setProductionTargetProduct('')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Production target could not be saved.')
+    } finally {
+      setProductionTargetBusy(false)
     }
   }
 
@@ -1930,6 +2017,63 @@ function ModuleView(props: {
         <div className="toolbar catalog-export-toolbar">
           <div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search catalog" /></div>
           <button className="secondary" onClick={exportExcel}><Download size={16} /> Export</button>
+        </div>
+      </section>
+    )
+  }
+
+  if (module === 'Production Targets') {
+    const periodRange = productionTargetPeriodRange(productionTargetPeriodChoice, productionTargetDate)
+    const periodTargets = productionTargets
+      .filter(target => target.period === productionTargetPeriodChoice && target.startDate === periodRange.startDate)
+      .sort((left, right) => left.machineId.localeCompare(right.machineId) || left.productName.localeCompare(right.productName))
+    const targetableProducts = products.filter(product => {
+      if (product.status !== 'Active') return false
+      return product.isVariant || !products.some(item => item.isVariant && item.status === 'Active' && item.masterSku.toLowerCase() === product.sku.toLowerCase())
+    })
+    const targetableMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
+    const dateLabel = productionTargetPeriodChoice === 'daily'
+      ? 'Target date'
+      : productionTargetPeriodChoice === 'weekly'
+        ? 'Date within target week'
+        : 'Date within target month'
+    return (
+      <section>
+        <div className="page-heading"><div><p>FACTORY PLANNING</p><h1>Production Targets</h1><span className="dashboard-description">Set how many units each machine should produce and track actual output for the selected period.</span></div></div>
+        <div className="panel production-target-filter">
+          <div className="panel-heading"><div><h2>Choose target period</h2><p>{productionTargetPeriodChoice === 'weekly' ? 'Weeks run Monday to Sunday.' : productionTargetPeriodChoice === 'monthly' ? 'The target covers the full calendar month.' : 'The target covers one production date.'}</p></div></div>
+          <div className="field-grid">
+            <label>Period<select value={productionTargetPeriodChoice} onChange={event => setProductionTargetPeriodChoice(event.target.value as ProductionTargetPeriod)}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
+            <label>{dateLabel}<input type="date" value={productionTargetDate} onChange={event => setProductionTargetDate(event.target.value || indiaDateKey(clock))} required /></label>
+          </div>
+          <p className="local-storage-note">Showing {formatIndiaDate(periodRange.startDate)}{periodRange.endDate === periodRange.startDate ? '' : ` – ${formatIndiaDate(periodRange.endDate)}`} targets.</p>
+        </div>
+        {sessionUser.role === 'Super Admin' && <form className="panel form-card" onSubmit={submitProductionTarget}>
+          <div className="panel-heading"><div><h2>Assign machine target</h2><p>Save a quantity for one machine and one product. Saving the same combination edits its target instead of adding a duplicate.</p></div></div>
+          <input type="hidden" name="date" value={productionTargetDate} />
+          <div className="field-grid">
+            <label>Machine<select name="machineId" required disabled={targetableMachines.length === 0}><option value="">Select machine</option>{targetableMachines.map(machine => <option key={machine.id} value={machine.id}>{machine.id}{machine.name ? ` — ${machine.name}` : ''}</option>)}</select></label>
+            <label>Product<select name="sku" required value={productionTargetProduct} onChange={event => setProductionTargetProduct(event.target.value)}><option value="">Select product</option><option value="__custom__">Product not in catalog (custom target)</option>{targetableProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{product.size || product.color ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
+            {productionTargetProduct === '__custom__' && <label>Custom product name<input name="customProductName" required maxLength={180} placeholder="Enter product for this target only" /><small className="field-hint">This will not create a catalog item.</small></label>}
+            <label>Target quantity<input name="targetQuantity" type="number" min="1" max="1000000" step="1" required /></label>
+          </div>
+          {targetableMachines.length === 0 && <p className="local-storage-note">No configured machine is available. Set a machine to Idle or Running before assigning a target.</p>}
+          {productionTargetProduct === '__custom__' && <p className="local-storage-note">Custom targets are planning-only. Add the product to the catalog before recording production against a SKU.</p>}
+          <button className="primary wide" type="submit" disabled={productionTargetBusy || targetableMachines.length === 0}>{productionTargetBusy ? 'Saving target…' : 'Save production target'}</button>
+        </form>}
+        {sessionUser.role !== 'Super Admin' && <p className="local-storage-note">{sessionUser.role === 'Machine Operator' ? 'Only targets for machines assigned to you are shown here.' : 'Targets are assigned by the Super Admin. Contact them to change a machine or product target.'}</p>}
+        <div className="table-card entries-table">
+          <PaginatedTable
+            label={`${productionTargetPeriodChoice} production targets`}
+            resetKey={`${productionTargetPeriodChoice}:${periodRange.startDate}`}
+            header={<thead><tr><th>Machine</th><th>Product / SKU</th><th>Target</th><th>Actual</th><th>Remaining</th><th>Progress</th></tr></thead>}
+            rows={periodTargets.map(target => {
+              const remaining = Math.max(0, target.targetQuantity - target.actual)
+              const percent = Math.round(target.actual / target.targetQuantity * 100)
+              return <tr key={target.id}><td><strong>{target.machineId}</strong><br /><span>{target.machineName}</span></td><td><strong>{target.productName}</strong><br /><code>{target.sku || 'Custom target · no catalog SKU'}</code></td><td>{target.targetQuantity.toLocaleString('en-IN')}</td><td>{target.actual.toLocaleString('en-IN')}</td><td>{remaining.toLocaleString('en-IN')}</td><td><progress value={Math.min(target.actual, target.targetQuantity)} max={target.targetQuantity} aria-label={`${target.productName}: ${percent}% of target`} />{percent}%</td></tr>
+            })}
+          />
+          {periodTargets.length === 0 && <div className="empty-state"><Target size={24} /><strong>No targets for this period</strong><span>{sessionUser.role === 'Super Admin' ? 'Assign a machine and product target above.' : 'The Super Admin has not assigned targets for this period.'}</span></div>}
         </div>
       </section>
     )
@@ -2820,17 +2964,20 @@ function DashboardView({
       { module: 'Inventory', detail: 'Review raw materials and finished goods' },
       { module: 'Product Catalog', detail: 'Create products, SKUs, and marketplace listings' },
       { module: 'Machines', detail: 'Configure machines and availability' },
+      { module: 'Production Targets', detail: 'Assign daily, weekly, and monthly machine targets' },
       { module: 'Stock Movement', detail: 'Audit the complete stock ledger' },
     ],
     'Production Supervisor': [
       { module: 'Inventory', detail: 'Manage raw materials and finished goods' },
       { module: 'Production', detail: 'Enter output and export production reports' },
+      { module: 'Production Targets', detail: 'View machine targets and actual output' },
       { module: 'Product Catalog', detail: 'Manage products, SKUs, and marketplace listings' },
       { module: 'Stitching', detail: 'Review stitching work' },
       { module: 'Quality Control', detail: 'Review quality checks' },
     ],
     'Machine Operator': [
       { module: 'Production', detail: 'Record output by machine and SKU' },
+      { module: 'Production Targets', detail: 'See the target assigned to your machine' },
     ],
     'Store Manager': [],
     'E-commerce Executive': [

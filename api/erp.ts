@@ -13,6 +13,7 @@ import {
   initializeWorkbookZeroFinishedStock,
   importWorkbookMarketplaceCatalog,
   recordWorkbookProduction,
+  setWorkbookProductionTarget,
   readUsers,
   readSheetRecords,
   type PublicUser,
@@ -51,6 +52,20 @@ type MarketplaceListing = {
 const MARKETPLACES = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy: string }
+type ProductionTargetPeriod = 'daily' | 'weekly' | 'monthly'
+type ProductionTarget = {
+  id: string
+  period: ProductionTargetPeriod
+  startDate: string
+  endDate: string
+  machineId: string
+  machineName: string
+  sku: string
+  productName: string
+  targetQuantity: number
+  actual: number
+  createdBy: string
+}
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
   supplier: string; issued: number; machineConsumption: number; stitchingConsumption: number;
@@ -112,6 +127,36 @@ function dateKey(value: unknown) {
   }).format(parsed)
 }
 
+function productionTargetPeriod(periodValue: unknown, dateValue: unknown) {
+  const period = text(periodValue).toLowerCase()
+  const date = text(dateValue)
+  if (!['daily', 'weekly', 'monthly'].includes(period)) throw new ApiError(400, 'Choose a daily, weekly, or monthly target period.')
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00.000Z`) : Number.NaN
+  if (!Number.isFinite(parsedDate) || new Date(parsedDate).toISOString().slice(0, 10) !== date) {
+    throw new ApiError(400, 'Choose a valid target date.')
+  }
+  if (period === 'daily') return { period: period as ProductionTargetPeriod, startDate: date, endDate: date }
+  const anchor = new Date(`${date}T12:00:00.000Z`)
+  if (period === 'weekly') {
+    const weekday = anchor.getUTCDay()
+    const start = new Date(anchor)
+    start.setUTCDate(start.getUTCDate() + (weekday === 0 ? -6 : 1 - weekday))
+    const end = new Date(start)
+    end.setUTCDate(end.getUTCDate() + 6)
+    return {
+      period: period as ProductionTargetPeriod,
+      startDate: start.toISOString().slice(0, 10),
+      endDate: end.toISOString().slice(0, 10),
+    }
+  }
+  const [year, month] = date.split('-').map(Number)
+  return {
+    period: period as ProductionTargetPeriod,
+    startDate: `${date.slice(0, 7)}-01`,
+    endDate: new Date(Date.UTC(year, month, 0, 12)).toISOString().slice(0, 10),
+  }
+}
+
 function records(data: WorkbookData, sheetName: string) {
   return readSheetRecords(data, sheetName)
 }
@@ -130,6 +175,19 @@ function productionSkus(products: CatalogItem[]) {
   )
 }
 
+function productionTargetActual(data: WorkbookData, target: Omit<ProductionTarget, 'actual'>) {
+  return records(data, 'Production').reduce((total, row) => {
+    const date = dateKey(row.Date)
+    if (date < target.startDate || date > target.endDate ||
+        text(row['Machine ID']).toLowerCase() !== target.machineId.toLowerCase()) return total
+    const sku = text(row['Variant SKU']) || text(row['Master SKU'])
+    const sameProduct = target.sku
+      ? sku.toLowerCase() === target.sku.toLowerCase()
+      : !sku && text(row['Product Name']).toLowerCase() === target.productName.toLowerCase()
+    return sameProduct ? total + number(row['Actual Quantity']) : total
+  }, 0)
+}
+
 export function getSnapshot(data: WorkbookData, user: PublicUser) {
   if (user.role === 'E-commerce Executive') {
     return {
@@ -137,6 +195,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       marketplaceListings: [],
       machines: [],
       production: [],
+      productionTargets: [],
       rawMaterials: [],
       finishedGoods: [],
       stockMovements: [],
@@ -296,6 +355,48 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       createdBy,
     }]
   })
+  const productionTargets: ProductionTarget[] = optionalRecords(data, 'Production_Targets').flatMap(row => {
+    const period = text(row.Period).toLowerCase()
+    const startDate = text(row['Period Start'])
+    const endDate = text(row['Period End'])
+    const machineId = text(row['Machine ID'])
+    const sku = text(row['Product SKU'])
+    const productName = text(row['Product Name'])
+    const targetQuantity = number(row['Target Quantity'])
+    const id = text(row['Target ID'])
+    if (text(row.Status).toLowerCase() !== 'active') return []
+    const validDate = (value: string) => {
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value) ? Date.parse(`${value}T00:00:00.000Z`) : Number.NaN
+      return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value
+    }
+    if (!id || !['daily', 'weekly', 'monthly'].includes(period) ||
+        !validDate(startDate) || !validDate(endDate) ||
+        !machineId || !productName || !Number.isInteger(targetQuantity) || targetQuantity < 1) {
+      throw new ApiError(503, 'The Production_Targets sheet contains an invalid target record.')
+    }
+    const expectedPeriod = productionTargetPeriod(period, startDate)
+    if (expectedPeriod.startDate !== startDate || expectedPeriod.endDate !== endDate) {
+      throw new ApiError(503, 'The Production_Targets sheet contains an invalid target period.')
+    }
+    const base = {
+      id,
+      period: period as ProductionTargetPeriod,
+      startDate,
+      endDate,
+      machineId,
+      machineName: text(row['Machine Name']) || machineId,
+      sku,
+      productName,
+      targetQuantity,
+      createdBy: text(row['Created By']),
+    }
+    return [{ ...base, actual: productionTargetActual(data, base) }]
+  }).filter(target => {
+    if (user.role === 'Super Admin' || user.role === 'Production Supervisor') return true
+    if (user.role !== 'Machine Operator') return false
+    return machines.some(machine => machine.id.toLowerCase() === target.machineId.toLowerCase() &&
+      machine.operator.split(',').some(operator => operator.trim().toLowerCase() === user.name.toLowerCase()))
+  })
   const productBySku = new Map<string, CatalogItem>()
   products.forEach(item => {
     if (!productBySku.has(item.sku.toLowerCase())) productBySku.set(item.sku.toLowerCase(), item)
@@ -334,6 +435,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
     marketplaceListings: user.role === 'Production Supervisor' || user.role === 'Super Admin' ? marketplaceListings : [],
     machines,
     production,
+    productionTargets,
     rawMaterials: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? rawMaterials : [],
     finishedGoods: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? finishedGoods : [],
     stockMovements: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? stockMovements.reverse() : [],
@@ -536,6 +638,60 @@ async function addMachine(data: WorkbookData, body: Record<string, unknown>) {
     Status: machine.status,
   }, ['Machine ID', 'Machine Name', 'Machine Type', 'Operator', 'Status'])
   return machine
+}
+
+async function setProductionTarget(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
+  if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can assign production targets.')
+  const period = text(body.period).toLowerCase()
+  const date = requiredText(body.date, 'Target date', 10)
+  const periodRange = productionTargetPeriod(period, date)
+  const machineId = requiredText(body.machineId, 'Machine', 100)
+  const machine = records(data, 'Machines').find(row => text(row['Machine ID']).toLowerCase() === machineId.toLowerCase())
+  if (!machine) throw new ApiError(400, 'Choose a machine configured in the workbook.')
+  if (text(machine.Status).toLowerCase() === 'maintenance') {
+    throw new ApiError(400, 'A machine under maintenance cannot receive a production target.')
+  }
+  const sku = text(body.sku)
+  const product = sku
+    ? productionSkus(getSnapshot(data, user).products).find(item => item.sku.toLowerCase() === sku.toLowerCase())
+    : undefined
+  if (sku && !product) throw new ApiError(400, 'Choose an active product or variant from the catalog.')
+  const productName = product
+    ? product.name
+    : requiredText(body.productName, 'Custom product name', 180)
+  const targetQuantity = Number(body.targetQuantity)
+  if (!Number.isInteger(targetQuantity) || targetQuantity < 1 || targetQuantity > 1000000) {
+    throw new ApiError(400, 'Target quantity must be a whole number from 1 to 1,000,000.')
+  }
+  const saved = await setWorkbookProductionTarget({
+    period: periodRange.period,
+    date,
+    machineId,
+    sku: product?.sku || '',
+    productName,
+    targetQuantity,
+    createdBy: user.name,
+    id: user.id,
+    role: user.role,
+  })
+  const targetRecord = saved.target
+  const base = {
+    id: text(targetRecord['Target ID']),
+    period: periodRange.period,
+    startDate: text(targetRecord['Period Start']),
+    endDate: text(targetRecord['Period End']),
+    machineId: text(targetRecord['Machine ID']),
+    machineName: text(targetRecord['Machine Name']) || machineId,
+    sku: text(targetRecord['Product SKU']),
+    productName: text(targetRecord['Product Name']),
+    targetQuantity: number(targetRecord['Target Quantity']),
+    createdBy: text(targetRecord['Created By']),
+  }
+  return {
+    target: { ...base, actual: productionTargetActual(data, base) },
+    unchanged: saved.unchanged,
+    backupName: saved.backupName,
+  }
 }
 
 async function addProduction(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
@@ -741,7 +897,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     const body = await readJsonBody(request)
     const action = text(body.action)
-    const snapshotActions = ['addProduction', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine']
+    const snapshotActions = ['addProduction', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine', 'setProductionTarget']
     const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook']
     const data = snapshotActions.includes(action) ? await getWorkbookData() : undefined
     const user = data
@@ -793,6 +949,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       requireSupervisorOrAdmin(user)
       const result = await importMarketplaceWorkbook(user, body)
       sendJson(response, 200, { result })
+      return
+    }
+    if (action === 'setProductionTarget') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for target validation.')
+      const result = await setProductionTarget(data, user, body)
+      sendJson(response, 200, result)
       return
     }
     requireSupervisorOrAdmin(user)

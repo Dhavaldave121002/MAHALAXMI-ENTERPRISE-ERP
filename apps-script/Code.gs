@@ -1,7 +1,7 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
-    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production']
+    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'submitEcommerceReport', 'listEcommerceReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget']
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
     const ERP_ECOMMERCE_LABEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
@@ -137,6 +137,8 @@
           return getEcommerceTargets_(spreadsheet, payload)
         case 'setEcommerceTarget':
           return setEcommerceTarget_(spreadsheet, payload)
+        case 'setProductionTarget':
+          return setProductionTarget_(spreadsheet, payload)
         case 'appendRecord':
           return appendRecord_(spreadsheet, payload)
         case 'addMarketplaceListing':
@@ -857,6 +859,116 @@
         }
         SpreadsheetApp.flush()
         return { finishedGood: item, movement: movement }
+      })
+    }
+
+    function productionTargetPeriod_(periodValue, dateValue) {
+      const period = String(periodValue || '').trim().toLowerCase()
+      if (['daily', 'weekly', 'monthly'].indexOf(period) < 0) throw apiError_(400, 'Choose a daily, weekly, or monthly target period.')
+      const dateText = String(dateValue || '').trim()
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText)
+      if (!match) throw apiError_(400, 'Choose a valid target date.')
+      const year = Number(match[1])
+      const month = Number(match[2])
+      const day = Number(match[3])
+      const anchor = new Date(Date.UTC(year, month - 1, day, 12))
+      if (anchor.toISOString().slice(0, 10) !== dateText) throw apiError_(400, 'Choose a valid target date.')
+      function key(date) {
+        return date.toISOString().slice(0, 10)
+      }
+      if (period === 'daily') return { period: period, startDate: dateText, endDate: dateText }
+      if (period === 'weekly') {
+        const offset = anchor.getUTCDay() === 0 ? -6 : 1 - anchor.getUTCDay()
+        const start = new Date(anchor.getTime())
+        start.setUTCDate(start.getUTCDate() + offset)
+        const end = new Date(start.getTime())
+        end.setUTCDate(end.getUTCDate() + 6)
+        return { period: period, startDate: key(start), endDate: key(end) }
+      }
+      const start = new Date(Date.UTC(year, month - 1, 1, 12))
+      const end = new Date(Date.UTC(year, month, 0, 12))
+      return { period: period, startDate: key(start), endDate: key(end) }
+    }
+
+    function setProductionTarget_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can assign production targets.')
+      }
+      return withWriteLock_(function () {
+        const period = productionTargetPeriod_(payload.period, payload.date)
+        const machineId = String(payload.machineId || '').trim()
+        const sku = String(payload.sku || '').trim()
+        const productName = String(payload.productName || '').trim()
+        const targetQuantity = Number(payload.targetQuantity)
+        if (!machineId || machineId.length > 100) throw apiError_(400, 'Choose a configured machine.')
+        if (!productName || productName.length > 180 || /[\u0000-\u001f]/.test(productName)) {
+          throw apiError_(400, 'Enter a product name of 1 to 180 characters.')
+        }
+        if (sku.length > 100) throw apiError_(400, 'The product SKU is too long.')
+        if (!Number.isInteger(targetQuantity) || targetQuantity < 1 || targetQuantity > 1000000) {
+          throw apiError_(400, 'Target quantity must be a whole number from 1 to 1,000,000.')
+        }
+        const machine = readSheetRecords_(spreadsheet, 'Machines').find(function (row) {
+          return String(row['Machine ID'] || '').trim().toLowerCase() === machineId.toLowerCase()
+        })
+        if (!machine) throw apiError_(400, 'Choose a machine configured in the workbook.')
+        if (String(machine.Status || '').trim().toLowerCase() === 'maintenance') {
+          throw apiError_(400, 'A machine under maintenance cannot receive a production target.')
+        }
+
+        const headers = [
+          'Target ID', 'Period', 'Period Start', 'Period End', 'Machine ID', 'Machine Name',
+          'Product SKU', 'Product Name', 'Target Quantity', 'Status', 'Created By', 'Created At',
+          'Updated By', 'Updated At',
+        ]
+        const backupState = { created: false, backupName: '' }
+        const targetSheet = ensureStockSheet_(spreadsheet, 'Production_Targets', headers, backupState)
+        const normalizedProduct = function (value) { return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase() }
+        const matches = readSheetRecords_(spreadsheet, 'Production_Targets').filter(function (row) {
+          const sameProduct = sku
+            ? String(row['Product SKU'] || '').trim().toLowerCase() === sku.toLowerCase()
+            : !String(row['Product SKU'] || '').trim() && normalizedProduct(row['Product Name']) === normalizedProduct(productName)
+          return String(row.Period || '').trim().toLowerCase() === period.period &&
+            String(row['Period Start'] || '').trim() === period.startDate &&
+            String(row['Machine ID'] || '').trim().toLowerCase() === machineId.toLowerCase() &&
+            sameProduct
+        })
+        if (matches.length > 1) throw apiError_(409, 'Duplicate targets exist for this machine, product, and period. Resolve them before saving.')
+
+        const existing = matches[0]
+        const now = new Date().toISOString()
+        const record = {
+          'Target ID': String(existing && existing['Target ID'] || Utilities.getUuid()),
+          Period: period.period,
+          'Period Start': period.startDate,
+          'Period End': period.endDate,
+          'Machine ID': machineId,
+          'Machine Name': String(machine['Machine Name'] || machineId).trim(),
+          'Product SKU': sku,
+          'Product Name': productName,
+          'Target Quantity': targetQuantity,
+          Status: 'Active',
+          'Created By': String(existing && existing['Created By'] || payload.createdBy || ''),
+          'Created At': String(existing && existing['Created At'] || now),
+          'Updated By': String(payload.createdBy || ''),
+          'Updated At': now,
+        }
+        if (existing && Number(existing['Target Quantity']) === targetQuantity &&
+            String(existing['Machine Name'] || '').trim() === record['Machine Name'] &&
+            String(existing['Product Name'] || '').trim() === productName &&
+            String(existing.Status || 'Active').trim().toLowerCase() === 'active') {
+          return { target: existing, unchanged: true, backupName: backupState.backupName }
+        }
+        createBackupOnce_(spreadsheet, backupState)
+        if (existing) {
+          const rowNumber = findStockRow_(targetSheet.sheet, targetSheet.headers, 'Target ID', record['Target ID'])
+          if (!rowNumber) throw apiError_(409, 'The existing production target could not be located.')
+          updateStockRow_(targetSheet.sheet, targetSheet.headers, rowNumber, record)
+        } else {
+          appendStockRow_(targetSheet.sheet, targetSheet.headers, record)
+        }
+        SpreadsheetApp.flush()
+        return { target: record, unchanged: false, backupName: backupState.backupName }
       })
     }
 

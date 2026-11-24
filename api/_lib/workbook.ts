@@ -355,6 +355,22 @@ export async function recordWorkbookProduction(record: Record<string, unknown>) 
   return callAppsScript<{ finishedGood: Record<string, unknown>; movement: Record<string, unknown> | null }>('recordProduction', { record })
 }
 
+export async function setWorkbookProductionTarget(input: SessionBoundInput & {
+  period: 'daily' | 'weekly' | 'monthly'
+  date: string
+  machineId: string
+  sku: string
+  productName: string
+  targetQuantity: number
+  createdBy: string
+}) {
+  return callAppsScript<{
+    target: Record<string, unknown>
+    unchanged: boolean
+    backupName: string
+  }>('setProductionTarget', { ...input, ...sessionBoundPayload(input) })
+}
+
 export function publicUser(user: WorkbookUser): PublicUser {
   return { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active, platforms: user.platforms }
 }
