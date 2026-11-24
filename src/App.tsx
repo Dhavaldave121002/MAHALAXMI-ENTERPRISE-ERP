@@ -8,13 +8,13 @@ import {
 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import * as XLSX from 'xlsx'
-import { SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
+import { SalesDailyReportView, SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
 const CameraPublisher = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraPublisher })))
 const CameraMonitoringView = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraMonitoringView })))
 import type { SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
 
-type Module = 'Dashboard' | 'Sales Dashboard' | 'Leads' | 'Factory' | 'Production' | 'Production Targets' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
+type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'Factory' | 'Production' | 'Production Targets' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
@@ -98,7 +98,7 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Quality Control'] as Module[] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
-  { label: 'SALES', items: ['Sales Dashboard', 'Leads', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
+  { label: 'SALES', items: ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
   { label: 'E-COMMERCE', items: ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Camera Monitoring', 'Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
@@ -129,7 +129,7 @@ const productionBlocks = [
 ]
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
-  Dashboard: LayoutDashboard, 'Sales Dashboard': BarChart3, Leads: Users, Production: Factory, 'Production Targets': Target, Stitching: ClipboardCheck, 'Raw Material': Boxes,
+  Dashboard: LayoutDashboard, 'Sales Dashboard': BarChart3, 'Sales Daily Report': ClipboardCheck, Leads: Users, Production: Factory, 'Production Targets': Target, Stitching: ClipboardCheck, 'Raw Material': Boxes,
   'Finished Goods': Package, 'Product Catalog': Archive, Orders: ShoppingCart, Inventory: Boxes,
   'Stock Movement': ArrowUpRight,
   'Shipping & Delivery': Truck, 'Returns & RTO': RotateCcw, Machines: Gauge,
@@ -1086,7 +1086,7 @@ export default function App() {
     'Machine Operator': ['Dashboard', 'Production', 'Production Targets'],
     'Store Manager': ['Dashboard'],
     'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'],
-    'Sales Executive': ['Sales Dashboard', 'Leads', 'Orders'],
+    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -1367,6 +1367,15 @@ function ModuleView(props: {
       targets={salesTargets}
       products={products}
       setTarget={setSalesTarget}
+    />
+  }
+  if (module === 'Sales Daily Report') {
+    return <SalesDailyReportView
+      role={salesRole}
+      currentUser={{ id: sessionUser.id, name: sessionUser.name }}
+      leads={salesLeads}
+      activities={salesActivities}
+      orders={salesOrders}
     />
   }
   if (module === 'Leads') {

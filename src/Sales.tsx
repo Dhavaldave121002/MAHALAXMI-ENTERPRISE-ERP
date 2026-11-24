@@ -9,6 +9,185 @@ import type {
 type SalesRole = 'Super Admin' | 'Production Supervisor' | 'Sales Executive'
 type SalesProduct = { sku: string; name: string; mrp: number; stock: number; status: string; masterSku?: string; isVariant?: boolean }
 
+export function SalesDailyReportView(props: {
+  role: SalesRole
+  currentUser: { id: string; name: string }
+  leads: SalesLead[]
+  activities: SalesActivity[]
+  orders: SalesOrder[]
+}) {
+  const { role, currentUser, leads, activities, orders } = props
+  const [dailyReportDate, setDailyReportDate] = useState(() => currentIndiaDate())
+  const [dailyWorkReports, setDailyWorkReports] = useState<SalesDailyReport[]>([])
+  const [dailyWorkReportsLoading, setDailyWorkReportsLoading] = useState(true)
+  const [dailyWorkReportsError, setDailyWorkReportsError] = useState('')
+  const [dailyWorkReportMessage, setDailyWorkReportMessage] = useState('')
+  const [savingDailyWorkReport, setSavingDailyWorkReport] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void fetch('/api/sales-reports', { cache: 'no-store' })
+      .then(async response => {
+        const result = await response.json() as { error?: string; reports?: SalesDailyReport[] }
+        if (!response.ok) throw new Error(result.error || 'Sales daily reports could not be loaded.')
+        if (active) {
+          setDailyWorkReports(result.reports || [])
+          setDailyWorkReportsError('')
+        }
+      })
+      .catch(error => {
+        if (active) setDailyWorkReportsError(error instanceof Error ? error.message : 'Sales daily reports could not be loaded.')
+      })
+      .finally(() => {
+        if (active) setDailyWorkReportsLoading(false)
+      })
+    return () => { active = false }
+  }, [])
+
+  const today = currentIndiaDate()
+  const todayWorkReport = dailyWorkReports.find(report => report.userId === currentUser.id && report.date === today)
+  const workReportsForDate = dailyWorkReports.filter(report => report.date === dailyReportDate)
+    .sort((a, b) => a.userName.localeCompare(b.userName))
+  const dailyReportOrders = orders
+    .filter(order => dailyReportDate && dateForSales(order.createdAt) === dailyReportDate)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const dailyReportActivities = activities
+    .filter(activity => dailyReportDate && dateForSales(activity.createdAt) === dailyReportDate &&
+      (role !== 'Sales Executive' || activity.createdBy === currentUser.id))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const dailyReportAmount = dailyReportOrders.reduce((sum, order) => sum + activeOrderAmount(order), 0)
+  const dailyReportLeadNames = new Map(leads.map(lead => [lead.id, lead.name]))
+  const dailyReportLeadsContacted = new Set(dailyReportActivities.map(activity => activity.leadId)).size
+
+  const submitDailyWorkReport = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    const values = new FormData(form)
+    const completed = String(values.get('completed') || '').trim()
+    const pending = String(values.get('pending') || '').trim()
+    const issues = String(values.get('issues') || '').trim()
+    if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
+      setDailyWorkReportMessage('Completed work is required; each field must be 3,000 characters or fewer.')
+      return
+    }
+    setSavingDailyWorkReport(true)
+    setDailyWorkReportMessage('')
+    try {
+      const response = await fetch('/api/sales-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed, pending, issues }),
+      })
+      const result = await response.json() as { error?: string; report?: SalesDailyReport }
+      if (!response.ok || !result.report) throw new Error(result.error || 'Daily sales report could not be saved.')
+      const savedReport = result.report
+      setDailyWorkReports(previous => [savedReport, ...previous.filter(report => report.id !== savedReport.id)])
+      setDailyWorkReportsError('')
+      setDailyWorkReportMessage('Daily work report saved. You can update it again today.')
+    } catch (error) {
+      setDailyWorkReportMessage(error instanceof Error ? error.message : 'Daily sales report could not be saved.')
+    } finally {
+      setSavingDailyWorkReport(false)
+    }
+  }
+
+  const exportDailyReport = () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+      Date: dailyReportDate,
+      Scope: role === 'Sales Executive' ? currentUser.name : 'All Sales Executives',
+      'Orders Booked': dailyReportOrders.length,
+      'Net Booked Amount': dailyReportAmount,
+      'Activities Logged': dailyReportActivities.length,
+      'Unique Leads Contacted': dailyReportLeadsContacted,
+      'Follow-Ups Scheduled': dailyReportActivities.filter(activity => activity.nextFollowUp).length,
+    }]), 'Daily Summary')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportOrders.map(order => ({
+      'Order ID': order.id,
+      Time: new Date(order.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
+      Salesperson: order.salesUserName,
+      Customer: order.customerName,
+      SKU: order.sku,
+      Product: order.productName,
+      Quantity: order.quantity,
+      'Net Booked Amount': activeOrderAmount(order),
+      Status: order.status,
+    }))), 'Orders')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportActivities.map(activity => ({
+      Time: new Date(activity.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
+      Salesperson: activity.createdByName,
+      Lead: dailyReportLeadNames.get(activity.leadId) || activity.leadId,
+      Type: activity.type,
+      Outcome: activity.outcome,
+      Notes: activity.notes,
+      'Next Follow-Up': activity.nextFollowUp,
+    }))), 'Activities')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(workReportsForDate.map(report => ({
+      Date: report.date,
+      Salesperson: report.userName,
+      Completed: report.completed,
+      Pending: report.pending,
+      'Issues / notes': report.issues,
+      'Last updated': report.updatedAt,
+    }))), 'Work Reports')
+    XLSX.writeFile(workbook, `Mahalaxmi-Sales-Daily-Report-${dailyReportDate}.xlsx`)
+  }
+
+  return (
+    <section>
+      <div className="page-heading">
+        <div><p>SALES WORKSPACE</p><h1>Sales Daily Report</h1><span className="dashboard-description">Review sales activity, booked orders, and daily work reports without scrolling through the dashboard.</span></div>
+      </div>
+      <section className="panel sales-daily-report">
+        <div className="panel-heading">
+          <div><h2>Daily sales report</h2><p>{role === 'Sales Executive' ? currentUser.name : 'All Sales Executives'} · {dailyReportDate}</p></div>
+          <div className="sales-daily-controls">
+            <label>Report date<input type="date" value={dailyReportDate} onChange={event => setDailyReportDate(event.target.value)} /></label>
+            <button className="secondary" disabled={!dailyReportDate} onClick={exportDailyReport}><Download size={16} /> Export daily report</button>
+          </div>
+        </div>
+        <div className="sales-daily-summary">
+          <article><span>Orders booked</span><strong>{dailyReportOrders.length}</strong></article>
+          <article><span>Net booked value</span><strong>{money(dailyReportAmount)}</strong></article>
+          <article><span>Activities logged</span><strong>{dailyReportActivities.length}</strong><small>{dailyReportActivities.filter(activity => activity.type === 'Call').length} calls · {dailyReportLeadsContacted} leads contacted</small></article>
+          <article><span>Follow-ups scheduled</span><strong>{dailyReportActivities.filter(activity => activity.nextFollowUp).length}</strong></article>
+        </div>
+        <div className="sales-daily-tables">
+          <div>
+            <div className="sales-daily-table-heading"><h3>Orders booked</h3><span>{dailyReportOrders.length}</span></div>
+            {dailyReportOrders.length ? <div className="table-card entries-table"><table><thead><tr><th>Order</th><th>Customer</th><th>SKU / product</th><th>Qty</th><th>Net amount</th><th>Salesperson</th></tr></thead><tbody>
+              {dailyReportOrders.map(order => <tr key={order.id}><td><code>{order.id}</code></td><td>{order.customerName}</td><td><code>{order.sku}</code><small>{order.productName}</small></td><td>{order.quantity}</td><td>{money(activeOrderAmount(order))}</td><td>{order.salesUserName}</td></tr>)}
+            </tbody></table></div> : <div className="sales-daily-empty">No orders were booked on this date.</div>}
+          </div>
+          <div>
+            <div className="sales-daily-table-heading"><h3>Lead activities</h3><span>{dailyReportActivities.length}</span></div>
+            {dailyReportActivities.length ? <div className="table-card entries-table"><table><thead><tr><th>Lead</th><th>Type</th><th>Outcome / notes</th><th>Salesperson</th><th>Next follow-up</th></tr></thead><tbody>
+              {dailyReportActivities.map(activity => <tr key={activity.id}><td>{dailyReportLeadNames.get(activity.leadId) || activity.leadId}</td><td>{activity.type}</td><td>{activity.outcome}<small>{activity.notes}</small></td><td>{activity.createdByName}</td><td>{activity.nextFollowUp || '—'}</td></tr>)}
+            </tbody></table></div> : <div className="sales-daily-empty">No lead activities were recorded on this date.</div>}
+          </div>
+        </div>
+      </section>
+      <section className="panel sales-work-report">
+        <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per Sales Executive each day; submitting again updates today’s report.</p></div></div>
+        {role === 'Sales Executive' && <form key={todayWorkReport?.updatedAt || 'new'} className="ecommerce-form" onSubmit={event => void submitDailyWorkReport(event)}>
+          <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} defaultValue={todayWorkReport?.completed || ''} /></label>
+          <label>Pending work<textarea name="pending" maxLength={3000} rows={3} defaultValue={todayWorkReport?.pending || ''} /></label>
+          <label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} defaultValue={todayWorkReport?.issues || ''} /></label>
+          <button className="primary" type="submit" disabled={savingDailyWorkReport}><CheckCircle2 size={15} /> {todayWorkReport ? 'Update today’s report' : 'Submit daily report'}</button>
+        </form>}
+        {role !== 'Sales Executive' && <p className="sales-readonly-note">Read-only report history for {dailyReportDate}. Sales Executives can submit or update their own report for today.</p>}
+        {dailyWorkReportsError && <p className="sales-message" role="alert">{dailyWorkReportsError}</p>}
+        {dailyWorkReportsLoading ? <p className="sales-readonly-note">Loading saved work reports…</p>
+          : workReportsForDate.length ? <div className="table-card entries-table sales-work-report-table"><table><thead><tr><th>Sales Executive</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th><th>Last updated</th></tr></thead><tbody>
+            {workReportsForDate.map(report => <tr key={report.id}><td>{report.userName}</td><td className="sales-report-cell">{report.completed}</td><td className="sales-report-cell">{report.pending || '—'}</td><td className="sales-report-cell">{report.issues || '—'}</td><td>{new Date(report.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</td></tr>)}
+          </tbody></table></div>
+            : <div className="sales-daily-empty">{dailyWorkReportsError ? 'Saved reports could not be loaded.' : `No work reports were submitted for ${dailyReportDate}.`}</div>}
+        <p className="sales-message" role="status" aria-live="polite">{dailyWorkReportMessage}</p>
+      </section>
+    </section>
+  )
+}
+
 function sellableProducts(products: SalesProduct[]) {
   const variantMasters = new Set(products
     .filter(product => product.isVariant && product.status === 'Active')
@@ -94,54 +273,16 @@ export function SalesDashboardView(props: {
   const { role, currentUser, salesUsers, leads, activities, orders, targets, products, setTarget } = props
   const [selectedMonth, setSelectedMonth] = useState(() => currentIndiaDate().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(() => currentIndiaDate().slice(0, 4))
-  const [dailyReportDate, setDailyReportDate] = useState(() => currentIndiaDate())
   const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({})
   const [savingTarget, setSavingTarget] = useState('')
   const [message, setMessage] = useState('')
-  const [dailyWorkReports, setDailyWorkReports] = useState<SalesDailyReport[]>([])
-  const [dailyWorkReportsLoading, setDailyWorkReportsLoading] = useState(true)
-  const [dailyWorkReportsError, setDailyWorkReportsError] = useState('')
-  const [dailyWorkReportMessage, setDailyWorkReportMessage] = useState('')
-  const [savingDailyWorkReport, setSavingDailyWorkReport] = useState(false)
-  useEffect(() => {
-    let active = true
-    void fetch('/api/sales-reports', { cache: 'no-store' })
-      .then(async response => {
-        const result = await response.json() as { error?: string; reports?: SalesDailyReport[] }
-        if (!response.ok) throw new Error(result.error || 'Sales daily reports could not be loaded.')
-        if (active) {
-          setDailyWorkReports(result.reports || [])
-          setDailyWorkReportsError('')
-        }
-      })
-      .catch(error => {
-        if (active) setDailyWorkReportsError(error instanceof Error ? error.message : 'Sales daily reports could not be loaded.')
-      })
-      .finally(() => {
-        if (active) setDailyWorkReportsLoading(false)
-      })
-    return () => { active = false }
-  }, [])
   const monthActual = orders.filter(order => dateForSales(order.createdAt).slice(0, 7) === selectedMonth)
     .reduce((sum, order) => sum + activeOrderAmount(order), 0)
   const yearActual = orders.filter(order => dateForSales(order.createdAt).slice(0, 4) === selectedYear)
     .reduce((sum, order) => sum + activeOrderAmount(order), 0)
   const today = currentIndiaDate()
-  const todayWorkReport = dailyWorkReports.find(report => report.userId === currentUser.id && report.date === today)
-  const workReportsForDate = dailyWorkReports.filter(report => report.date === dailyReportDate)
-    .sort((a, b) => a.userName.localeCompare(b.userName))
   const todayOrders = orders.filter(order => dateForSales(order.createdAt) === today)
   const todayActual = todayOrders.reduce((sum, order) => sum + activeOrderAmount(order), 0)
-  const dailyReportOrders = orders
-    .filter(order => dailyReportDate && dateForSales(order.createdAt) === dailyReportDate)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-  const dailyReportActivities = activities
-    .filter(activity => dailyReportDate && dateForSales(activity.createdAt) === dailyReportDate &&
-      (role !== 'Sales Executive' || activity.createdBy === currentUser.id))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-  const dailyReportAmount = dailyReportOrders.reduce((sum, order) => sum + activeOrderAmount(order), 0)
-  const dailyReportLeadNames = new Map(leads.map(lead => [lead.id, lead.name]))
-  const dailyReportLeadsContacted = new Set(dailyReportActivities.map(activity => activity.leadId)).size
   const monthTarget = targets.find(target => target.salesUserId === currentUser.id && target.period === 'monthly' && target.periodKey === selectedMonth)?.targetAmount || 0
   const yearTarget = targets.find(target => target.salesUserId === currentUser.id && target.period === 'yearly' && target.periodKey === selectedYear)?.targetAmount || 0
   const availableProducts = sellableProducts(products)
@@ -175,38 +316,6 @@ export function SalesDashboardView(props: {
       setMessage(error instanceof Error ? error.message : 'Sales target could not be saved.')
     } finally {
       setSavingTarget('')
-    }
-  }
-
-  const submitDailyWorkReport = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const form = event.currentTarget
-    const values = new FormData(form)
-    const completed = String(values.get('completed') || '').trim()
-    const pending = String(values.get('pending') || '').trim()
-    const issues = String(values.get('issues') || '').trim()
-    if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
-      setDailyWorkReportMessage('Completed work is required; each field must be 3,000 characters or fewer.')
-      return
-    }
-    setSavingDailyWorkReport(true)
-    setDailyWorkReportMessage('')
-    try {
-      const response = await fetch('/api/sales-reports', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed, pending, issues }),
-      })
-      const result = await response.json() as { error?: string; report?: SalesDailyReport }
-      if (!response.ok || !result.report) throw new Error(result.error || 'Daily sales report could not be saved.')
-      const savedReport = result.report
-      setDailyWorkReports(previous => [savedReport, ...previous.filter(report => report.id !== savedReport.id)])
-      setDailyWorkReportsError('')
-      setDailyWorkReportMessage('Daily work report saved. You can update it again today.')
-    } catch (error) {
-      setDailyWorkReportMessage(error instanceof Error ? error.message : 'Daily sales report could not be saved.')
-    } finally {
-      setSavingDailyWorkReport(false)
     }
   }
 
@@ -275,48 +384,6 @@ export function SalesDashboardView(props: {
     XLSX.writeFile(workbook, `Mahalaxmi-Sales-Report-${selectedMonth}.xlsx`)
   }
 
-  const exportDailyReport = () => {
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
-      Date: dailyReportDate,
-      Scope: role === 'Sales Executive' ? currentUser.name : 'All Sales Executives',
-      'Orders Booked': dailyReportOrders.length,
-      'Net Booked Amount': dailyReportAmount,
-      'Activities Logged': dailyReportActivities.length,
-      'Unique Leads Contacted': dailyReportLeadsContacted,
-      'Follow-Ups Scheduled': dailyReportActivities.filter(activity => activity.nextFollowUp).length,
-    }]), 'Daily Summary')
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportOrders.map(order => ({
-      'Order ID': order.id,
-      Time: new Date(order.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
-      Salesperson: order.salesUserName,
-      Customer: order.customerName,
-      SKU: order.sku,
-      Product: order.productName,
-      Quantity: order.quantity,
-      'Net Booked Amount': activeOrderAmount(order),
-      Status: order.status,
-    }))), 'Orders')
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportActivities.map(activity => ({
-      Time: new Date(activity.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
-      Salesperson: activity.createdByName,
-      Lead: dailyReportLeadNames.get(activity.leadId) || activity.leadId,
-      Type: activity.type,
-      Outcome: activity.outcome,
-      Notes: activity.notes,
-      'Next Follow-Up': activity.nextFollowUp,
-    }))), 'Activities')
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(workReportsForDate.map(report => ({
-      Date: report.date,
-      Salesperson: report.userName,
-      Completed: report.completed,
-      Pending: report.pending,
-      'Issues / notes': report.issues,
-      'Last updated': report.updatedAt,
-    }))), 'Work Reports')
-    XLSX.writeFile(workbook, `Mahalaxmi-Sales-Daily-Report-${dailyReportDate}.xlsx`)
-  }
-
   return (
     <section>
       <div className="page-heading">
@@ -333,52 +400,6 @@ export function SalesDashboardView(props: {
         <article className="stat-card"><div className="stat-icon purple"><Target size={20} /></div><div className="stat-body"><span>Yearly booked / target</span><strong>{money(yearActual)} / {money(role === 'Sales Executive' ? yearTarget : targetRows.reduce((sum, row) => sum + (row.yearly?.targetAmount || 0), 0))}</strong><small>{selectedYear}</small></div></article>
         <article className="stat-card"><div className="stat-icon orange"><Phone size={20} /></div><div className="stat-body"><span>Available finished stock</span><strong>{stockUnits.toLocaleString('en-IN')}</strong><small>{availableProducts.filter(product => product.stock > 0).length} stocked SKUs · {dueLeads.length} follow-ups due</small></div></article>
       </div>
-      <section className="panel sales-daily-report">
-        <div className="panel-heading">
-          <div><h2>Daily sales report</h2><p>{role === 'Sales Executive' ? currentUser.name : 'All Sales Executives'} · {dailyReportDate}</p></div>
-          <div className="sales-daily-controls">
-            <label>Report date<input type="date" value={dailyReportDate} onChange={event => setDailyReportDate(event.target.value)} /></label>
-            <button className="secondary" disabled={!dailyReportDate} onClick={exportDailyReport}><Download size={16} /> Export daily report</button>
-          </div>
-        </div>
-        <div className="sales-daily-summary">
-          <article><span>Orders booked</span><strong>{dailyReportOrders.length}</strong></article>
-          <article><span>Net booked value</span><strong>{money(dailyReportAmount)}</strong></article>
-          <article><span>Activities logged</span><strong>{dailyReportActivities.length}</strong><small>{dailyReportActivities.filter(activity => activity.type === 'Call').length} calls · {dailyReportLeadsContacted} leads contacted</small></article>
-          <article><span>Follow-ups scheduled</span><strong>{dailyReportActivities.filter(activity => activity.nextFollowUp).length}</strong></article>
-        </div>
-        <div className="sales-daily-tables">
-          <div>
-            <div className="sales-daily-table-heading"><h3>Orders booked</h3><span>{dailyReportOrders.length}</span></div>
-            {dailyReportOrders.length ? <div className="table-card entries-table"><table><thead><tr><th>Order</th><th>Customer</th><th>SKU / product</th><th>Qty</th><th>Net amount</th><th>Salesperson</th></tr></thead><tbody>
-              {dailyReportOrders.map(order => <tr key={order.id}><td><code>{order.id}</code></td><td>{order.customerName}</td><td><code>{order.sku}</code><small>{order.productName}</small></td><td>{order.quantity}</td><td>{money(activeOrderAmount(order))}</td><td>{order.salesUserName}</td></tr>)}
-            </tbody></table></div> : <div className="sales-daily-empty">No orders were booked on this date.</div>}
-          </div>
-          <div>
-            <div className="sales-daily-table-heading"><h3>Lead activities</h3><span>{dailyReportActivities.length}</span></div>
-            {dailyReportActivities.length ? <div className="table-card entries-table"><table><thead><tr><th>Lead</th><th>Type</th><th>Outcome / notes</th><th>Salesperson</th><th>Next follow-up</th></tr></thead><tbody>
-              {dailyReportActivities.map(activity => <tr key={activity.id}><td>{dailyReportLeadNames.get(activity.leadId) || activity.leadId}</td><td>{activity.type}</td><td>{activity.outcome}<small>{activity.notes}</small></td><td>{activity.createdByName}</td><td>{activity.nextFollowUp || '—'}</td></tr>)}
-            </tbody></table></div> : <div className="sales-daily-empty">No lead activities were recorded on this date.</div>}
-          </div>
-        </div>
-      </section>
-      <section className="panel sales-work-report">
-        <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per Sales Executive each day; submitting again updates today’s report.</p></div></div>
-        {role === 'Sales Executive' && <form key={todayWorkReport?.updatedAt || 'new'} className="ecommerce-form" onSubmit={event => void submitDailyWorkReport(event)}>
-          <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} defaultValue={todayWorkReport?.completed || ''} /></label>
-          <label>Pending work<textarea name="pending" maxLength={3000} rows={3} defaultValue={todayWorkReport?.pending || ''} /></label>
-          <label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} defaultValue={todayWorkReport?.issues || ''} /></label>
-          <button className="primary" type="submit" disabled={savingDailyWorkReport}><CheckCircle2 size={15} /> {todayWorkReport ? 'Update today’s report' : 'Submit daily report'}</button>
-        </form>}
-        {role !== 'Sales Executive' && <p className="sales-readonly-note">Read-only report history for {dailyReportDate}. Sales Executives can submit or update their own report for today.</p>}
-        {dailyWorkReportsError && <p className="sales-message" role="alert">{dailyWorkReportsError}</p>}
-        {dailyWorkReportsLoading ? <p className="sales-readonly-note">Loading saved work reports…</p>
-          : workReportsForDate.length ? <div className="table-card entries-table sales-work-report-table"><table><thead><tr><th>Sales Executive</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th><th>Last updated</th></tr></thead><tbody>
-            {workReportsForDate.map(report => <tr key={report.id}><td>{report.userName}</td><td className="sales-report-cell">{report.completed}</td><td className="sales-report-cell">{report.pending || '—'}</td><td className="sales-report-cell">{report.issues || '—'}</td><td>{new Date(report.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</td></tr>)}
-          </tbody></table></div>
-            : <div className="sales-daily-empty">{dailyWorkReportsError ? 'Saved reports could not be loaded.' : `No work reports were submitted for ${dailyReportDate}.`}</div>}
-        <p className="sales-message" role="status" aria-live="polite">{dailyWorkReportMessage}</p>
-      </section>
       {role !== 'Sales Executive' && <section className="panel sales-target-panel">
         <div className="panel-heading"><div><h2>Salesperson targets and progress</h2><p>Set targets per active Sales Executive; booked amounts update automatically.</p></div></div>
         {targetRows.length ? <div className="table-card entries-table"><table><thead><tr><th>Sales Executive</th><th>Monthly target / actual</th><th>Monthly progress</th><th>Yearly target / actual</th><th>Yearly progress</th><th /></tr></thead><tbody>
