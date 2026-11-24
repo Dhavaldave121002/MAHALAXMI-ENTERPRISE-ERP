@@ -7,7 +7,7 @@ import session from './api/auth/me.ts'
 import logout from './api/auth/logout.ts'
 import users from './api/users.ts'
 import erp from './api/erp.ts'
-import cameraApi from './api/cameras/[action].ts'
+import cameraApi from './api/cameras.ts'
 
 const apiRoutes = new Map([
   ['/api/auth/status', authStatus],
@@ -17,11 +17,6 @@ const apiRoutes = new Map([
   ['/api/auth/logout', logout],
   ['/api/users', users],
   ['/api/erp', erp],
-  ['/api/cameras/token', cameraApi],
-  ['/api/cameras/recording', cameraApi],
-  ['/api/cameras/overview', cameraApi],
-  ['/api/cameras/recordings', cameraApi],
-  ['/api/cameras/cleanup', cameraApi],
 ])
 
 export default defineConfig(({ mode }) => {
@@ -44,7 +39,7 @@ export default defineConfig(({ mode }) => {
         configureServer(server) {
           server.middlewares.use((request, response, next) => {
             const pathname = new URL(request.url || '/', 'http://localhost').pathname
-            const handler = apiRoutes.get(pathname)
+            const handler = apiRoutes.get(pathname) || (pathname.startsWith('/api/cameras/') ? cameraApi : undefined)
             if (!handler) {
               next()
               return
