@@ -52,7 +52,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         platforms,
         ...credentials,
       })
-      await appendUser(user)
+      await appendUser(user, currentUser)
       sendJson(response, 201, { user: publicUser(user) })
       return
     }
@@ -66,7 +66,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (!active && target.role === 'Super Admin' && users.filter(user => user.role === 'Super Admin' && user.active).length <= 1) {
       throw new ApiError(400, 'The only Super Admin account cannot be deactivated.')
     }
-    await setUserActive(id, active)
+    await setUserActive(id, active, currentUser)
     sendJson(response, 200, { ok: true })
   } catch (error) {
     handleApiError(response, error, 'User management')

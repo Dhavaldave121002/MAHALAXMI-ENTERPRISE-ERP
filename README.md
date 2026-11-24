@@ -42,6 +42,12 @@ Never paste either secret into chat, frontend code, or GitHub. The web app endpo
 - Shipping-label PDFs (maximum 3 MB) are kept in a private Drive folder and permanently deleted after 7 days by an hourly Apps Script cleanup trigger installed once with `installEcommerceLabelCleanupTrigger` in the Apps Script editor. Listing, upload, and download also clean up expired labels. Normal app requests do not inspect or create project triggers, so they do not require the `script.scriptapp` scope. The app never returns a public Drive link. Signed-in executives can access only labels for their assigned platforms, while Production Supervisors and the Super Admin can download labels for all platforms. Downloads are streamed through an authenticated server route. The Apps Script owner must authorize the trigger and external requests, and enable the Drive API for permanent deletion.
 - User creation and status changes create a Drive backup before updating the Google Sheet.
 
+## ERP activity audit
+
+- The signed-in app discloses that successful sign-ins/sign-outs, ERP module visits, and selected business-record write attempts are logged. Write events show the actor, role, time, action, a limited ERP record identifier where available, and outcome; they do not store passwords, request bodies, customer details, screenshots, keystrokes, browser/Google history, or activity outside the ERP.
+- The Super Admin can review the latest 500 events in **Audit Logs**; the view refreshes every 30 seconds. Events are stored in a separate private spreadsheet owned by the Apps Script account and are deleted after 90 days. Access to the API view is restricted to the Super Admin.
+- After updating `apps-script/Code.gs`, update the existing Apps Script web-app deployment to a new version and run `installEcommerceLabelCleanupTrigger` once again. This installs the hourly audit-retention cleanup trigger alongside the existing label/camera cleanup. The private audit spreadsheet is created automatically on the first recorded event; Apps Script may request Drive/Sheets authorization at that time. Redeploy the Vercel app after deploying the script.
+
 ## Scheduled camera monitoring
 
 - Staff webcam monitoring runs Monday–Saturday in Asia/Kolkata time: Production Supervisors 9:30 AM–7:30 PM, Sales Executives 10:00 AM–6:00 PM, and all other non-admin roles 10:00 AM–7:00 PM. Every role pauses from 1:30 PM to 2:00 PM. Super Admin accounts are viewers only.

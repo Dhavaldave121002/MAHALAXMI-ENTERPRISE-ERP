@@ -20,6 +20,17 @@ type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
   'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring'
 
+type AuditEvent = {
+  id: string
+  timestamp: string
+  userId: string
+  userName: string
+  role: Role
+  action: string
+  target: string
+  outcome: string
+}
+
 type Product = {
   id: string; sku: string; masterSku: string; name: string; category: string; mrp: number; stock: number;
   status: 'Active' | 'Draft'; size: string; color: string; packQuantity: number; isVariant: boolean
@@ -418,12 +429,13 @@ export default function App() {
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([])
   const [salesTargets, setSalesTargets] = useState<SalesTarget[]>([])
   const [salesAccounts, setSalesAccounts] = useState<SalesAccount[]>([])
-  const [audit, setAudit] = useState<string[]>(() => readStored('erp-audit', ['Workbook connection pending', 'System initialized']))
+  const [activityAuditWarning, setActivityAuditWarning] = useState('')
   const [toast, setToast] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const [zeroStockInitializationBusy, setZeroStockInitializationBusy] = useState(false)
   const workbookRefreshInFlight = useRef<Promise<void> | null>(null)
   const workbookLastRefreshAt = useRef(0)
+  const lastAuditedModule = useRef('')
   const [workbookMeta, setWorkbookMeta] = useState({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
 
   const applyWorkbookSnapshot = useCallback((data: WorkbookSnapshot) => {
@@ -459,11 +471,31 @@ export default function App() {
     }
   }, [applyWorkbookSnapshot])
 
-  useEffect(() => localStorage.setItem('erp-audit', JSON.stringify(audit)), [audit])
   useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    localStorage.removeItem('erp-audit')
+  }, [])
+
+  useEffect(() => {
+    if (!sessionUser) {
+      lastAuditedModule.current = ''
+      return
+    }
+    const visit = `${sessionUser.id}:${module}`
+    if (lastAuditedModule.current === visit) return
+    lastAuditedModule.current = visit
+    void apiFetch('/api/audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventType: 'module_view', module }),
+    }).catch(() => {
+      setActivityAuditWarning('ERP activity logging is temporarily unavailable. Please notify the administrator.')
+    })
+  }, [module, sessionUser])
   useEffect(() => {
     if (!mobileMenuOpen) return
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -560,7 +592,6 @@ export default function App() {
   }, [sessionUser, refreshWorkbook])
 
   const notify = (message: string) => { setToast(message); setTimeout(() => setToast(''), 2600) }
-  const log = (message: string) => setAudit(prev => [`${formatIndiaDateTime(new Date().toISOString())} — ${message}`, ...prev])
 
   const globalSearchResults = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -593,7 +624,6 @@ export default function App() {
     })
     setProducts(prev => [...prev.filter(item => item.sku.toLowerCase() !== result.product.sku.toLowerCase()), result.product])
     workbookLastRefreshAt.current = Date.now()
-    log(`Added product ${result.product.sku}`)
     notify('Product saved to the shared workbook')
     return result.product
   }
@@ -606,7 +636,6 @@ export default function App() {
     })
     setProducts(prev => [...prev.filter(item => item.sku.toLowerCase() !== result.product.sku.toLowerCase()), result.product])
     workbookLastRefreshAt.current = Date.now()
-    log(`Added SKU ${result.product.sku} to ${result.product.masterSku}`)
     notify('SKU saved to the shared workbook')
     return result.product
   }
@@ -619,7 +648,6 @@ export default function App() {
     })
     setMarketplaceListings(prev => [result.listing, ...prev.filter(item => item.id !== result.listing.id)])
     workbookLastRefreshAt.current = Date.now()
-    log(`Added ${result.listing.platform} listing SKU ${result.listing.platformSku}`)
     notify('Marketplace SKU saved to the shared workbook')
     return result.listing
   }
@@ -630,7 +658,6 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'importMarketplaceWorkbook', ...rows }),
     })
-    log(`Imported marketplace workbook: ${response.result.added.listings} listings added, ${response.result.updated?.listings ?? 0} listings updated, ${response.result.renamedProducts ?? 0} product SKUs renamed`)
     try {
       await refreshWorkbook()
     } catch {
@@ -649,7 +676,6 @@ export default function App() {
     })
     setMachines(prev => [...prev, result.machine])
     workbookLastRefreshAt.current = Date.now()
-    log(`Added ${result.machine.id}: ${result.machine.name}`)
     notify(`${result.machine.id} saved to the shared workbook`)
     return result.machine
   }
@@ -683,7 +709,6 @@ export default function App() {
       setStockMovements(prev => [stockMovement, ...prev.filter(item => item.id !== stockMovement.id)])
     }
     workbookLastRefreshAt.current = Date.now()
-    log(`Recorded production ${result.record.actual} units for ${result.record.sku}`)
     notify('Production entry saved to the shared workbook')
     return result.record
   }
@@ -698,7 +723,6 @@ export default function App() {
     })
     setProductionTargets(previous => [result.target, ...previous.filter(target => target.id !== result.target.id)])
     workbookLastRefreshAt.current = Date.now()
-    log(`${result.unchanged ? 'Confirmed' : 'Set'} ${result.target.period} target of ${result.target.targetQuantity} for ${result.target.productName} on ${result.target.machineId}`)
     notify(result.unchanged ? 'This production target is already up to date.' : 'Production target saved to the shared workbook.')
     return result.target
   }
@@ -719,7 +743,6 @@ export default function App() {
       body: JSON.stringify({ action: 'importSalesLeads', rows, assignedUserId }),
     })
     await refreshAfterSalesWrite()
-    log(`Imported ${result.added} sales leads; skipped ${result.skipped} duplicates`)
     return result
   }
 
@@ -730,7 +753,6 @@ export default function App() {
       body: JSON.stringify({ action: 'addSalesLead', lead }),
     })
     await refreshAfterSalesWrite()
-    log(`Added sales lead ${lead.name}`)
   }
 
   const assignSalesLead = async (leadId: string, assignedUserId: string) => {
@@ -750,7 +772,6 @@ export default function App() {
       body: JSON.stringify({ action: 'recordSalesActivity', ...input }),
     })
     await refreshAfterSalesWrite()
-    log(`Recorded ${input.activityType.toLowerCase()} update for lead ${input.leadId}`)
     notify('Call update saved.')
   }
 
@@ -761,7 +782,6 @@ export default function App() {
       body: JSON.stringify({ action: 'createSalesOrder', ...input }),
     })
     await refreshAfterSalesWrite()
-    log(`Booked sales order for SKU ${input.sku} · ${input.quantity} units`)
   }
 
   const cancelSalesOrder = async (orderId: string) => {
@@ -771,7 +791,6 @@ export default function App() {
       body: JSON.stringify({ action: 'cancelSalesOrder', orderId }),
     })
     await refreshAfterSalesWrite()
-    log(`Cancelled remaining units of sales order ${orderId}`)
   }
 
   const setSalesTarget = async (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => {
@@ -781,7 +800,6 @@ export default function App() {
       body: JSON.stringify({ action: 'setSalesTarget', salesUserId, period, periodKey, targetAmount }),
     })
     await refreshAfterSalesWrite()
-    log(`Set ${period} sales target for ${salesUserId} to ${targetAmount}`)
   }
 
   const saveRawMaterial = async (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => {
@@ -796,7 +814,6 @@ export default function App() {
       setStockMovements(prev => [movement, ...prev.filter(item => item.id !== movement.id)])
     }
     workbookLastRefreshAt.current = Date.now()
-    log(`Added raw material ${result.material.sku}`)
     notify('Raw material saved to the shared workbook')
     return result.material
   }
@@ -823,7 +840,6 @@ export default function App() {
     if (input.kind === 'finished' && input.type === 'Dispatch' && input.salesChannel === 'DIRECT') {
       await refreshAfterSalesWrite()
     }
-    log(`${input.type} · ${input.sku} · ${input.quantity}`)
     notify('Stock movement saved to the ledger')
   }
 
@@ -842,7 +858,6 @@ export default function App() {
         notify(`${result.updated} SKUs were adjusted, but the workbook view could not refresh. Reload before continuing.`)
         return
       }
-      log(`Initialized ${result.updated} zero-stock SKUs to ${result.targetStock}`)
       notify(`${result.updated} SKUs set to ${result.targetStock.toLocaleString('en-IN')}; ${result.unchanged} already had stock.`)
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Zero-stock initialization failed')
@@ -868,7 +883,6 @@ export default function App() {
       setRawMaterials(prev => [item, ...prev.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
     }
     workbookLastRefreshAt.current = Date.now()
-    log(`Archived ${sku}`)
     notify('Item archived; its stock history was retained')
   }
 
@@ -881,7 +895,6 @@ export default function App() {
     if (kind === 'finished') setFinishedGoods(prev => prev.filter(item => item.sku.toLowerCase() !== sku.toLowerCase()))
     else setRawMaterials(prev => prev.filter(item => item.sku.toLowerCase() !== sku.toLowerCase()))
     workbookLastRefreshAt.current = Date.now()
-    log(`Deleted unused item ${sku}`)
     notify('Unused item deleted')
   }
 
@@ -930,7 +943,6 @@ export default function App() {
         existingSkus.add(key)
         return true
       })
-      log(`Validated ${unique.length} new catalog rows; ${duplicates.length} existing SKUs found`)
       notify(`Preview only: ${unique.length} new, ${duplicates.length} duplicates. Use Product Catalog to save shared records.`)
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Workbook import failed')
@@ -942,7 +954,6 @@ export default function App() {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, sheet, 'Product Master')
     XLSX.writeFile(workbook, 'Mahalaxmi-Product-Master.xlsx')
-    log('Exported Product Master workbook')
   }
 
   const login = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -953,11 +964,12 @@ export default function App() {
     setLoginError('')
     setLoginBusy(true)
     try {
-      const result = await apiFetch<{ user: UserAccount }>('/api/auth/login', {
+      const result = await apiFetch<{ user: UserAccount; auditWarning?: string }>('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, scope: isAdminRoute ? 'admin' : 'team' }),
       })
+      setActivityAuditWarning(result.auditWarning || '')
       setSessionUser(result.user)
       setModule(landingModuleForRole(result.user.role))
     } catch (error) {
@@ -969,7 +981,8 @@ export default function App() {
 
   const logout = async () => {
     try {
-      await apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' })
+      const result = await apiFetch<{ ok: boolean; auditWarning?: string }>('/api/auth/logout', { method: 'POST' })
+      setActivityAuditWarning(result.auditWarning || '')
       setSessionUser(null)
       setUsers([])
       setModule('Dashboard')
@@ -1056,6 +1069,8 @@ export default function App() {
             {authStatus === 'unavailable' && <div className="login-error">{serverMessage}</div>}
             <button className="primary wide" type="submit" disabled={loginBusy}>{loginBusy ? 'Signing in…' : 'Sign in'}</button>
           </form>
+          {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
+          <p className="activity-audit-notice">Successful ERP sign-ins/sign-outs, module visits, and business-record actions are logged for accountability. Screens, keystrokes, browser/Google history, and activity outside this ERP are not collected.</p>
           {!isAdminRoute && <div className="first-admin-setup"><span>First-time setup only: create the one-time Admin account. If it is already set up, sign in instead.</span><button type="button" onClick={() => { setSetupMode(true); setLoginError('') }}>Create first Admin</button></div>}
           {authStatus === 'ready' && <a className="login-route-link" href={isAdminRoute ? '/' : '/admin'}>{isAdminRoute ? 'Team login' : 'Admin login'}</a>}
         </section>
@@ -1143,6 +1158,10 @@ export default function App() {
         </header>
 
         <div className="content">
+          <div className="activity-audit-notice" role="note">
+            ERP activity logging is enabled: successful sign-ins/sign-outs, module visits, and business-record actions are visible to the Super Admin. Screens, keystrokes, browser/Google history, and activity outside this ERP are not collected.
+          </div>
+          {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
           {module === 'Dashboard' ? (
             <DashboardView
               role={sessionUser.role}
@@ -1157,11 +1176,11 @@ export default function App() {
               exportExcel={exportExcel}
             />
           ) : (
-            <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} audit={audit} workbookMeta={workbookMeta}
+            <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
               saveProduction={saveProduction} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
-              archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} log={log} setModule={setModule}
+              archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
               allowedModules={roleModules[sessionUser.role]}
               salesLeads={salesLeads} salesActivities={salesActivities} salesOrders={salesOrders} salesTargets={salesTargets}
@@ -1180,7 +1199,7 @@ export default function App() {
 
 function ModuleView(props: {
   module: Module; clock: Date; products: Product[]; marketplaceListings: MarketplaceListing[]; production: Production[]; productionTargets: ProductionTarget[];
-  rawMaterials: RawMaterial[]; finishedGoods: FinishedGood[]; stockMovements: StockMovement[]; audit: string[]; search: string;
+  rawMaterials: RawMaterial[]; finishedGoods: FinishedGood[]; stockMovements: StockMovement[]; search: string;
   workbookMeta: { loaded: boolean; name: string; sheetCount: number };
   setSearch: (v: string) => void; exportExcel: () => void;
   saveProduct: (input: { sku: string; name: string; category: string; mrp: number }) => Promise<Product>;
@@ -1196,7 +1215,7 @@ function ModuleView(props: {
   deleteUnusedStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
   saveMachine: (input: Omit<Machine, 'id'>) => Promise<Machine>;
   fileRef: React.RefObject<HTMLInputElement | null>; importExcel: (f: File) => void;
-  notify: (v: string) => void; log: (v: string) => void
+  notify: (v: string) => void
   setModule: (v: Module) => void
   machines: Machine[];
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
@@ -1211,9 +1230,41 @@ function ModuleView(props: {
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, audit, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, log, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
+  const [auditLoading, setAuditLoading] = useState(true)
+  const [auditError, setAuditError] = useState('')
+  const [auditRetentionDays, setAuditRetentionDays] = useState(90)
   const [catalogFormOpen, setCatalogFormOpen] = useState<'product' | 'variant' | 'listing' | null>(null)
   const [selectedCatalogMasterSku, setSelectedCatalogMasterSku] = useState('')
+  useEffect(() => {
+    if (module !== 'Audit Logs') return
+    let active = true
+    let loaded = false
+    const refresh = async () => {
+      try {
+        const result = await apiFetch<{ events: AuditEvent[]; retentionDays: number }>('/api/audit')
+        if (!active) return
+        setAuditEvents(result.events)
+        setAuditRetentionDays(result.retentionDays)
+        setAuditError('')
+      } catch (error) {
+        if (!active) return
+        setAuditError(error instanceof Error ? error.message : 'Could not load the audit log.')
+      } finally {
+        if (active && !loaded) {
+          loaded = true
+          setAuditLoading(false)
+        }
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 30_000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [module])
   const [stockFormOpen, setStockFormOpen] = useState(false)
   const [materialFormOpen, setMaterialFormOpen] = useState(false)
   const [newUserRole, setNewUserRole] = useState<Role>('Production Supervisor')
@@ -2299,7 +2350,6 @@ function ModuleView(props: {
       const dailyArchive = readStored<Production[]>('erp-daily-production', [])
       const archivedIds = new Set(dailyArchive.map(row => row.id))
       localStorage.setItem('erp-daily-production', JSON.stringify([...dailyArchive, ...visibleProduction.filter(row => !archivedIds.has(row.id))]))
-      log(`Exported daily production report for ${today}: ${visibleProduction.length} records`)
       XLSX.writeFile(workbook, `Mahalaxmi-Daily-Production-${today}.xlsx`)
       notify('Daily production report exported')
     }
@@ -2314,7 +2364,6 @@ function ModuleView(props: {
         Rejected: monthlyRows.reduce((sum, row) => sum + row.rejected, 0),
         PreparedFor: sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor' ? 'All users' : sessionUser.name,
       }]), 'Summary')
-      log(`Generated monthly production workbook for ${month}`)
       XLSX.writeFile(workbook, `Mahalaxmi-Production-${month}.xlsx`)
       notify(`New monthly workbook downloaded: ${month}`)
     }
@@ -2427,7 +2476,6 @@ function ModuleView(props: {
             active: true,
           }])
         }
-        log(`Created ${result.user.role} account ${result.user.username}`)
         notify('Account saved to the master workbook')
         formElement.reset()
         setNewUserRole('Production Supervisor')
@@ -2486,10 +2534,18 @@ function ModuleView(props: {
   }
 
   if (module === 'Audit Logs') {
-    const auditRows = audit.map((entry, i) => <div className="audit-row" key={i}><div className="audit-dot" /><div><strong>{entry}</strong><span>{sessionUser.name}</span></div></div>)
     return (
       <section><div className="page-heading"><div><p>SECURITY</p><h1>Audit Logs</h1></div></div>
-        <div className="panel audit-card"><div className="panel-heading"><div><h2>Recent activity</h2><p>Changes made in this browser session</p></div></div><PaginatedList label="Audit log activity" items={auditRows} /></div>
+        <div className="panel audit-card">
+          <div className="panel-heading"><div><h2>ERP activity</h2><p>Auto-refreshes every 30 seconds · events retained for {auditRetentionDays} days</p></div></div>
+          <p className="audit-scope-note">This log records successful sign-ins/sign-outs, ERP module visits, and business-record actions. It does not collect screenshots, keystrokes, browser or Google history, or activity outside this ERP.</p>
+          {auditError && <p className="audit-warning" role="alert">{auditError}</p>}
+          {auditLoading && <div className="empty-state" role="status">Loading audit events…</div>}
+          {!auditLoading && !auditError && auditEvents.length === 0 && <div className="empty-state"><Archive size={24} /><strong>No activity recorded yet</strong><span>ERP events will appear here as users sign in and work.</span></div>}
+          {!auditLoading && auditEvents.length > 0 && <div className="table-card entries-table"><table aria-label="ERP audit events"><thead><tr><th>Time (IST)</th><th>User</th><th>Role</th><th>Activity</th><th>Result</th></tr></thead><tbody>
+            {auditEvents.map(event => <tr key={event.id}><td>{formatIndiaDateTime(event.timestamp)}</td><td>{event.userName}</td><td>{event.role}</td><td><strong>{event.action}</strong>{event.target && <span className="audit-target">{event.target}</span>}</td><td><span className={`audit-outcome ${event.outcome.toLowerCase()}`}>{event.outcome}</span></td></tr>)}
+          </tbody></table></div>}
+        </div>
       </section>
     )
   }

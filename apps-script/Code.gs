@@ -1,11 +1,16 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
+    const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
+    const ERP_AUDIT_HEADERS = ['Event ID', 'Timestamp', 'User ID', 'User Name', 'Role', 'Action', 'Target', 'Outcome']
     const ERP_ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
     const ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY = 'ERP_ECOMMERCE_LABEL_FOLDER_ID'
     const ERP_ECOMMERCE_LABEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
     const ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER = 'cleanupExpiredEcommerceLabels_'
+    const ERP_AUDIT_CLEANUP_HANDLER = 'cleanupExpiredAuditEventsScheduled_'
     const ERP_CAMERA_RECORDING_FOLDER_PROPERTY = 'ERP_CAMERA_RECORDING_FOLDER_ID'
     const ERP_CAMERA_RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000
     const ERP_CAMERA_RECORDING_KIND = 'mahalaxmi-erp-camera-recording'
@@ -65,6 +70,7 @@
     }
 
     function doPost(event) {
+      let auditEntry = null
       try {
         const request = JSON.parse(event && event.postData && event.postData.contents || '{}')
         const properties = PropertiesService.getScriptProperties()
@@ -75,14 +81,37 @@
 
         const spreadsheet = SpreadsheetApp.openById(spreadsheetId)
         const payload = request.payload || {}
+        let sessionUser = null
         if (ERP_SESSION_BOUND_ACTIONS.indexOf(request.action) >= 0) {
-          const user = assertActiveSessionUser_(spreadsheet, payload)
-          payload.createdBy = user.name
-          payload.sessionUserRole = user.role
-          payload.sessionUserPlatforms = user.platforms
+          sessionUser = assertActiveSessionUser_(spreadsheet, payload)
+          payload.createdBy = sessionUser.name
+          payload.sessionUserRole = sessionUser.role
+          payload.sessionUserPlatforms = sessionUser.platforms
         }
-        const data = dispatch_(spreadsheet, request.action, payload)
-        if (['getWorkbookData', 'getUsers', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
+        if (ERP_AUDIT_ACTIONS.indexOf(request.action) >= 0) {
+          auditEntry = beginAuditEvent_(sessionUser, request.action, payload)
+        }
+        let data
+        try {
+          data = dispatch_(spreadsheet, request.action, payload)
+        } catch (error) {
+          if (auditEntry) {
+            try {
+              finishAuditEvent_(auditEntry, 'Failed')
+            } catch (auditError) {
+              Logger.log('Could not update failed audit event: ' + String(auditError))
+            }
+          }
+          throw error
+        }
+        if (auditEntry) {
+          try {
+            finishAuditEvent_(auditEntry, 'Succeeded')
+          } catch (auditError) {
+            Logger.log('ERP action succeeded but its audit status remains Started: ' + String(auditError))
+          }
+        }
+        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -123,6 +152,10 @@
           return getWorkbookData_(spreadsheet)
         case 'getUsers':
           return { users: readCachedSheetRecords_(spreadsheet, 'Users') }
+        case 'listAuditEvents':
+          return listAuditEvents_()
+        case 'recordAuditEvent':
+          return recordAuditEvent_(payload)
         case 'createInitialAdmin':
           return createInitialAdmin_(spreadsheet, payload.user)
         case 'appendUser':
@@ -197,6 +230,173 @@
         default:
           throw apiError_(400, 'Unknown ERP action.')
       }
+    }
+
+    function auditSpreadsheet_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      let id = properties.getProperty(ERP_AUDIT_SPREADSHEET_PROPERTY)
+      if (!id && !createIfMissing) return null
+      if (!id) {
+        const auditSpreadsheet = SpreadsheetApp.create('Mahalaxmi ERP Private Audit Log')
+        DriveApp.getFileById(auditSpreadsheet.getId()).setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        const sheet = auditSpreadsheet.getSheets()[0]
+        sheet.setName('Audit Events')
+        sheet.getRange(1, 1, 1, ERP_AUDIT_HEADERS.length).setValues([ERP_AUDIT_HEADERS])
+        properties.setProperty(ERP_AUDIT_SPREADSHEET_PROPERTY, auditSpreadsheet.getId())
+        return sheet
+      }
+
+      const spreadsheet = SpreadsheetApp.openById(id)
+      const sheet = spreadsheet.getSheetByName('Audit Events')
+      if (!sheet) throw new Error('The configured private audit spreadsheet is missing its Audit Events sheet.')
+      const headers = sheet.getRange(1, 1, 1, ERP_AUDIT_HEADERS.length).getValues()[0]
+      if (ERP_AUDIT_HEADERS.some(function (header, index) { return String(headers[index] || '') !== header })) {
+        throw new Error('The configured private audit spreadsheet has an unrecognized header format.')
+      }
+      return sheet
+    }
+
+    function cleanupExpiredAuditEvents_(sheet) {
+      if (!sheet || sheet.getLastRow() < 2) return 0
+      const cutoff = Date.now() - ERP_AUDIT_RETENTION_MS
+      const timestamps = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getValues()
+      let removed = 0
+      for (let index = timestamps.length - 1; index >= 0; index -= 1) {
+        const timestamp = Date.parse(String(timestamps[index][0] || ''))
+        if (Number.isFinite(timestamp) && timestamp < cutoff) {
+          sheet.deleteRow(index + 2)
+          removed += 1
+        }
+      }
+      return removed
+    }
+
+    function auditActionLabel_(action, payload) {
+      const labels = {
+        appendUser: 'Created user account',
+        setUserActive: payload.active ? 'Activated user account' : 'Deactivated user account',
+        addMarketplaceListing: 'Created marketplace listing',
+        recordProduction: 'Recorded production',
+        addRawMaterial: 'Created raw material',
+        applyStockMovement: 'Recorded stock movement',
+        initializeZeroFinishedStock: 'Initialized finished-goods stock',
+        archiveStockItem: 'Archived stock item',
+        deleteUnusedStockItem: 'Deleted unused stock item',
+        importMarketplaceWorkbook: 'Imported marketplace catalog',
+        updateMarketplaceSku: 'Updated marketplace SKU',
+        updateMarketplaceListing: 'Updated marketplace listing',
+        uploadEcommerceLabel: 'Uploaded shipping label',
+        submitEcommerceReport: 'Submitted e-commerce report',
+        submitSalesReport: 'Submitted sales report',
+        setEcommerceTarget: 'Changed e-commerce target',
+        setProductionTarget: 'Changed production target',
+        importSalesLeads: 'Imported sales leads',
+        addSalesLead: 'Created sales lead',
+        assignSalesLead: 'Assigned sales lead',
+        recordSalesActivity: 'Recorded sales activity',
+        createSalesOrder: 'Created sales order',
+        cancelSalesOrder: 'Cancelled sales order',
+        setSalesTarget: 'Changed sales target',
+      }
+      if (action === 'appendRecord') {
+        const sheet = String(payload.sheet || '')
+        return ERP_DATA_SHEETS.indexOf(sheet) >= 0 ? 'Created record in ' + sheet : 'Created ERP record'
+      }
+      return labels[action] || 'Changed ERP data'
+    }
+
+    function appendAuditEvent_(user, action, target, outcome) {
+      if (!user || !user.id || !user.name || !user.role) throw new Error('An audit event requires a validated actor.')
+      return withWriteLock_(function () {
+        const sheet = auditSpreadsheet_(true)
+        cleanupExpiredAuditEvents_(sheet)
+        const row = sheet.getLastRow() + 1
+        const eventId = Utilities.getUuid()
+        const timestamp = new Date().toISOString()
+        sheet.getRange(row, 1, 1, ERP_AUDIT_HEADERS.length).setValues([[
+          eventId, timestamp, user.id, user.name, user.role, action, target || '', outcome,
+        ].map(safeCellValue_)])
+        return { row: row, eventId: eventId }
+      })
+    }
+
+    function beginAuditEvent_(user, action, payload) {
+      return appendAuditEvent_(user, auditActionLabel_(action, payload), auditTarget_(payload), 'Started')
+    }
+
+    function auditTarget_(payload) {
+      const record = payload.record && typeof payload.record === 'object' ? payload.record : {}
+      const user = payload.user && typeof payload.user === 'object' ? payload.user : {}
+      const candidates = [
+        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId,
+        payload.sku, user['User ID'], record.id, record['Internal Product ID'],
+        record['Variant ID'], record['Machine ID'], record['Production ID'], record['Movement ID'],
+      ]
+      const value = candidates.find(function (candidate) {
+        return typeof candidate === 'string' && /^[A-Za-z0-9._:-]{1,100}$/.test(candidate.trim())
+      })
+      if (!value) return ''
+      return String(value).trim()
+    }
+
+    function finishAuditEvent_(entry, outcome) {
+      withWriteLock_(function () {
+        const sheet = auditSpreadsheet_(false)
+        if (!sheet || entry.row > sheet.getLastRow() || String(sheet.getRange(entry.row, 1).getValue()) !== entry.eventId) {
+          throw new Error('The pending audit event could not be found.')
+        }
+        sheet.getRange(entry.row, 8).setValue(outcome)
+      })
+    }
+
+    function recordAuditEvent_(payload) {
+      const eventType = String(payload.eventType || '')
+      const actionByType = {
+        login: 'Signed in',
+        logout: 'Signed out',
+        module_view: 'Opened ERP module',
+      }
+      if (!Object.prototype.hasOwnProperty.call(actionByType, eventType)) throw apiError_(400, 'Unknown audit event.')
+      const user = {
+        id: String(payload.userId || '').trim().slice(0, 120),
+        name: String(payload.userName || '').trim().slice(0, 120),
+        role: String(payload.role || '').trim().slice(0, 80),
+      }
+      const roles = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive', 'Sales Executive']
+      if (!user.id || !user.name || roles.indexOf(user.role) < 0) throw apiError_(400, 'Audit actor details are invalid.')
+      let target = ''
+      if (eventType === 'module_view') {
+        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Machines', 'Quality Control', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring']
+        target = String(payload.module || '')
+        if (modules.indexOf(target) < 0) throw apiError_(400, 'ERP module is invalid.')
+      }
+      appendAuditEvent_(user, actionByType[eventType], target, 'Succeeded')
+      return { recorded: true }
+    }
+
+    function listAuditEvents_() {
+      const sheet = auditSpreadsheet_(false)
+      if (!sheet) return { events: [], retentionDays: 90 }
+      return withWriteLock_(function () {
+        cleanupExpiredAuditEvents_(sheet)
+        const lastRow = sheet.getLastRow()
+        if (lastRow < 2) return { events: [], retentionDays: 90 }
+        const startRow = Math.max(2, lastRow - 499)
+        const values = sheet.getRange(startRow, 1, lastRow - startRow + 1, ERP_AUDIT_HEADERS.length).getValues()
+        const events = values.reverse().map(function (row) {
+          return {
+            id: String(row[0] || ''),
+            timestamp: String(row[1] || ''),
+            userId: String(row[2] || ''),
+            userName: String(row[3] || ''),
+            role: String(row[4] || ''),
+            action: String(row[5] || ''),
+            target: String(row[6] || ''),
+            outcome: String(row[7] || ''),
+          }
+        })
+        return { events: events, retentionDays: 90 }
+      })
     }
 
     function getWorkbookData_(spreadsheet) {
@@ -1857,12 +2057,13 @@
 
     function ensureEcommerceLabelCleanupTrigger_() {
       return withWriteLock_(function () {
-        const exists = ScriptApp.getProjectTriggers().some(function (trigger) {
-          return trigger.getHandlerFunction() === ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER
+        const handlers = [ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER, ERP_AUDIT_CLEANUP_HANDLER]
+        handlers.forEach(function (handler) {
+          const exists = ScriptApp.getProjectTriggers().some(function (trigger) {
+            return trigger.getHandlerFunction() === handler
+          })
+          if (!exists) ScriptApp.newTrigger(handler).timeBased().everyHours(1).create()
         })
-        if (!exists) {
-          ScriptApp.newTrigger(ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER).timeBased().everyHours(1).create()
-        }
       })
     }
 
@@ -1915,6 +2116,12 @@
           expired.forEach(permanentlyDeleteEcommerceLabel_)
         }
         return expired.length + cleanupExpiredCameraClips_()
+      })
+    }
+
+    function cleanupExpiredAuditEventsScheduled_() {
+      return withWriteLock_(function () {
+        return cleanupExpiredAuditEvents_(auditSpreadsheet_(false))
       })
     }
 

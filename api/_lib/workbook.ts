@@ -46,6 +46,8 @@ const WORKBOOK_DATA_CACHE_MS = 2_000
 const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'getWorkbookData',
   'getUsers',
+  'listAuditEvents',
+  'recordAuditEvent',
   'listEcommerceLabels',
   'downloadEcommerceLabel',
   'startCameraClipUpload',
@@ -214,25 +216,26 @@ export async function createInitialAdmin(user: WorkbookUser) {
   await callAppsScript('createInitialAdmin', { user: toSheetUser(user) })
 }
 
-export async function appendUser(user: WorkbookUser) {
-  await callAppsScript('appendUser', { user: toSheetUser(user) })
+export async function appendUser(user: WorkbookUser, actor: Pick<PublicUser, 'id' | 'role'>) {
+  await callAppsScript('appendUser', { user: toSheetUser(user), ...sessionBoundPayload(actor) })
 }
 
-export async function setUserActive(userId: string, active: boolean) {
-  await callAppsScript('setUserActive', { id: userId, active })
+export async function setUserActive(userId: string, active: boolean, actor: Pick<PublicUser, 'id' | 'role'>) {
+  await callAppsScript('setUserActive', { id: userId, active, ...sessionBoundPayload(actor) })
 }
 
 export async function appendWorkbookRecord(
   sheet: string,
   record: Record<string, unknown>,
   requiredHeaders: string[],
+  actor: Pick<PublicUser, 'id' | 'role'>,
   ensureColumns: string[] = [],
 ) {
-  await callAppsScript('appendRecord', { sheet, record, requiredHeaders, ensureColumns })
+  await callAppsScript('appendRecord', { sheet, record, requiredHeaders, ensureColumns, ...sessionBoundPayload(actor) })
 }
 
-export async function addWorkbookMarketplaceListing(input: Record<string, unknown>) {
-  return callAppsScript<{ appended: boolean; listing: Record<string, unknown> }>('addMarketplaceListing', input)
+export async function addWorkbookMarketplaceListing(input: Record<string, unknown>, actor: Pick<PublicUser, 'id' | 'role'>) {
+  return callAppsScript<{ appended: boolean; listing: Record<string, unknown> }>('addMarketplaceListing', { ...input, ...sessionBoundPayload(actor) })
 }
 
 type SessionBoundInput = Pick<PublicUser, 'id' | 'role'>
@@ -428,8 +431,36 @@ export async function deleteUnusedWorkbookStockItem(input: Record<string, unknow
   return callAppsScript<{ deleted: boolean; sku: string }>('deleteUnusedStockItem', input)
 }
 
-export async function recordWorkbookProduction(record: Record<string, unknown>) {
-  return callAppsScript<{ finishedGood: Record<string, unknown>; movement: Record<string, unknown> | null }>('recordProduction', { record })
+export async function recordWorkbookProduction(record: Record<string, unknown>, actor: Pick<PublicUser, 'id' | 'role'>) {
+  return callAppsScript<{ finishedGood: Record<string, unknown>; movement: Record<string, unknown> | null }>(
+    'recordProduction',
+    { record, ...sessionBoundPayload(actor) },
+  )
+}
+
+export type AuditEvent = {
+  id: string
+  timestamp: string
+  userId: string
+  userName: string
+  role: UserRole
+  action: string
+  target: string
+  outcome: string
+}
+
+export async function recordWorkbookAuditEvent(input: {
+  userId: string
+  userName: string
+  role: UserRole
+  eventType: 'login' | 'logout' | 'module_view'
+  module?: string
+}) {
+  return callAppsScript<{ recorded: boolean }>('recordAuditEvent', input)
+}
+
+export async function listWorkbookAuditEvents() {
+  return callAppsScript<{ events: AuditEvent[]; retentionDays: number }>('listAuditEvents')
 }
 
 export async function setWorkbookProductionTarget(input: SessionBoundInput & {

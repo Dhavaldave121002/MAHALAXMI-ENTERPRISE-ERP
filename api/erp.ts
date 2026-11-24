@@ -647,7 +647,7 @@ function assertUniqueSku(data: WorkbookData, sku: string) {
   if (used.some(existing => existing.toLowerCase() === target)) throw new ApiError(409, 'That SKU already exists in the master workbook.')
 }
 
-async function addProduct(data: WorkbookData, body: Record<string, unknown>) {
+async function addProduct(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
   const sku = requiredText(body.sku, 'Master SKU', 100)
   const name = requiredText(body.name, 'Product name', 180)
   const category = text(body.category).slice(0, 100)
@@ -677,11 +677,11 @@ async function addProduct(data: WorkbookData, body: Record<string, unknown>) {
     Status: item.status,
     'Created Date': createdAt,
     'Updated Date': createdAt,
-  }, ['Internal Product ID', 'Master SKU', 'Product Title', 'Category', 'MRP', 'Status', 'Created Date', 'Updated Date'])
+  }, ['Internal Product ID', 'Master SKU', 'Product Title', 'Category', 'MRP', 'Status', 'Created Date', 'Updated Date'], user)
   return item
 }
 
-async function addVariant(data: WorkbookData, body: Record<string, unknown>) {
+async function addVariant(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
   const masterSku = requiredText(body.masterSku, 'Master SKU', 100)
   const sku = requiredText(body.sku, 'Variant SKU', 100)
   const master = records(data, 'Products').find(row => text(row['Master SKU']).toLowerCase() === masterSku.toLowerCase())
@@ -716,7 +716,7 @@ async function addVariant(data: WorkbookData, body: Record<string, unknown>) {
     MRP: item.mrp,
     'Selling Price': sellingPrice,
     Status: item.status,
-  }, ['Variant ID', 'Master SKU', 'Variant SKU', 'Size', 'Color', 'Pack Quantity', 'MRP', 'Selling Price', 'Status'])
+  }, ['Variant ID', 'Master SKU', 'Variant SKU', 'Size', 'Color', 'Pack Quantity', 'MRP', 'Selling Price', 'Status'], user)
   return item
 }
 
@@ -761,7 +761,7 @@ async function addMarketplaceListing(data: WorkbookData, user: PublicUser, body:
     sellingPrice: listing.sellingPrice,
     createdBy: listing.createdBy,
     createdAt: listing.createdAt,
-  })
+  }, user)
   return listing
 }
 
@@ -797,7 +797,7 @@ async function importMarketplaceWorkbook(user: PublicUser, body: Record<string, 
   })
 }
 
-async function addMachine(data: WorkbookData, body: Record<string, unknown>) {
+async function addMachine(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
   const name = requiredText(body.name, 'Machine name', 100)
   const existing = records(data, 'Machines')
   let nextId = 1
@@ -817,7 +817,7 @@ async function addMachine(data: WorkbookData, body: Record<string, unknown>) {
     'Machine Type': machine.type,
     Operator: machine.operator,
     Status: machine.status,
-  }, ['Machine ID', 'Machine Name', 'Machine Type', 'Operator', 'Status'])
+  }, ['Machine ID', 'Machine Name', 'Machine Type', 'Operator', 'Status'], user)
   return machine
 }
 
@@ -912,7 +912,7 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     'Created By': user.name,
     'Created Date': createdAt,
   }
-  const stockResult = await recordWorkbookProduction(productionRecord)
+  const stockResult = await recordWorkbookProduction(productionRecord, user)
   const savedRecord: Production = {
     id,
     date,
@@ -1279,13 +1279,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     requireSupervisorOrAdmin(user)
     if (action === 'addProduct') {
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for product validation.')
-      const product = await addProduct(data, body)
+      const product = await addProduct(data, user, body)
       sendJson(response, 201, { product })
       return
     }
     if (action === 'addVariant') {
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for SKU validation.')
-      const product = await addVariant(data, body)
+      const product = await addVariant(data, user, body)
       sendJson(response, 201, { product })
       return
     }
@@ -1297,7 +1297,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'addMachine') {
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for machine validation.')
-      const machine = await addMachine(data, body)
+      const machine = await addMachine(data, user, body)
       sendJson(response, 201, { machine })
       return
     }

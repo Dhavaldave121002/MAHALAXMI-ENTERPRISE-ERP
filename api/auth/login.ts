@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse } from '../_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from '../_lib/http.js'
 import { setSessionCookie } from '../_lib/session.js'
-import { getSessionSecret, listUsers, publicUser, verifyPassword } from '../_lib/workbook.js'
+import { getSessionSecret, listUsers, publicUser, recordWorkbookAuditEvent, verifyPassword } from '../_lib/workbook.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'POST') {
@@ -23,8 +23,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (scope === 'admin' && user.role !== 'Super Admin') {
       throw new ApiError(403, 'The /admin login is only for the Super Admin.')
     }
+    let auditWarning = ''
+    try {
+      await recordWorkbookAuditEvent({
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        eventType: 'login',
+      })
+    } catch {
+      console.error('Successful sign-in could not be added to the ERP audit log.')
+      auditWarning = 'Sign-in succeeded, but activity logging is temporarily unavailable. Please notify the administrator.'
+    }
     setSessionCookie(response, user)
-    sendJson(response, 200, { user: publicUser(user) })
+    sendJson(response, 200, { user: publicUser(user), auditWarning })
   } catch (error) {
     handleApiError(response, error, 'Login')
   }
