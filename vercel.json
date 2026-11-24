@@ -6,6 +6,6 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "crons": [
-    { "path": "/api/cameras/cleanup", "schedule": "*/15 * * * *" }
+    { "path": "/api/cameras/cleanup", "schedule": "30 18 * * *" }
   ]
 }
