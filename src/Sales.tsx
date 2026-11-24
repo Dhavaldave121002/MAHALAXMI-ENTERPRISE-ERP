@@ -94,6 +94,7 @@ export function SalesDashboardView(props: {
   const { role, currentUser, salesUsers, leads, activities, orders, targets, products, setTarget } = props
   const [selectedMonth, setSelectedMonth] = useState(() => currentIndiaDate().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(() => currentIndiaDate().slice(0, 4))
+  const [dailyReportDate, setDailyReportDate] = useState(() => currentIndiaDate())
   const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({})
   const [savingTarget, setSavingTarget] = useState('')
   const [message, setMessage] = useState('')
@@ -104,6 +105,16 @@ export function SalesDashboardView(props: {
   const today = currentIndiaDate()
   const todayOrders = orders.filter(order => dateForSales(order.createdAt) === today)
   const todayActual = todayOrders.reduce((sum, order) => sum + activeOrderAmount(order), 0)
+  const dailyReportOrders = orders
+    .filter(order => dailyReportDate && dateForSales(order.createdAt) === dailyReportDate)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const dailyReportActivities = activities
+    .filter(activity => dailyReportDate && dateForSales(activity.createdAt) === dailyReportDate &&
+      (role !== 'Sales Executive' || activity.createdBy === currentUser.id))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const dailyReportAmount = dailyReportOrders.reduce((sum, order) => sum + activeOrderAmount(order), 0)
+  const dailyReportLeadNames = new Map(leads.map(lead => [lead.id, lead.name]))
+  const dailyReportLeadsContacted = new Set(dailyReportActivities.map(activity => activity.leadId)).size
   const monthTarget = targets.find(target => target.salesUserId === currentUser.id && target.period === 'monthly' && target.periodKey === selectedMonth)?.targetAmount || 0
   const yearTarget = targets.find(target => target.salesUserId === currentUser.id && target.period === 'yearly' && target.periodKey === selectedYear)?.targetAmount || 0
   const availableProducts = sellableProducts(products)
@@ -205,6 +216,40 @@ export function SalesDashboardView(props: {
     XLSX.writeFile(workbook, `Mahalaxmi-Sales-Report-${selectedMonth}.xlsx`)
   }
 
+  const exportDailyReport = () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+      Date: dailyReportDate,
+      Scope: role === 'Sales Executive' ? currentUser.name : 'All Sales Executives',
+      'Orders Booked': dailyReportOrders.length,
+      'Net Booked Amount': dailyReportAmount,
+      'Activities Logged': dailyReportActivities.length,
+      'Unique Leads Contacted': dailyReportLeadsContacted,
+      'Follow-Ups Scheduled': dailyReportActivities.filter(activity => activity.nextFollowUp).length,
+    }]), 'Daily Summary')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportOrders.map(order => ({
+      'Order ID': order.id,
+      Time: new Date(order.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
+      Salesperson: order.salesUserName,
+      Customer: order.customerName,
+      SKU: order.sku,
+      Product: order.productName,
+      Quantity: order.quantity,
+      'Net Booked Amount': activeOrderAmount(order),
+      Status: order.status,
+    }))), 'Orders')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportActivities.map(activity => ({
+      Time: new Date(activity.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
+      Salesperson: activity.createdByName,
+      Lead: dailyReportLeadNames.get(activity.leadId) || activity.leadId,
+      Type: activity.type,
+      Outcome: activity.outcome,
+      Notes: activity.notes,
+      'Next Follow-Up': activity.nextFollowUp,
+    }))), 'Activities')
+    XLSX.writeFile(workbook, `Mahalaxmi-Sales-Daily-Report-${dailyReportDate}.xlsx`)
+  }
+
   return (
     <section>
       <div className="page-heading">
@@ -221,6 +266,35 @@ export function SalesDashboardView(props: {
         <article className="stat-card"><div className="stat-icon purple"><Target size={20} /></div><div className="stat-body"><span>Yearly booked / target</span><strong>{money(yearActual)} / {money(role === 'Sales Executive' ? yearTarget : targetRows.reduce((sum, row) => sum + (row.yearly?.targetAmount || 0), 0))}</strong><small>{selectedYear}</small></div></article>
         <article className="stat-card"><div className="stat-icon orange"><Phone size={20} /></div><div className="stat-body"><span>Available finished stock</span><strong>{stockUnits.toLocaleString('en-IN')}</strong><small>{availableProducts.filter(product => product.stock > 0).length} stocked SKUs · {dueLeads.length} follow-ups due</small></div></article>
       </div>
+      <section className="panel sales-daily-report">
+        <div className="panel-heading">
+          <div><h2>Daily sales report</h2><p>{role === 'Sales Executive' ? currentUser.name : 'All Sales Executives'} · {dailyReportDate}</p></div>
+          <div className="sales-daily-controls">
+            <label>Report date<input type="date" value={dailyReportDate} onChange={event => setDailyReportDate(event.target.value)} /></label>
+            <button className="secondary" disabled={!dailyReportDate} onClick={exportDailyReport}><Download size={16} /> Export daily report</button>
+          </div>
+        </div>
+        <div className="sales-daily-summary">
+          <article><span>Orders booked</span><strong>{dailyReportOrders.length}</strong></article>
+          <article><span>Net booked value</span><strong>{money(dailyReportAmount)}</strong></article>
+          <article><span>Activities logged</span><strong>{dailyReportActivities.length}</strong><small>{dailyReportActivities.filter(activity => activity.type === 'Call').length} calls · {dailyReportLeadsContacted} leads contacted</small></article>
+          <article><span>Follow-ups scheduled</span><strong>{dailyReportActivities.filter(activity => activity.nextFollowUp).length}</strong></article>
+        </div>
+        <div className="sales-daily-tables">
+          <div>
+            <div className="sales-daily-table-heading"><h3>Orders booked</h3><span>{dailyReportOrders.length}</span></div>
+            {dailyReportOrders.length ? <div className="table-card entries-table"><table><thead><tr><th>Order</th><th>Customer</th><th>SKU / product</th><th>Qty</th><th>Net amount</th><th>Salesperson</th></tr></thead><tbody>
+              {dailyReportOrders.map(order => <tr key={order.id}><td><code>{order.id}</code></td><td>{order.customerName}</td><td><code>{order.sku}</code><small>{order.productName}</small></td><td>{order.quantity}</td><td>{money(activeOrderAmount(order))}</td><td>{order.salesUserName}</td></tr>)}
+            </tbody></table></div> : <div className="sales-daily-empty">No orders were booked on this date.</div>}
+          </div>
+          <div>
+            <div className="sales-daily-table-heading"><h3>Lead activities</h3><span>{dailyReportActivities.length}</span></div>
+            {dailyReportActivities.length ? <div className="table-card entries-table"><table><thead><tr><th>Lead</th><th>Type</th><th>Outcome / notes</th><th>Salesperson</th><th>Next follow-up</th></tr></thead><tbody>
+              {dailyReportActivities.map(activity => <tr key={activity.id}><td>{dailyReportLeadNames.get(activity.leadId) || activity.leadId}</td><td>{activity.type}</td><td>{activity.outcome}<small>{activity.notes}</small></td><td>{activity.createdByName}</td><td>{activity.nextFollowUp || '—'}</td></tr>)}
+            </tbody></table></div> : <div className="sales-daily-empty">No lead activities were recorded on this date.</div>}
+          </div>
+        </div>
+      </section>
       {role !== 'Sales Executive' && <section className="panel sales-target-panel">
         <div className="panel-heading"><div><h2>Salesperson targets and progress</h2><p>Set targets per active Sales Executive; booked amounts update automatically.</p></div></div>
         {targetRows.length ? <div className="table-card entries-table"><table><thead><tr><th>Sales Executive</th><th>Monthly target / actual</th><th>Monthly progress</th><th>Yearly target / actual</th><th>Yearly progress</th><th /></tr></thead><tbody>
