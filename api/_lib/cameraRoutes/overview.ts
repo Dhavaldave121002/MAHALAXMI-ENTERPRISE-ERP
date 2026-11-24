@@ -18,8 +18,18 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const users = await listUsers()
     const { roomService } = createCameraClients()
     const roomName = cameraRoomName()
-    const rooms = await roomService.listRooms([roomName])
-    const participants = rooms.length ? await roomService.listParticipants(roomName) : []
+    let participants: Awaited<ReturnType<typeof roomService.listParticipants>> = []
+    try {
+      const rooms = await roomService.listRooms([roomName])
+      participants = rooms.length ? await roomService.listParticipants(roomName) : []
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      console.error('LiveKit camera overview failed:', reason)
+      throw new ApiError(
+        503,
+        'LiveKit status check failed. Verify LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET belong to the same project.',
+      )
+    }
     const participantsById = new Map(participants.map(participant => [participant.identity, participant]))
     const staff = users.filter(user => user.active && user.role !== 'Super Admin').map(user => {
       const participant = participantsById.get(user.id)

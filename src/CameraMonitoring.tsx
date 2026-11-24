@@ -396,15 +396,22 @@ export function CameraMonitoringView() {
 
   const refresh = useCallback(async () => {
     try {
-      const [overview, recordingData] = await Promise.all([
+      const [overviewResult, recordingResult] = await Promise.allSettled([
         cameraApi<{ staff: StaffCamera[] }>('/api/cameras/overview'),
         cameraApi<{ recordings: CameraRecording[] }>('/api/cameras/recordings'),
       ])
-      setStaff(overview.staff)
-      setRecordings(recordingData.recordings)
-      setError('')
-    } catch (loadError) {
-      setError(messageFor(loadError))
+      const errors: string[] = []
+      if (overviewResult.status === 'fulfilled') {
+        setStaff(overviewResult.value.staff)
+      } else {
+        errors.push(`Live cameras: ${messageFor(overviewResult.reason)}`)
+      }
+      if (recordingResult.status === 'fulfilled') {
+        setRecordings(recordingResult.value.recordings)
+      } else {
+        errors.push(`Drive recordings: ${messageFor(recordingResult.reason)}`)
+      }
+      setError(errors.join(' '))
     } finally {
       setBusy(false)
     }
