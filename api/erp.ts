@@ -1213,11 +1213,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (action === 'createSalesOrder') {
       if (user.role !== 'Sales Executive') throw new ApiError(403, 'Only a Sales Executive can book a sales order.')
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for order validation.')
-      const leadId = requiredText(body.leadId, 'Lead', 160)
-      const assignedLead = optionalRecords(data, 'Sales_Leads').find(row =>
-        text(row['Lead ID']) === leadId && text(row['Assigned User ID']) === user.id,
-      )
-      if (!assignedLead) throw new ApiError(403, 'You can only book orders for your assigned leads.')
+      const leadId = text(body.leadId)
+      const customerName = text(body.customerName)
+      const productName = text(body.productName)
+      if (leadId.length > 160 || customerName.length > 180 || productName.length > 300) {
+        throw new ApiError(400, 'Customer name, product name, or lead ID is too long.')
+      }
+      if (leadId) {
+        const assignedLead = optionalRecords(data, 'Sales_Leads').find(row =>
+          text(row['Lead ID']) === leadId && text(row['Assigned User ID']) === user.id,
+        )
+        if (!assignedLead) throw new ApiError(403, 'You can only book orders for your assigned leads.')
+      } else if (!customerName) {
+        throw new ApiError(400, 'Choose an assigned lead or enter a customer name.')
+      }
       const sku = requiredText(body.sku, 'Product SKU', 100)
       if (!productionSkus(getSnapshot(data, user).products).some(product => product.sku.toLowerCase() === sku.toLowerCase())) {
         throw new ApiError(400, 'Choose an active product SKU.')
@@ -1230,7 +1239,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         throw new ApiError(400, 'Enter a valid order quantity, unit price, and note of 500 characters or fewer.')
       }
       const result = await createWorkbookSalesOrder({
-        id: user.id, role: user.role, leadId, sku, quantity, unitPrice,
+        id: user.id, role: user.role, leadId, customerName, sku, productName, quantity, unitPrice,
         notes,
       })
       sendJson(response, 201, result)

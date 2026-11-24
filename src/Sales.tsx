@@ -520,10 +520,11 @@ export function SalesOrdersView(props: {
   leads: SalesLead[]
   orders: SalesOrder[]
   products: SalesProduct[]
-  createOrder: (input: { leadId: string; sku: string; quantity: number; unitPrice: number; notes: string }) => Promise<void>
+  createOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string }) => Promise<void>
   cancelOrder: (orderId: string) => Promise<void>
 }) {
   const { role, currentUserId, leads, orders, products, createOrder, cancelOrder } = props
+  const [customerSelection, setCustomerSelection] = useState('')
   const [selectedSku, setSelectedSku] = useState('')
   const [unitPrice, setUnitPrice] = useState('')
   const [quantityDraft, setQuantityDraft] = useState('')
@@ -538,24 +539,37 @@ export function SalesOrdersView(props: {
     event.preventDefault()
     const form = event.currentTarget
     const values = new FormData(form)
+    const selectedLeadId = String(values.get('leadId') || '')
+    const isCustomCustomer = selectedLeadId === '__custom_customer__'
+    const customerName = isCustomCustomer ? String(values.get('customerName') || '').trim() : ''
     const quantity = Number(values.get('quantity'))
     const price = Number(unitPrice)
-    if (!selectedProduct || !Number.isInteger(quantity) || quantity < 1 || quantity > selectedProduct.stock ||
+    if ((isCustomCustomer && (!customerName || customerName.length > 180)) ||
+        (!isCustomCustomer && !assignedLeads.some(lead => lead.id === selectedLeadId)) ||
+        !selectedProduct || !Number.isInteger(quantity) || quantity < 1 || quantity > selectedProduct.stock ||
         !Number.isFinite(price) || price <= 0) {
-      setMessage('Choose an in-stock SKU and enter a valid quantity and unit price.')
+      setMessage('Choose an assigned lead or enter a customer name, then choose an in-stock SKU and valid quantity and unit price.')
+      return
+    }
+    const productName = String(values.get('productName') || '').trim()
+    if (productName.length > 300) {
+      setMessage('The order-only product name must be 300 characters or fewer.')
       return
     }
     setBusy(true)
     setMessage('')
     try {
       await createOrder({
-        leadId: String(values.get('leadId') || ''),
+        leadId: isCustomCustomer ? '' : selectedLeadId,
+        customerName,
         sku: selectedProduct.sku,
+        productName,
         quantity,
         unitPrice: price,
         notes: String(values.get('notes') || ''),
       })
       form.reset()
+      setCustomerSelection('')
       setSelectedSku('')
       setUnitPrice('')
       setQuantityDraft('')
@@ -569,22 +583,24 @@ export function SalesOrdersView(props: {
 
   return (
     <section>
-      <div className="page-heading"><div><p>SALES</p><h1>Sales Orders</h1><span className="dashboard-description">A booking reserves stock. A supervisor dispatches it later from Shipping &amp; Delivery using the order ID.</span></div></div>
+      <div className="page-heading"><div><p>SALES</p><h1>Sales Orders</h1><span className="dashboard-description">Choose an assigned lead or enter a one-time customer name. Stock SKUs are reserved; a custom product name applies only to this order.</span></div></div>
       {role === 'Sales Executive' && <form className="panel form-card sales-order-form" onSubmit={submitOrder}>
-        <div className="panel-heading"><div><h2>Book an order</h2><p>Only your assigned leads and active catalog SKUs can be selected.</p></div></div>
+        <div className="panel-heading"><div><h2>Book an order</h2><p>Custom customer and product names are saved only with the order, never as leads or catalog/listing products.</p></div></div>
         <div className="field-grid">
-          <label>Customer / lead<select name="leadId" required defaultValue=""><option value="">Choose assigned lead</option>{assignedLeads.map(lead => <option key={lead.id} value={lead.id}>{lead.name} · {lead.phone}</option>)}</select></label>
+          <label>Customer / lead<select name="leadId" required value={customerSelection} onChange={event => setCustomerSelection(event.target.value)}><option value="">Choose assigned lead</option>{assignedLeads.map(lead => <option key={lead.id} value={lead.id}>{lead.name} · {lead.phone}</option>)}<option value="__custom_customer__">Enter a one-time customer name</option></select></label>
+          {customerSelection === '__custom_customer__' && <label>Customer name<input name="customerName" required maxLength={180} placeholder="Enter customer name for this order" /></label>}
           <label>Product SKU<select value={selectedSku} required onChange={event => { setSelectedSku(event.target.value); setUnitPrice('') }}><option value="">Choose active SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku} disabled={product.stock <= 0}>{product.name} · {product.sku} · Available {product.stock}</option>)}</select></label>
           {selectedProduct && <div className="sales-stock-note"><span>Available after existing reservations</span><strong>{selectedProduct.stock.toLocaleString('en-IN')} units</strong></div>}
           <label>Quantity<input name="quantity" type="number" min="1" max={selectedProduct?.stock || undefined} step="1" required value={quantityDraft} onChange={event => setQuantityDraft(event.target.value)} disabled={!selectedProduct || selectedProduct.stock <= 0} /></label>
           <label>Unit price (INR)<input type="number" min="0.01" step="0.01" required value={unitPrice} onChange={event => setUnitPrice(event.target.value)} /></label>
+          {selectedProduct && <label>Order-only product name (optional)<input name="productName" maxLength={300} placeholder={selectedProduct.name} /><small className="field-hint">Overrides the name on this order only. It will not be added to the catalog or marketplace listings.</small></label>}
           <label className="sales-note-field">Order notes<input name="notes" maxLength={500} placeholder="Delivery or customer requirement" /></label>
         </div>
         {selectedProduct && <p className="sales-amount-hint">Estimated order amount: <strong>{money((Number(quantityDraft) || 0) * (Number(unitPrice) || 0))}</strong>. Server validates current stock and reserves it atomically.</p>}
-        <button className="primary wide" type="submit" disabled={busy || assignedLeads.length === 0 || !selectedProduct || selectedProduct.stock <= 0}><Plus size={16} /> Book order</button>
+        <button className="primary wide" type="submit" disabled={busy || !customerSelection || !selectedProduct || selectedProduct.stock <= 0}><Plus size={16} /> Book order</button>
         {message && <p className="sales-message" role="status">{message}</p>}
       </form>}
-      {role === 'Sales Executive' && assignedLeads.length === 0 && <p className="local-storage-note">No open leads are assigned to you yet. Ask the Super Admin to import or assign leads.</p>}
+      {role === 'Sales Executive' && assignedLeads.length === 0 && <p className="local-storage-note">No open leads are assigned to you yet. You can still book an order by entering a one-time customer name.</p>}
       <section className="panel sales-orders-list">
         <div className="panel-heading"><div><h2>Booked orders</h2><p>{orders.length} orders · {role === 'Sales Executive' ? 'your bookings' : 'all Sales Executive bookings'}</p></div></div>
         {sortedOrders.length ? <div className="table-card entries-table"><table><thead><tr><th>Booked</th><th>Order ID</th><th>Customer</th><th>Salesperson</th><th>SKU / product</th><th>Qty</th><th>Unit price</th><th>Booked amount</th><th>Fulfilment</th><th>Status</th><th /></tr></thead><tbody>

@@ -416,7 +416,9 @@ export async function recordWorkbookSalesActivity(input: SessionBoundInput & {
 
 export async function createWorkbookSalesOrder(input: SessionBoundInput & {
   leadId: string
+  customerName: string
   sku: string
+  productName: string
   quantity: number
   unitPrice: number
   notes: string

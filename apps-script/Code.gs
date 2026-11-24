@@ -1233,27 +1233,36 @@
       if (String(payload.sessionUserRole || '') !== 'Sales Executive') throw apiError_(403, 'Only a Sales Executive can book a sales order.')
       return withWriteLock_(function () {
         const leadId = String(payload.leadId || '').trim()
+        const customerName = String(payload.customerName || '').trim()
+        const requestedProductName = String(payload.productName || '').trim()
         const sku = String(payload.sku || '').trim()
         const quantity = Number(payload.quantity)
         const unitPrice = Number(payload.unitPrice)
         const notes = String(payload.notes || '').trim()
-        if (!leadId || !sku || !Number.isInteger(quantity) || quantity < 1 || quantity > 100000) {
-          throw apiError_(400, 'Choose a lead, product, and whole-number quantity greater than zero.')
+        if ((!leadId && !customerName) || customerName.length > 180 || requestedProductName.length > 300 ||
+            !sku || !Number.isInteger(quantity) || quantity < 1 || quantity > 100000) {
+          throw apiError_(400, 'Choose an assigned lead or enter a customer name, choose a product SKU, and enter a whole-number quantity greater than zero.')
         }
         if (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 100000000 || notes.length > 500) {
           throw apiError_(400, 'Enter a valid unit price and optional order note.')
         }
         const backupState = { created: false, backupName: '' }
-        const leadSheet = ensureStockSheet_(spreadsheet, 'Sales_Leads', ERP_SALES_LEAD_HEADERS, backupState)
-        const leadRowNumber = findStockRow_(leadSheet.sheet, leadSheet.headers, 'Lead ID', leadId)
-        if (!leadRowNumber) throw apiError_(404, 'Sales lead was not found.')
-        const lead = readStockRow_(leadSheet.sheet, leadSheet.headers, leadRowNumber)
-        if (String(lead['Assigned User ID'] || '') !== String(payload.sessionUserId || '')) {
-          throw apiError_(403, 'You can only book orders for your assigned leads.')
+        let leadSheet = null
+        let leadRowNumber = 0
+        let lead = null
+        if (leadId) {
+          leadSheet = ensureStockSheet_(spreadsheet, 'Sales_Leads', ERP_SALES_LEAD_HEADERS, backupState)
+          leadRowNumber = findStockRow_(leadSheet.sheet, leadSheet.headers, 'Lead ID', leadId)
+          if (!leadRowNumber) throw apiError_(404, 'Sales lead was not found.')
+          lead = readStockRow_(leadSheet.sheet, leadSheet.headers, leadRowNumber)
+          if (String(lead['Assigned User ID'] || '') !== String(payload.sessionUserId || '')) {
+            throw apiError_(403, 'You can only book orders for your assigned leads.')
+          }
+          if (String(lead.Status || '').toLowerCase() === 'lost') throw apiError_(409, 'A lost lead cannot be converted into an order.')
         }
-        if (String(lead.Status || '').toLowerCase() === 'lost') throw apiError_(409, 'A lost lead cannot be converted into an order.')
-        const productName = findCatalogProductName_(spreadsheet, sku)
-        if (!productName) throw apiError_(404, 'Choose an active SKU from the product catalog.')
+        const catalogProductName = findCatalogProductName_(spreadsheet, sku)
+        if (!catalogProductName) throw apiError_(404, 'Choose an active SKU from the product catalog.')
+        const productName = requestedProductName || catalogProductName
 
         const stockSheet = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
         const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
@@ -1273,7 +1282,7 @@
           'Sales User ID': String(payload.sessionUserId || ''),
           'Sales User Name': String(payload.createdBy || ''),
           'Lead ID': leadId,
-          'Customer Name': String(lead.Name || ''),
+          'Customer Name': lead ? String(lead.Name || '') : customerName,
           'Product SKU': sku,
           'Product Name': productName,
           Quantity: quantity,
@@ -1295,9 +1304,11 @@
           reason: 'Sales order booking', opening: opening, closing: item['Available Stock'],
           createdBy: payload.createdBy, itemType: 'Finished Goods',
         }), backupState)
-        lead.Status = 'Converted'
-        lead['Updated At'] = now
-        updateStockRow_(leadSheet.sheet, leadSheet.headers, leadRowNumber, lead)
+        if (lead) {
+          lead.Status = 'Converted'
+          lead['Updated At'] = now
+          updateStockRow_(leadSheet.sheet, leadSheet.headers, leadRowNumber, lead)
+        }
         SpreadsheetApp.flush()
         return { order: order, item: item, movement: movement }
       })

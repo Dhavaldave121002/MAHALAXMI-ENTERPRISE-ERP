@@ -752,7 +752,7 @@ export default function App() {
     notify('Call update saved.')
   }
 
-  const createSalesOrder = async (input: { leadId: string; sku: string; quantity: number; unitPrice: number; notes: string }) => {
+  const createSalesOrder = async (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string }) => {
     await apiFetch('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1204,7 +1204,7 @@ function ModuleView(props: {
   addSalesLead: (lead: Omit<SalesLeadImportRow, 'assignedUserId'> & { assignedUserId: string }) => Promise<void>
   assignSalesLead: (leadId: string, assignedUserId: string) => Promise<void>
   updateSalesLead: (input: { leadId: string; status: SalesLeadStatus; activityType: SalesActivityType; outcome: string; notes: string; nextFollowUp: string }) => Promise<void>
-  createSalesOrder: (input: { leadId: string; sku: string; quantity: number; unitPrice: number; notes: string }) => Promise<void>
+  createSalesOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string }) => Promise<void>
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
