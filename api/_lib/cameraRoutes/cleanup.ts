@@ -1,10 +1,10 @@
 import { DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
 import { timingSafeEqual } from 'node:crypto'
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { ApiError, handleApiError, sendJson } from '../_lib/http.js'
-import { createCameraClients, createCameraS3Client, isCameraEgressForUser, parseCameraRecordingKey } from '../_lib/camera.js'
-import { cameraRoomName, cameraScheduleForRole } from '../../shared/cameraSchedule.js'
-import { listUsers } from '../_lib/workbook.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { ApiError, handleApiError, sendJson } from '../http.js'
+import { createCameraClients, createCameraS3Client, isCameraEgressForUser, parseCameraRecordingKey } from '../camera.js'
+import { cameraRoomName, cameraScheduleForRole } from '../../../shared/cameraSchedule.js'
+import { listUsers } from '../workbook.js'
 
 const RETENTION_MS = 48 * 60 * 60 * 1000
 

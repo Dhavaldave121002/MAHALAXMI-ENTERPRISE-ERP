@@ -1,8 +1,8 @@
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { ApiError, handleApiError, sendJson } from '../_lib/http.js'
-import { createCameraAccessToken, getCameraBrowserUrl, isScheduledCameraUser } from '../_lib/camera.js'
-import { getSessionUser } from '../_lib/session.js'
-import { cameraRoomName } from '../../shared/cameraSchedule.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { ApiError, handleApiError, sendJson } from '../http.js'
+import { createCameraAccessToken, getCameraBrowserUrl, isScheduledCameraUser } from '../camera.js'
+import { getSessionUser } from '../session.js'
+import { cameraRoomName } from '../../../shared/cameraSchedule.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'POST') {

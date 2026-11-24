@@ -1,10 +1,10 @@
 import { TrackSource } from 'livekit-server-sdk'
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { ApiError, handleApiError, sendJson } from '../_lib/http.js'
-import { createCameraClients } from '../_lib/camera.js'
-import { getSessionUser, requireAdmin } from '../_lib/session.js'
-import { cameraRoomName, cameraScheduleForRole } from '../../shared/cameraSchedule.js'
-import { listUsers } from '../_lib/workbook.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { ApiError, handleApiError, sendJson } from '../http.js'
+import { createCameraClients } from '../camera.js'
+import { getSessionUser, requireAdmin } from '../session.js'
+import { cameraRoomName, cameraScheduleForRole } from '../../../shared/cameraSchedule.js'
+import { listUsers } from '../workbook.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'GET') {

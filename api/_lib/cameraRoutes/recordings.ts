@@ -1,10 +1,10 @@
 import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { ApiError, handleApiError, readJsonBody, sendJson } from '../_lib/http.js'
-import { createCameraS3Client, parseCameraRecordingKey } from '../_lib/camera.js'
-import { getSessionUser, requireAdmin } from '../_lib/session.js'
-import { listUsers } from '../_lib/workbook.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { ApiError, handleApiError, readJsonBody, sendJson } from '../http.js'
+import { createCameraS3Client, parseCameraRecordingKey } from '../camera.js'
+import { getSessionUser, requireAdmin } from '../session.js'
+import { listUsers } from '../workbook.js'
 
 const RETENTION_MS = 48 * 60 * 60 * 1000
 

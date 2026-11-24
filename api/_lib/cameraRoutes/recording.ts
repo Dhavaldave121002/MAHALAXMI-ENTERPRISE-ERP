@@ -1,9 +1,9 @@
 import { EgressStatus, TrackSource } from 'livekit-server-sdk'
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { ApiError, handleApiError, readJsonBody, sendJson } from '../_lib/http.js'
-import { createCameraClients, createCameraEgressRequest, isCameraEgressForUser, isScheduledCameraUser } from '../_lib/camera.js'
-import { getSessionUser } from '../_lib/session.js'
-import { cameraRoomName } from '../../shared/cameraSchedule.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { ApiError, handleApiError, readJsonBody, sendJson } from '../http.js'
+import { createCameraClients, createCameraEgressRequest, isCameraEgressForUser, isScheduledCameraUser } from '../camera.js'
+import { getSessionUser } from '../session.js'
+import { cameraRoomName } from '../../../shared/cameraSchedule.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'POST') {

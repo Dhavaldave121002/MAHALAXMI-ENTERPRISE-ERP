@@ -7,11 +7,7 @@ import session from './api/auth/me.ts'
 import logout from './api/auth/logout.ts'
 import users from './api/users.ts'
 import erp from './api/erp.ts'
-import cameraToken from './api/cameras/token.ts'
-import cameraRecording from './api/cameras/recording.ts'
-import cameraOverview from './api/cameras/overview.ts'
-import cameraRecordings from './api/cameras/recordings.ts'
-import cameraCleanup from './api/cameras/cleanup.ts'
+import cameraApi from './api/cameras/[action].ts'
 
 const apiRoutes = new Map([
   ['/api/auth/status', authStatus],
@@ -21,11 +17,11 @@ const apiRoutes = new Map([
   ['/api/auth/logout', logout],
   ['/api/users', users],
   ['/api/erp', erp],
-  ['/api/cameras/token', cameraToken],
-  ['/api/cameras/recording', cameraRecording],
-  ['/api/cameras/overview', cameraOverview],
-  ['/api/cameras/recordings', cameraRecordings],
-  ['/api/cameras/cleanup', cameraCleanup],
+  ['/api/cameras/token', cameraApi],
+  ['/api/cameras/recording', cameraApi],
+  ['/api/cameras/overview', cameraApi],
+  ['/api/cameras/recordings', cameraApi],
+  ['/api/cameras/cleanup', cameraApi],
 ])
 
 export default defineConfig(({ mode }) => {
