@@ -97,6 +97,17 @@ type GraphicDesignTask = {
   reviewedBy: string
   reviewedAt: string
 }
+type GraphicDesignDailyReport = {
+  id: string
+  date: string
+  userId: string
+  userName: string
+  completed: string
+  pending: string
+  issues: string
+  createdAt: string
+  updatedAt: string
+}
 type EcommercePlatform = 'AMAZON' | 'FLIPKART' | 'MEESHO' | 'SHOPIFY' | 'MYNTRA'
 type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean; platforms: EcommercePlatform[]; managerId: string }
 type EcommerceListing = { id: string; platform: EcommercePlatform; platformSku: string; productSku: string; productName: string; mrp: number; sellingPrice: number; availableStock: number; stockStatus: string; status: string }
@@ -107,6 +118,23 @@ type EcommerceManagerTarget = { managerId: string; managerName: string; platform
 type EcommerceTargetData = { dailyTarget?: number; monthlyTarget?: number; executives?: EcommerceExecutiveTarget[]; managers?: EcommerceManagerTarget[] }
 type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[]; targets: EcommerceTargetData; team?: UserAccount[] }
 type EcommerceDailyReport = { id: string; date: string; platform: EcommercePlatform; userName: string; completed: string; pending: string; issues: string; updatedAt: string }
+type EcommerceTaskStatus = 'Assigned' | 'In Progress' | 'Submitted' | 'Needs Changes' | 'Approved'
+type EcommerceTask = {
+  id: string
+  managerId: string
+  managerName: string
+  executiveId: string
+  executiveName: string
+  taskDate: string
+  title: string
+  description: string
+  status: EcommerceTaskStatus
+  createdAt: string
+  updatedAt: string
+  reviewedBy: string
+  reviewedAt: string
+  reviewNote: string
+}
 type EcommercePlatformSummary = { platform: EcommercePlatform; dispatchedOrders: number; dispatchedUnits: number; dispatchedRevenue: number; returnValue: number; damagedValue: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type RawMaterial = {
@@ -1423,6 +1451,14 @@ function ModuleView(props: {
   const [ecommerceReports, setEcommerceReports] = useState<EcommerceDailyReport[]>([])
   const [ecommerceReportsError, setEcommerceReportsError] = useState('')
   const [ecommerceReportsLoading, setEcommerceReportsLoading] = useState(false)
+  const [ecommerceTasks, setEcommerceTasks] = useState<EcommerceTask[]>([])
+  const [ecommerceTasksError, setEcommerceTasksError] = useState('')
+  const [ecommerceTasksLoading, setEcommerceTasksLoading] = useState(false)
+  const [graphicDesignReports, setGraphicDesignReports] = useState<GraphicDesignDailyReport[]>([])
+  const [graphicDesignReportsError, setGraphicDesignReportsError] = useState('')
+  const [graphicDesignReportsLoading, setGraphicDesignReportsLoading] = useState(false)
+  const [graphicDesignReportMessage, setGraphicDesignReportMessage] = useState('')
+  const [graphicDesignReportSaving, setGraphicDesignReportSaving] = useState(false)
   const [catalogListingFilter, setCatalogListingFilter] = useState('')
   const [catalogProductSearch, setCatalogProductSearch] = useState('')
   const [catalogPlatformSearch, setCatalogPlatformSearch] = useState('')
@@ -1475,6 +1511,54 @@ function ModuleView(props: {
     })
     return () => { active = false }
   }, [module, sessionUser.role])
+  useEffect(() => {
+    if (module !== 'User Management' || sessionUser.role !== 'Super Admin') return
+    let active = true
+    void Promise.resolve().then(() => {
+      if (!active) return
+      setEcommerceTasksLoading(true)
+      return fetch('/api/ecommerce-tasks', { cache: 'no-store' })
+        .then(async response => {
+          const result = await response.json() as { error?: string; tasks?: EcommerceTask[] }
+          if (!response.ok) throw new Error(result.error || 'Daily tasks could not be loaded.')
+          if (active) {
+            setEcommerceTasks(result.tasks || [])
+            setEcommerceTasksError('')
+          }
+        })
+        .catch(error => {
+          if (active) setEcommerceTasksError(error instanceof Error ? error.message : 'Daily tasks could not be loaded.')
+        })
+        .finally(() => {
+          if (active) setEcommerceTasksLoading(false)
+        })
+    })
+    return () => { active = false }
+  }, [module, sessionUser.role])
+  useEffect(() => {
+    if (module !== 'Graphic Design') return
+    let active = true
+    void Promise.resolve().then(() => {
+      if (!active) return
+      setGraphicDesignReportsLoading(true)
+      return fetch('/api/graphic-design-reports', { cache: 'no-store' })
+        .then(async response => {
+          const result = await response.json() as { error?: string; reports?: GraphicDesignDailyReport[] }
+          if (!response.ok) throw new Error(result.error || 'Graphic Design daily reports could not be loaded.')
+          if (active) {
+            setGraphicDesignReports(result.reports || [])
+            setGraphicDesignReportsError('')
+          }
+        })
+        .catch(error => {
+          if (active) setGraphicDesignReportsError(error instanceof Error ? error.message : 'Graphic Design daily reports could not be loaded.')
+        })
+        .finally(() => {
+          if (active) setGraphicDesignReportsLoading(false)
+        })
+    })
+    return () => { active = false }
+  }, [module])
   const [productionDate, setProductionDate] = useState(() => indiaDateKey(clock))
   const [productionBlockChoice, setProductionBlockChoice] = useState('')
   const [marketplaceImportPreview, setMarketplaceImportPreview] = useState<MarketplaceImportRows | null>(null)
@@ -1753,6 +1837,36 @@ function ModuleView(props: {
       setGraphicContentTypeChoice('Post')
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Social content task could not be submitted.')
+    }
+  }
+
+  const submitGraphicDesignDailyReport = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const completed = String(form.get('completed') || '').trim()
+    const pending = String(form.get('pending') || '').trim()
+    const issues = String(form.get('issues') || '').trim()
+    if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
+      setGraphicDesignReportMessage('Completed work is required; each field must be 3,000 characters or fewer.')
+      return
+    }
+    setGraphicDesignReportMessage('')
+    setGraphicDesignReportsError('')
+    setGraphicDesignReportSaving(true)
+    try {
+      const result = await apiFetch<{ report: GraphicDesignDailyReport }>('/api/graphic-design-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed, pending, issues }),
+      })
+      setGraphicDesignReports(current => [result.report, ...current.filter(report => report.id !== result.report.id)])
+      setGraphicDesignReportMessage('Daily report saved for today.')
+      formElement.reset()
+    } catch (error) {
+      setGraphicDesignReportMessage(error instanceof Error ? error.message : 'Daily report could not be saved.')
+    } finally {
+      setGraphicDesignReportSaving(false)
     }
   }
 
@@ -2859,6 +2973,13 @@ function ModuleView(props: {
         {isAdmin && <td><div className="heading-actions"><button className="primary" type="button" disabled={task.reviewStatus !== 'Pending'} onClick={() => void decideGraphicTask(task, 'Approved')}>Approve</button><button className="secondary" type="button" disabled={task.reviewStatus !== 'Pending'} onClick={() => void decideGraphicTask(task, 'Rejected')}>Reject</button></div><small>By {task.createdBy}</small></td>}
       </tr>
     })
+    const graphicDesignReportRows = graphicDesignReports.map(report => <tr key={report.id}>
+      <td>{formatIndiaDate(report.date)}</td>{isAdmin && <td>{report.userName}</td>}
+      <td className="ecommerce-report-cell">{report.completed}</td>
+      <td className="ecommerce-report-cell">{report.pending || '—'}</td>
+      <td className="ecommerce-report-cell">{report.issues || '—'}</td>
+      <td>{formatIndiaDateTime(report.updatedAt)}</td>
+    </tr>)
     const exportCreativePlan = () => {
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthTasks.map(task => ({
@@ -2896,6 +3017,20 @@ function ModuleView(props: {
           <div className="stat-card"><div className="stat-icon orange"><AlertTriangle size={20} /></div><div className="stat-body"><span>Pending / rejected</span><strong>{pendingCount} / {rejectedCount}</strong><small>Pending review / needs revision</small></div></div>
           <div className="stat-card"><div className="stat-icon purple"><Video size={20} /></div><div className="stat-body"><span>Video shoots / edits complete</span><strong>{shootsCompleted} / {editsCompleted}</strong><small>Of {videos.length} planned videos</small></div></div>
         </div>
+        <section className="panel ecommerce-report-panel" id="graphic-design-daily-report">
+          <div className="panel-heading"><div><h2>{isAdmin ? 'Graphic Designer daily reports' : 'Daily work report'}</h2><p>{isAdmin ? 'Private reports submitted by Graphic Designers' : 'Submit one report each day; a new submission updates today’s report.'}</p></div></div>
+          {graphicDesignReportsLoading && <div className="empty-state" role="status">Loading daily reports…</div>}
+          {graphicDesignReportsError && <p className="ecommerce-error" role="alert">{graphicDesignReportsError}</p>}
+          {!isAdmin && <form className="ecommerce-form" onSubmit={submitGraphicDesignDailyReport}>
+            <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} placeholder="Summarize designs, posts, videos, and other work completed today." /></label>
+            <label>Pending work<textarea name="pending" maxLength={3000} rows={3} placeholder="List work still in progress or waiting for feedback." /></label>
+            <label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} placeholder="Mention blockers or notes for the Admin." /></label>
+            <button className="primary" type="submit" disabled={graphicDesignReportSaving}><CheckCircle2 size={15} /> {graphicDesignReportSaving ? 'Saving…' : 'Submit daily report'}</button>
+          </form>}
+          <p className="ecommerce-feedback" role="status" aria-live="polite">{graphicDesignReportMessage}</p>
+          {!graphicDesignReportsLoading && !graphicDesignReportsError && graphicDesignReports.length === 0 && <div className="empty-state"><ClipboardCheck size={22} /><strong>No Graphic Design daily reports yet</strong><span>Submitted reports will appear here.</span></div>}
+          {graphicDesignReports.length > 0 && <div className="ecommerce-table-wrap"><PaginatedTable label={isAdmin ? 'Graphic Designer daily reports' : 'My Graphic Design daily reports'} resetKey={graphicDesignReports.map(report => `${report.id}-${report.updatedAt}`).join(':')} header={<thead><tr><th>Report date</th>{isAdmin && <th>Designer</th>}<th>Completed work</th><th>Pending work</th><th>Issues / notes</th><th>Last updated (IST)</th></tr></thead>} rows={graphicDesignReportRows} /></div>}
+        </section>
         <section className="panel">
           <div className="panel-heading"><div><h2>Social platform plan</h2><p>Planned, approved, and rejected items for {graphicPlanMonth}</p></div></div>
           {platformCounts.length
@@ -3046,6 +3181,12 @@ function ModuleView(props: {
       }
     }
     const reportRows = ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)
+    const ecommerceTaskRows = ecommerceTasks.map(task => <tr key={task.id}>
+      <td>{formatIndiaDate(task.taskDate)}</td><td>{task.managerName}</td><td>{task.executiveName}</td>
+      <td><strong>{task.title}</strong>{task.description && <p className="ecommerce-task-detail">{task.description}</p>}</td>
+      <td><span className={`status ${task.status === 'Approved' ? 'active' : task.status === 'Needs Changes' ? 'draft' : 'pending'}`}>{task.status === 'Submitted' ? 'Awaiting review' : task.status}</span></td>
+      <td className="ecommerce-report-cell">{task.reviewNote || '—'}</td><td>{formatIndiaDateTime(task.updatedAt)}</td>
+    </tr>)
     const managerAccounts = users.filter(account => account.role === 'E-commerce Manager' && account.active)
     const userRows = users.map(user => <tr key={user.id}>
       <td>{user.name}</td><td><code>{user.username}</code></td><td>{user.role}</td>
@@ -3080,6 +3221,13 @@ function ModuleView(props: {
           {ecommerceReportsError && <p className="ecommerce-error" role="alert">{ecommerceReportsError}</p>}
           {!ecommerceReportsLoading && !ecommerceReportsError && ecommerceReports.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No daily reports yet</strong><span>Submitted reports will appear here.</span></div>}
           {ecommerceReports.length > 0 && <div className="ecommerce-table-wrap"><PaginatedTable label="Executive daily reports" header={<thead><tr><th>Report date</th><th>Last updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed</th><th>Pending</th><th>Issues / notes</th></tr></thead>} rows={reportRows} /></div>}
+        </section>
+        <section className="panel ecommerce-report-panel">
+          <div className="panel-heading"><div><h2>E-commerce daily tasks</h2><p>Read-only view of manager-assigned tasks and Executive completion reviews</p></div></div>
+          {ecommerceTasksLoading && <div className="empty-state" role="status">Loading daily tasks…</div>}
+          {ecommerceTasksError && <p className="ecommerce-error" role="alert">{ecommerceTasksError}</p>}
+          {!ecommerceTasksLoading && !ecommerceTasksError && ecommerceTasks.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No daily tasks yet</strong><span>Tasks assigned by E-commerce Managers will appear here.</span></div>}
+          {ecommerceTasks.length > 0 && <div className="ecommerce-table-wrap"><PaginatedTable label="All E-commerce daily tasks" resetKey={ecommerceTasks.map(task => `${task.id}-${task.status}`).join(':')} header={<thead><tr><th>Task date</th><th>Manager</th><th>Executive</th><th>Task</th><th>Status</th><th>Review note</th><th>Updated (IST)</th></tr></thead>} rows={ecommerceTaskRows} /></div>}
         </section>
         <div className="table-card entries-table"><PaginatedTable label="User accounts" header={<thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Reporting manager</th><th>Platforms</th><th>Status</th><th /></tr></thead>} rows={userRows} /></div>
       </section>
@@ -3346,6 +3494,12 @@ function EcommerceWorkspace({
   const [reportHistoryError, setReportHistoryError] = useState('')
   const [actionMessage, setActionMessage] = useState('')
   const [ownReports, setOwnReports] = useState<EcommerceDailyReport[]>([])
+  const [tasks, setTasks] = useState<EcommerceTask[]>([])
+  const [taskError, setTaskError] = useState('')
+  const [taskMessage, setTaskMessage] = useState('')
+  const [taskReviewDrafts, setTaskReviewDrafts] = useState<Record<string, string>>({})
+  const [taskBusyId, setTaskBusyId] = useState('')
+  const [creatingTask, setCreatingTask] = useState(false)
   const [targetDrafts, setTargetDrafts] = useState<Record<string, { daily: string; monthly: string }>>({})
   const [savingTarget, setSavingTarget] = useState('')
   const [busy, setBusy] = useState(false)
@@ -3372,9 +3526,18 @@ function EcommerceWorkspace({
         } catch (requestError) {
           setReportHistoryError(requestError instanceof Error ? requestError.message : 'Saved reports could not be loaded.')
         }
+        try {
+          const taskResult = await apiFetch<{ tasks: EcommerceTask[] }>('/api/ecommerce-tasks')
+          setTasks(taskResult.tasks)
+          setTaskError('')
+        } catch (requestError) {
+          setTaskError(requestError instanceof Error ? requestError.message : 'Daily tasks could not be loaded.')
+        }
       } else {
         setOwnReports([])
         setReportHistoryError('')
+        setTasks([])
+        setTaskError('')
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'E-commerce workspace could not be loaded.')
@@ -3464,6 +3627,23 @@ function EcommerceWorkspace({
     <td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td>
     <td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td>
   </tr>)
+  const managerTaskRows = tasks.map(task => <tr key={task.id}>
+    <td>{formatIndiaDate(task.taskDate)}</td>
+    <td>{task.executiveName}</td>
+    <td><strong>{task.title}</strong>{task.description && <p className="ecommerce-task-detail">{task.description}</p>}</td>
+    <td><span className={`status ${task.status === 'Approved' ? 'active' : task.status === 'Needs Changes' ? 'draft' : 'pending'}`}>{task.status === 'Submitted' ? 'Awaiting review' : task.status}</span>{task.reviewNote && <p className="ecommerce-task-detail">{task.reviewNote}</p>}</td>
+    <td>{task.status === 'Submitted' ? <div className="ecommerce-task-review">
+      <label>Review note<textarea maxLength={1000} value={taskReviewDrafts[task.id] || ''} onChange={event => setTaskReviewDrafts(current => ({ ...current, [task.id]: event.target.value }))} placeholder="Required when requesting changes" /></label>
+      <div className="ecommerce-task-actions"><button className="primary" type="button" disabled={taskBusyId !== ''} onClick={() => void reviewManagerTask(task, 'Approved')}>{taskBusyId === task.id ? 'Saving…' : 'Approve'}</button><button className="secondary" type="button" disabled={taskBusyId !== ''} onClick={() => void reviewManagerTask(task, 'Needs Changes')}>Request changes</button></div>
+    </div> : task.reviewedBy ? `Reviewed by ${task.reviewedBy}` : '—'}</td>
+  </tr>)
+  const executiveTaskRows = tasks.map(task => <tr key={task.id}>
+    <td>{formatIndiaDate(task.taskDate)}</td>
+    <td>{task.managerName}</td>
+    <td><strong>{task.title}</strong>{task.description && <p className="ecommerce-task-detail">{task.description}</p>}</td>
+    <td><span className={`status ${task.status === 'Approved' ? 'active' : task.status === 'Needs Changes' ? 'draft' : 'pending'}`}>{task.status === 'Submitted' ? 'Awaiting manager review' : task.status}</span>{task.reviewNote && <p className="ecommerce-task-detail">{task.reviewNote}</p>}</td>
+    <td><div className="ecommerce-task-actions">{['Assigned', 'Needs Changes'].includes(task.status) && <button className="secondary" type="button" disabled={taskBusyId !== ''} onClick={() => void updateAssignedTask(task, 'In Progress')}>Start task</button>}{['Assigned', 'In Progress', 'Needs Changes'].includes(task.status) && <button className="primary" type="button" disabled={taskBusyId !== ''} onClick={() => void updateAssignedTask(task, 'Submitted')}>{taskBusyId === task.id ? 'Saving…' : 'Submit completed'}</button>}</div>{task.status === 'Submitted' && <small>Waiting for manager review</small>}</td>
+  </tr>)
 
   const saveTeamExecutiveTarget = async (executive: EcommerceExecutiveTarget) => {
     const draft = targetDrafts[executive.executiveId]
@@ -3493,6 +3673,82 @@ function EcommerceWorkspace({
       setActionMessage(requestError instanceof Error ? requestError.message : 'Executive targets could not be saved.')
     } finally {
       setSavingTarget('')
+    }
+  }
+
+  const createManagerTask = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const executiveId = String(form.get('executiveId') || '')
+    const taskDate = String(form.get('taskDate') || '')
+    const title = String(form.get('title') || '').trim()
+    const description = String(form.get('description') || '').trim()
+    if (!executiveId || !taskDate || !title || title.length > 200 || description.length > 2000) {
+      setTaskMessage('Choose an executive and date, enter a title, and keep details within 2,000 characters.')
+      return
+    }
+    setCreatingTask(true)
+    setTaskMessage('')
+    try {
+      const result = await apiFetch<{ task: EcommerceTask }>('/api/ecommerce-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', executiveId, taskDate, title, description }),
+      })
+      setTasks(current => [result.task, ...current.filter(task => task.id !== result.task.id)])
+      setTaskMessage(`Daily task assigned to ${result.task.executiveName}.`)
+      formElement.reset()
+    } catch (requestError) {
+      setTaskMessage(requestError instanceof Error ? requestError.message : 'Daily task could not be assigned.')
+    } finally {
+      setCreatingTask(false)
+    }
+  }
+
+  const updateAssignedTask = async (task: EcommerceTask, status: 'In Progress' | 'Submitted') => {
+    setTaskBusyId(task.id)
+    setTaskMessage('')
+    try {
+      const result = await apiFetch<{ task: EcommerceTask }>('/api/ecommerce-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'updateStatus', taskId: task.id, status }),
+      })
+      setTasks(current => current.map(item => item.id === task.id ? result.task : item))
+      setTaskMessage(status === 'Submitted' ? 'Task submitted to your Manager for review.' : 'Task marked in progress.')
+    } catch (requestError) {
+      setTaskMessage(requestError instanceof Error ? requestError.message : 'Task progress could not be updated.')
+    } finally {
+      setTaskBusyId('')
+    }
+  }
+
+  const reviewManagerTask = async (task: EcommerceTask, decision: 'Approved' | 'Needs Changes') => {
+    const reviewNote = (taskReviewDrafts[task.id] || '').trim()
+    if (decision === 'Needs Changes' && !reviewNote) {
+      setTaskMessage('Add a note explaining the requested changes.')
+      return
+    }
+    setTaskBusyId(task.id)
+    setTaskMessage('')
+    try {
+      const result = await apiFetch<{ task: EcommerceTask }>('/api/ecommerce-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'review', taskId: task.id, decision, reviewNote }),
+      })
+      setTasks(current => current.map(item => item.id === task.id ? result.task : item))
+      setTaskReviewDrafts(current => {
+        const next = { ...current }
+        delete next[task.id]
+        return next
+      })
+      setTaskMessage(decision === 'Approved' ? 'Task completion approved.' : 'Task returned to the Executive with changes requested.')
+    } catch (requestError) {
+      setTaskMessage(requestError instanceof Error ? requestError.message : 'Task review could not be saved.')
+    } finally {
+      setTaskBusyId('')
     }
   }
 
@@ -3740,6 +3996,25 @@ function EcommerceWorkspace({
           <div className="panel-heading"><div><h2>Executive daily reports · {selectedMonth}</h2><p>Reports submitted by your direct reports</p></div></div>
           {reportHistoryError && <p className="ecommerce-error" role="alert">{reportHistoryError}</p>}
           {managerMonthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No executive reports this month</strong></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedMonth} manager team daily reports`} resetKey={selectedMonth} header={<thead><tr><th>Date</th><th>Updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead>} rows={managerReportRows} /></div>}
+        </section>}
+        {showOverview && user.role === 'E-commerce Manager' && <section className="panel ecommerce-section">
+          <div className="panel-heading"><div><h2>Assign and review daily tasks</h2><p>Tasks are private to your team. Executives submit completion for your review.</p></div></div>
+          {taskError && <p className="ecommerce-error" role="alert">{taskError}</p>}
+          <form className="ecommerce-form" onSubmit={createManagerTask}>
+            <label>Executive<select name="executiveId" required defaultValue=""><option value="">Choose an active Executive</option>{(data.team || []).filter(account => account.active).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+            <label>Task date<input name="taskDate" type="date" required defaultValue={indiaDateKey()} /></label>
+            <label>Task title<input name="title" required maxLength={200} placeholder="For example, prepare the marketplace listing images" /></label>
+            <label>Task details<textarea name="description" rows={3} maxLength={2000} placeholder="Add the expected outcome or instructions." /></label>
+            <button className="primary" type="submit" disabled={creatingTask || !(data.team || []).some(account => account.active)}><Plus size={15} /> {creatingTask ? 'Assigning…' : 'Assign daily task'}</button>
+          </form>
+          <p className="ecommerce-feedback" role="status" aria-live="polite">{taskMessage}</p>
+          {tasks.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No team tasks yet</strong><span>Assign a dated task to an active Executive.</span></div> : <div className="ecommerce-table-wrap"><PaginatedTable label="Manager daily tasks" resetKey={tasks.map(task => `${task.id}-${task.status}`).join(':')} header={<thead><tr><th>Task date</th><th>Executive</th><th>Task</th><th>Status / review note</th><th>Manager review</th></tr></thead>} rows={managerTaskRows} /></div>}
+        </section>}
+        {showOverview && user.role === 'E-commerce Executive' && <section className="panel ecommerce-section">
+          <div className="panel-heading"><div><h2>My daily tasks</h2><p>Update progress and submit completed work to your Manager for review.</p></div></div>
+          {taskError && <p className="ecommerce-error" role="alert">{taskError}</p>}
+          <p className="ecommerce-feedback" role="status" aria-live="polite">{taskMessage}</p>
+          {tasks.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No daily tasks assigned</strong><span>Your Manager’s tasks will appear here.</span></div> : <div className="ecommerce-table-wrap"><PaginatedTable label="My assigned daily tasks" resetKey={tasks.map(task => `${task.id}-${task.status}`).join(':')} header={<thead><tr><th>Task date</th><th>Manager</th><th>Task</th><th>Status / review note</th><th>Progress</th></tr></thead>} rows={executiveTaskRows} /></div>}
         </section>}
         {showOverview && user.role === 'E-commerce Executive' && <div className="stats-grid ecommerce-target-progress">
           <div className="stat-card"><div className="stat-icon blue"><Target size={20} /></div><div className="stat-body"><span>Today · dispatched orders / daily target</span><strong>{ordersToday} / {dailyTarget || '—'}</strong><small>{dailyAchievement === null ? 'Daily target not set' : `${dailyAchievement}% of daily target`}</small></div></div>

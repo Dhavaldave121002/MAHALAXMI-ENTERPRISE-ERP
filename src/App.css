@@ -214,6 +214,12 @@ main { min-width: 0; }.topbar { height: 72px; background: #fff; border-bottom: 1
 .ecommerce-target-form button{justify-self:start;min-height:32px;padding:0 10px;font-size:10px}
 .ecommerce-target-settings>.ecommerce-feedback{margin:8px 14px}
 .ecommerce-admin-dashboard button:focus-visible,.ecommerce-admin-dashboard input:focus-visible{outline:2px solid #5369d8;outline-offset:2px}
+.ecommerce-task-detail{margin:4px 0 0;color:#7a8497;font-size:10px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.ecommerce-task-review{display:grid;min-width:190px;gap:7px}
+.ecommerce-task-review label{display:grid;gap:4px;color:#697386;font-size:9px;font-weight:700}
+.ecommerce-task-review textarea{min-height:52px;resize:vertical;border:1px solid #e3e8ef;border-radius:6px;padding:7px;color:#263147;font-size:10px}
+.ecommerce-task-actions{display:flex;flex-wrap:wrap;gap:6px}
+.ecommerce-task-actions button{min-height:30px;padding:0 9px;font-size:10px}
 @media(max-width:900px){.ecommerce-target-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ecommerce-workspace>.ecommerce-stock-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.ecommerce-month-heading{align-items:flex-start;flex-direction:column}.ecommerce-month-actions{width:100%;align-items:end;justify-content:space-between;flex-wrap:wrap}.ecommerce-admin-dashboard>.ecommerce-stock-summary{padding-inline:8px}.ecommerce-target-grid{grid-template-columns:1fr}}
 

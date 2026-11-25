@@ -71,6 +71,9 @@ const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'readCameraClipRange',
   'cleanupExpiredCameraClips',
   'listEcommerceReports',
+  'listEcommerceTasks',
+  'submitGraphicDesignReport',
+  'listGraphicDesignReports',
   'listSalesReports',
   'getEcommerceTargets',
 ])
@@ -418,6 +421,61 @@ export async function submitWorkbookEcommerceReport(input: SessionBoundInput & {
 
 export async function listWorkbookEcommerceReports(user: SessionBoundInput) {
   return callAppsScript<{ reports: Record<string, unknown>[] }>('listEcommerceReports', sessionBoundPayload(user))
+}
+
+export async function listWorkbookEcommerceTasks(user: SessionBoundInput) {
+  return callAppsScript<{ tasks: Record<string, unknown>[] }>('listEcommerceTasks', sessionBoundPayload(user))
+}
+
+export async function createWorkbookEcommerceTask(input: SessionBoundInput & {
+  executiveId: string
+  taskDate: string
+  title: string
+  description: string
+}) {
+  return callAppsScript<{ task: Record<string, unknown> }>('createEcommerceTask', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function updateWorkbookEcommerceTask(input: SessionBoundInput & {
+  taskId: string
+  status: 'In Progress' | 'Submitted'
+}) {
+  return callAppsScript<{ task: Record<string, unknown> }>('updateEcommerceTask', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function reviewWorkbookEcommerceTask(input: SessionBoundInput & {
+  taskId: string
+  decision: 'Approved' | 'Needs Changes'
+  reviewNote: string
+}) {
+  return callAppsScript<{ task: Record<string, unknown> }>('reviewEcommerceTask', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function submitWorkbookGraphicDesignReport(input: SessionBoundInput & {
+  completed: string
+  pending: string
+  issues: string
+}) {
+  return callAppsScript<{ report: Record<string, unknown> }>('submitGraphicDesignReport', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function listWorkbookGraphicDesignReports(user: SessionBoundInput) {
+  return callAppsScript<{ reports: Record<string, unknown>[] }>(
+    'listGraphicDesignReports',
+    sessionBoundPayload(user),
+  )
 }
 
 export async function submitWorkbookSalesReport(input: SessionBoundInput & {

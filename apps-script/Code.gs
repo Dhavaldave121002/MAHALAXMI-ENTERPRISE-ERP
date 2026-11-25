@@ -1,8 +1,8 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms', 'Manager ID']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets', 'Graphic_Design_Tasks']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
-    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
     const ERP_AUDIT_HEADERS = ['Event ID', 'Timestamp', 'User ID', 'User Name', 'Role', 'Action', 'Target', 'Outcome']
@@ -23,11 +23,14 @@
     const ERP_SCREEN_RECORDING_KIND = 'mahalaxmi-erp-screen-recording'
     const ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES = 2 * 1024 * 1024
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
+    const ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY = 'ERP_GRAPHIC_DESIGN_REPORT_FOLDER_ID'
+    const ERP_GRAPHIC_DESIGN_REPORT_KIND = 'mahalaxmi-erp-graphic-design-daily-report'
     const ERP_SALES_REPORT_FOLDER_PROPERTY = 'ERP_SALES_REPORT_FOLDER_ID'
     const ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_DAILY_TARGET_'
     const ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_'
     const ERP_ECOMMERCE_MANAGER_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_DAILY_TARGET_'
     const ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_'
+    const ERP_ECOMMERCE_TASK_HEADERS = ['Task ID', 'Manager ID', 'Manager Name', 'Executive ID', 'Executive Name', 'Task Date', 'Title', 'Description', 'Status', 'Created At', 'Updated At', 'Reviewed By ID', 'Reviewed By', 'Reviewed At', 'Review Note']
     const ERP_WORKBOOK_CACHE_SECONDS = 10
     const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
@@ -121,7 +124,7 @@
             Logger.log('ERP action succeeded but its audit status remains Started: ' + String(auditError))
           }
         }
-        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
+        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -210,6 +213,14 @@
           return submitEcommerceReport_(spreadsheet, payload)
         case 'listEcommerceReports':
           return listEcommerceReports_(spreadsheet, payload)
+        case 'listEcommerceTasks':
+          return listEcommerceTasks_(spreadsheet, payload)
+        case 'createEcommerceTask':
+          return createEcommerceTask_(spreadsheet, payload)
+        case 'updateEcommerceTask':
+          return updateEcommerceTask_(spreadsheet, payload)
+        case 'reviewEcommerceTask':
+          return reviewEcommerceTask_(spreadsheet, payload)
         case 'submitSalesReport':
           return submitSalesReport_(payload)
         case 'listSalesReports':
@@ -260,6 +271,10 @@
           return updateGraphicDesignProgress_(spreadsheet, payload)
         case 'reviewGraphicDesignTask':
           return reviewGraphicDesignTask_(spreadsheet, payload)
+        case 'submitGraphicDesignReport':
+          return submitGraphicDesignReport_(payload)
+        case 'listGraphicDesignReports':
+          return listGraphicDesignReports_(payload)
         default:
           throw apiError_(400, 'Unknown ERP action.')
       }
@@ -696,6 +711,7 @@
         submitGraphicDesignTask: 'Submitted creative task',
         updateGraphicDesignProgress: 'Updated creative production status',
         reviewGraphicDesignTask: 'Reviewed creative task',
+        submitGraphicDesignReport: 'Submitted Graphic Designer daily report',
         addRawMaterial: 'Created raw material',
         applyStockMovement: 'Recorded stock movement',
         initializeZeroFinishedStock: 'Initialized finished-goods stock',
@@ -706,6 +722,9 @@
         updateMarketplaceListing: 'Updated marketplace listing',
         uploadEcommerceLabel: 'Uploaded shipping label',
         submitEcommerceReport: 'Submitted e-commerce report',
+        createEcommerceTask: 'Created e-commerce daily task',
+        updateEcommerceTask: 'Updated e-commerce task status',
+        reviewEcommerceTask: 'Reviewed e-commerce daily task',
         submitSalesReport: 'Submitted sales report',
         setEcommerceTarget: 'Changed e-commerce target',
         setProductionTarget: 'Changed production target',
@@ -747,7 +766,7 @@
       const record = payload.record && typeof payload.record === 'object' ? payload.record : {}
       const user = payload.user && typeof payload.user === 'object' ? payload.user : {}
       const candidates = [
-        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId, payload.executiveId,
+        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId, payload.executiveId, payload.taskId,
         payload.sku, user['User ID'], record.id, record['Internal Product ID'],
         record['Variant ID'], record['Machine ID'], record['Production ID'], record['Movement ID'],
       ]
@@ -1757,6 +1776,109 @@
         SpreadsheetApp.flush()
         return { task: task, backupName: backupState.backupName }
       })
+    }
+
+    function getGraphicDesignReportFolder_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY)
+      if (folderId) return DriveApp.getFolderById(folderId)
+      if (!createIfMissing) return null
+      const folder = DriveApp.createFolder('Mahalaxmi ERP Private Graphic Design Daily Reports')
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      properties.setProperty(ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY, folder.getId())
+      return folder
+    }
+
+    function submitGraphicDesignReport_(payload) {
+      if (String(payload.sessionUserRole || '') !== 'Graphic Designer') {
+        throw apiError_(403, 'Only a Graphic Designer can submit a daily report.')
+      }
+      const completed = String(payload.completed || '').trim()
+      const pending = String(payload.pending || '').trim()
+      const issues = String(payload.issues || '').trim()
+      if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
+        throw apiError_(400, 'Completed work is required; each report field must be 3,000 characters or fewer.')
+      }
+      const userId = String(payload.sessionUserId || '').trim()
+      if (!userId) throw apiError_(401, 'Sign in again before submitting a daily report.')
+      return withWriteLock_(function () {
+        const date = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')
+        const folder = getGraphicDesignReportFolder_(true)
+        const fileName = 'report_' + date + '_' + userId.replace(/[^A-Za-z0-9_-]/g, '_') + '.json'
+        const matchingFiles = folder.getFilesByName(fileName)
+        const existingFile = matchingFiles.hasNext() ? matchingFiles.next() : null
+        let previous = null
+        if (existingFile) {
+          try {
+            previous = JSON.parse(existingFile.getBlob().getDataAsString())
+          } catch (error) {
+            throw apiError_(500, 'The existing Graphic Designer daily report is corrupted and was not overwritten.')
+          }
+          if (!previous || previous.kind !== ERP_GRAPHIC_DESIGN_REPORT_KIND || previous.version !== 1 ||
+              previous.date !== date || previous.userId !== userId) {
+            throw apiError_(500, 'The existing Graphic Designer daily report has an unsupported format and was not overwritten.')
+          }
+        }
+        const now = new Date().toISOString()
+        const report = {
+          kind: ERP_GRAPHIC_DESIGN_REPORT_KIND,
+          version: 1,
+          id: previous ? previous.id : Utilities.getUuid(),
+          date: date,
+          userId: userId,
+          userName: String(payload.createdBy || ''),
+          completed: completed,
+          pending: pending,
+          issues: issues,
+          createdAt: previous ? previous.createdAt : now,
+          updatedAt: now,
+        }
+        const content = JSON.stringify(report)
+        if (existingFile) {
+          existingFile.setContent(content)
+        } else {
+          const file = folder.createFile(fileName, content, MimeType.PLAIN_TEXT)
+          try {
+            file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+            file.setDescription(JSON.stringify({ kind: report.kind, version: report.version }))
+          } catch (error) {
+            file.setTrashed(true)
+            throw error
+          }
+        }
+        return { report: report }
+      })
+    }
+
+    function listGraphicDesignReports_(payload) {
+      const role = String(payload.sessionUserRole || '')
+      const userId = String(payload.sessionUserId || '').trim()
+      if (!userId || (role !== 'Super Admin' && role !== 'Graphic Designer')) {
+        throw apiError_(403, 'Only a Graphic Designer or Super Admin can view Graphic Design daily reports.')
+      }
+      const folder = getGraphicDesignReportFolder_(false)
+      if (!folder) return { reports: [] }
+      const reports = []
+      const files = folder.getFiles()
+      while (files.hasNext()) {
+        const file = files.next()
+        let report
+        try {
+          report = JSON.parse(file.getBlob().getDataAsString())
+        } catch (error) {
+          throw apiError_(500, 'A stored Graphic Designer daily report is corrupted.')
+        }
+        if (!report || report.kind !== ERP_GRAPHIC_DESIGN_REPORT_KIND || report.version !== 1 ||
+            typeof report.id !== 'string' || typeof report.date !== 'string' ||
+            typeof report.userId !== 'string' || typeof report.completed !== 'string' ||
+            typeof report.pending !== 'string' || typeof report.issues !== 'string') {
+          throw apiError_(500, 'A stored Graphic Designer daily report has an unsupported format.')
+        }
+        if (role === 'Graphic Designer' && report.userId !== userId) continue
+        reports.push(report)
+      }
+      reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })
+      return { reports: reports }
     }
 
     function productionTargetPeriod_(periodValue, dateValue) {
@@ -3073,6 +3195,191 @@
       }
       reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })
       return { reports: reports }
+    }
+
+    function listEcommerceTasks_(spreadsheet, payload) {
+      const role = String(payload.sessionUserRole || '')
+      const userId = String(payload.sessionUserId || '').trim()
+      if (!userId || ['Super Admin', 'E-commerce Manager', 'E-commerce Executive'].indexOf(role) < 0) {
+        throw apiError_(403, 'Only E-commerce users and the Super Admin can view daily tasks.')
+      }
+      const tasks = readSheetRecords_(spreadsheet, 'Ecommerce_Tasks').filter(function (task) {
+        if (role === 'E-commerce Manager') return String(task['Manager ID'] || '').trim() === userId
+        if (role === 'E-commerce Executive') return String(task['Executive ID'] || '').trim() === userId
+        return true
+      }).map(function (task) {
+        const status = String(task.Status || '')
+        if (['Assigned', 'In Progress', 'Submitted', 'Needs Changes', 'Approved'].indexOf(status) < 0) {
+          throw apiError_(500, 'The Ecommerce_Tasks sheet contains an invalid task status.')
+        }
+        return {
+          id: String(task['Task ID'] || ''),
+          managerId: String(task['Manager ID'] || ''),
+          managerName: String(task['Manager Name'] || ''),
+          executiveId: String(task['Executive ID'] || ''),
+          executiveName: String(task['Executive Name'] || ''),
+          taskDate: String(task['Task Date'] || ''),
+          title: String(task.Title || ''),
+          description: String(task.Description || ''),
+          status: status,
+          createdAt: String(task['Created At'] || ''),
+          updatedAt: String(task['Updated At'] || ''),
+          reviewedBy: String(task['Reviewed By'] || ''),
+          reviewedAt: String(task['Reviewed At'] || ''),
+          reviewNote: String(task['Review Note'] || ''),
+        }
+      })
+      tasks.sort(function (a, b) {
+        return String(b.taskDate).localeCompare(String(a.taskDate)) || String(b.createdAt).localeCompare(String(a.createdAt))
+      })
+      return { tasks: tasks }
+    }
+
+    function createEcommerceTask_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'E-commerce Manager') {
+        throw apiError_(403, 'Only an E-commerce Manager can assign daily tasks.')
+      }
+      const managerId = String(payload.sessionUserId || '').trim()
+      const executiveId = String(payload.executiveId || '').trim()
+      const taskDate = String(payload.taskDate || '').trim()
+      const title = String(payload.title || '').trim()
+      const description = String(payload.description || '').trim()
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(taskDate) ? new Date(taskDate + 'T00:00:00Z') : null
+      if (!date || isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== taskDate ||
+          !/^[A-Za-z0-9_-]{1,120}$/.test(executiveId) || !title || title.length > 200 ||
+          ecommerceTaskHasControlCharacters_(title, false) || description.length > 2000 ||
+          ecommerceTaskHasControlCharacters_(description, true)) {
+        throw apiError_(400, 'Enter a valid task date, an active team executive, a task title up to 200 characters, and details up to 2,000 characters.')
+      }
+      return withWriteLock_(function () {
+        const executive = readSheetRecords_(spreadsheet, 'Users').find(function (row) {
+          const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+          return active && String(row['User ID'] || '').trim() === executiveId &&
+            String(row.Role || '').trim() === 'E-commerce Executive' &&
+            String(row['Manager ID'] || '').trim() === managerId
+        })
+        if (!executive) throw apiError_(404, 'Choose an active E-commerce Executive who reports to you.')
+        const now = new Date().toISOString()
+        const task = {
+          'Task ID': Utilities.getUuid(),
+          'Manager ID': managerId,
+          'Manager Name': String(payload.createdBy || ''),
+          'Executive ID': executiveId,
+          'Executive Name': String(executive.Name || ''),
+          'Task Date': taskDate,
+          Title: title,
+          Description: description,
+          Status: 'Assigned',
+          'Created At': now,
+          'Updated At': now,
+          'Reviewed By ID': '',
+          'Reviewed By': '',
+          'Reviewed At': '',
+          'Review Note': '',
+        }
+        const backupState = { created: false, backupName: '' }
+        const sheet = ensureStockSheet_(spreadsheet, 'Ecommerce_Tasks', ERP_ECOMMERCE_TASK_HEADERS, backupState)
+        createBackupOnce_(spreadsheet, backupState)
+        appendStockRow_(sheet.sheet, sheet.headers, task)
+        SpreadsheetApp.flush()
+        return { task: {
+          id: task['Task ID'],
+          managerId: task['Manager ID'],
+          managerName: task['Manager Name'],
+          executiveId: task['Executive ID'],
+          executiveName: task['Executive Name'],
+          taskDate: task['Task Date'],
+          title: task.Title,
+          description: task.Description,
+          status: task.Status,
+          createdAt: task['Created At'],
+          updatedAt: task['Updated At'],
+          reviewedBy: task['Reviewed By'],
+          reviewedAt: task['Reviewed At'],
+          reviewNote: task['Review Note'],
+        }, backupName: backupState.backupName }
+      })
+    }
+
+    function ecommerceTaskHasControlCharacters_(value, allowLineFeed) {
+      return String(value || '').split('').some(function (character) {
+        const code = character.charCodeAt(0)
+        return (code < 32 && !(allowLineFeed && code === 10)) || code === 127
+      })
+    }
+
+    function updateEcommerceTask_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'E-commerce Executive') {
+        throw apiError_(403, 'Only the assigned E-commerce Executive can update task progress.')
+      }
+      const taskId = String(payload.taskId || '').trim()
+      const status = String(payload.status || '').trim()
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(taskId) || ['In Progress', 'Submitted'].indexOf(status) < 0) {
+        throw apiError_(400, 'Choose a valid task and progress status.')
+      }
+      return withWriteLock_(function () {
+        if (!spreadsheet.getSheetByName('Ecommerce_Tasks')) throw apiError_(404, 'The assigned daily task was not found.')
+        const backupState = { created: false, backupName: '' }
+        const sheet = ensureStockSheet_(spreadsheet, 'Ecommerce_Tasks', ERP_ECOMMERCE_TASK_HEADERS, backupState)
+        const rowNumber = findStockRow_(sheet.sheet, sheet.headers, 'Task ID', taskId)
+        if (!rowNumber) throw apiError_(404, 'The assigned daily task was not found.')
+        const task = readStockRow_(sheet.sheet, sheet.headers, rowNumber)
+        if (String(task['Executive ID'] || '') !== String(payload.sessionUserId || '').trim()) {
+          throw apiError_(403, 'You can only update tasks assigned to your account.')
+        }
+        if (['Assigned', 'In Progress', 'Needs Changes'].indexOf(String(task.Status || '')) < 0) {
+          throw apiError_(409, 'This task is already awaiting review or has been approved.')
+        }
+        createBackupOnce_(spreadsheet, backupState)
+        task.Status = status
+        task['Updated At'] = new Date().toISOString()
+        if (status === 'Submitted') {
+          task['Reviewed By ID'] = ''
+          task['Reviewed By'] = ''
+          task['Reviewed At'] = ''
+          task['Review Note'] = ''
+        }
+        updateStockRow_(sheet.sheet, sheet.headers, rowNumber, task)
+        SpreadsheetApp.flush()
+        return { task: task, backupName: backupState.backupName }
+      })
+    }
+
+    function reviewEcommerceTask_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'E-commerce Manager') {
+        throw apiError_(403, 'Only the owning E-commerce Manager can review task completion.')
+      }
+      const taskId = String(payload.taskId || '').trim()
+      const decision = String(payload.decision || '').trim()
+      const reviewNote = String(payload.reviewNote || '').trim()
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(taskId) || ['Approved', 'Needs Changes'].indexOf(decision) < 0 ||
+          reviewNote.length > 1000 || (decision === 'Needs Changes' && !reviewNote)) {
+        throw apiError_(400, 'Choose a review decision; a note of up to 1,000 characters is required when requesting changes.')
+      }
+      return withWriteLock_(function () {
+        if (!spreadsheet.getSheetByName('Ecommerce_Tasks')) throw apiError_(404, 'The daily task was not found.')
+        const backupState = { created: false, backupName: '' }
+        const sheet = ensureStockSheet_(spreadsheet, 'Ecommerce_Tasks', ERP_ECOMMERCE_TASK_HEADERS, backupState)
+        const rowNumber = findStockRow_(sheet.sheet, sheet.headers, 'Task ID', taskId)
+        if (!rowNumber) throw apiError_(404, 'The daily task was not found.')
+        const task = readStockRow_(sheet.sheet, sheet.headers, rowNumber)
+        if (String(task['Manager ID'] || '') !== String(payload.sessionUserId || '').trim()) {
+          throw apiError_(403, 'You can only review tasks assigned by your manager account.')
+        }
+        if (String(task.Status || '') !== 'Submitted') {
+          throw apiError_(409, 'Only tasks submitted for review can be approved or returned for changes.')
+        }
+        createBackupOnce_(spreadsheet, backupState)
+        task.Status = decision
+        task['Updated At'] = new Date().toISOString()
+        task['Reviewed By ID'] = String(payload.sessionUserId || '')
+        task['Reviewed By'] = String(payload.createdBy || '')
+        task['Reviewed At'] = task['Updated At']
+        task['Review Note'] = reviewNote
+        updateStockRow_(sheet.sheet, sheet.headers, rowNumber, task)
+        SpreadsheetApp.flush()
+        return { task: task, backupName: backupState.backupName }
+      })
     }
 
     function getSalesReportFolder_(createIfMissing) {
