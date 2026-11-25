@@ -393,13 +393,13 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(url, { cache: 'no-store', ...init })
   } catch {
-    throw new Error('Secure login server is unavailable. Deploy the app with its Vercel API routes.')
+    throw new Error('Could not connect to the ERP server. Check your internet connection and reload the page.')
   }
   let result: { error?: string } & Record<string, unknown>
   try {
     result = await response.json() as { error?: string } & Record<string, unknown>
   } catch {
-    throw new Error('Secure login API is unavailable. Configure the Vercel server environment.')
+    throw new Error('The ERP API returned an invalid response. Confirm the Vercel API routes are deployed and check the deployment logs.')
   }
   if (!response.ok) throw new ApiResponseError(response.status, result.error || 'The server request failed.')
   return result as T
