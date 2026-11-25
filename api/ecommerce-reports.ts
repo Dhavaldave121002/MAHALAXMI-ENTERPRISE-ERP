@@ -20,9 +20,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const visibleReports = user.role === 'Super Admin'
       ? result.reports
       : user.role === 'E-commerce Manager'
-        ? result.reports.filter(report => users.some(account =>
-          account.id === String(report.userId || '') && account.role === 'E-commerce Executive' && account.managerId === user.id,
-        ))
+        ? result.reports.filter(report =>
+          (String(report.userId || '') === user.id && report.platform === 'TEAM') ||
+          users.some(account =>
+            account.id === String(report.userId || '') && account.role === 'E-commerce Executive' && account.managerId === user.id,
+          ),
+        )
         : result.reports.filter(report => String(report.userId || '') === user.id)
     const reports = visibleReports.map(report => ({
       id: String(report.id || ''),

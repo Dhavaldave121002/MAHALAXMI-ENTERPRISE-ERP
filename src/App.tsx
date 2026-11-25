@@ -117,7 +117,7 @@ type EcommerceExecutiveTarget = { executiveId: string; executiveName: string; pl
 type EcommerceManagerTarget = { managerId: string; managerName: string; platforms: EcommercePlatform[]; dailyTarget: number; monthlyTarget: number }
 type EcommerceTargetData = { dailyTarget?: number; monthlyTarget?: number; executives?: EcommerceExecutiveTarget[]; managers?: EcommerceManagerTarget[] }
 type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[]; targets: EcommerceTargetData; team?: UserAccount[] }
-type EcommerceDailyReport = { id: string; date: string; platform: EcommercePlatform; userName: string; completed: string; pending: string; issues: string; updatedAt: string }
+type EcommerceDailyReport = { id: string; date: string; platform: EcommercePlatform | 'TEAM'; userName: string; completed: string; pending: string; issues: string; updatedAt: string }
 type EcommerceTaskStatus = 'Assigned' | 'In Progress' | 'Submitted' | 'Needs Changes' | 'Approved'
 type EcommerceTask = {
   id: string
@@ -190,7 +190,7 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'CATALOG', items: ['Product Catalog'] },
   { label: 'SALES', items: ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
   { label: 'E-COMMERCE', items: ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'] },
-  { label: 'CREATIVE', items: ['Graphic Design'] },
+  { label: 'CREATIVE', items: ['Graphic Design', 'Daily Work Report'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Camera Monitoring', 'Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
@@ -1275,9 +1275,9 @@ export default function App() {
     'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat'],
     'Store Manager': ['Dashboard', 'Chat'],
     'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat'],
-    'E-commerce Manager': ['E-commerce Workspace', 'Chat'],
+    'E-commerce Manager': ['E-commerce Workspace', 'Daily Work Report', 'Chat'],
     'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Chat'],
-    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Chat'],
+    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Daily Work Report', 'Chat'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -1444,7 +1444,7 @@ function ModuleView(props: {
       active = false
       window.clearInterval(timer)
     }
-  }, [module])
+  }, [module, sessionUser.role])
   const [stockFormOpen, setStockFormOpen] = useState(false)
   const [materialFormOpen, setMaterialFormOpen] = useState(false)
   const [newUserRole, setNewUserRole] = useState<Role>('Production Supervisor')
@@ -1536,7 +1536,7 @@ function ModuleView(props: {
     return () => { active = false }
   }, [module, sessionUser.role])
   useEffect(() => {
-    if (module !== 'Graphic Design') return
+    if (module !== 'Graphic Design' && !(module === 'Daily Work Report' && sessionUser.role === 'Graphic Designer')) return
     let active = true
     void Promise.resolve().then(() => {
       if (!active) return
@@ -1558,7 +1558,7 @@ function ModuleView(props: {
         })
     })
     return () => { active = false }
-  }, [module])
+  }, [module, sessionUser.role])
   const [productionDate, setProductionDate] = useState(() => indiaDateKey(clock))
   const [productionBlockChoice, setProductionBlockChoice] = useState('')
   const [marketplaceImportPreview, setMarketplaceImportPreview] = useState<MarketplaceImportRows | null>(null)
@@ -1639,6 +1639,34 @@ function ModuleView(props: {
   }, {})
   if (!allowedModules.includes(module)) {
     return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Your account role cannot open this section.</span></div></section>
+  }
+
+  if (module === 'Daily Work Report' && sessionUser.role === 'Graphic Designer') {
+    const reportRows = graphicDesignReports.map(report => <tr key={report.id}>
+      <td>{formatIndiaDate(report.date)}</td>
+      <td className="ecommerce-report-cell">{report.completed}</td>
+      <td className="ecommerce-report-cell">{report.pending || '—'}</td>
+      <td className="ecommerce-report-cell">{report.issues || '—'}</td>
+      <td>{formatIndiaDateTime(report.updatedAt)}</td>
+    </tr>)
+    return <section>
+      <div className="page-heading">
+        <div><p>CREATIVE STUDIO</p><h1>Daily Work Report</h1><span className="dashboard-description">Submit one report each day; resubmitting updates today’s report.</span></div>
+      </div>
+      <section className="panel ecommerce-report-panel">
+        {graphicDesignReportsLoading && <div className="empty-state" role="status">Loading daily reports…</div>}
+        {graphicDesignReportsError && <p className="ecommerce-error" role="alert">{graphicDesignReportsError}</p>}
+        <form className="ecommerce-form" onSubmit={submitGraphicDesignDailyReport}>
+          <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} placeholder="Summarize designs, posts, videos, and other work completed today." /></label>
+          <label>Pending work<textarea name="pending" maxLength={3000} rows={3} placeholder="List work still in progress or waiting for feedback." /></label>
+          <label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} placeholder="Mention blockers or notes for the Admin." /></label>
+          <button className="primary" type="submit" disabled={graphicDesignReportSaving}><CheckCircle2 size={15} /> {graphicDesignReportSaving ? 'Saving…' : 'Submit daily report'}</button>
+        </form>
+        <p className="ecommerce-feedback" role="status" aria-live="polite">{graphicDesignReportMessage}</p>
+        {!graphicDesignReportsLoading && !graphicDesignReportsError && graphicDesignReports.length === 0 && <div className="empty-state"><ClipboardCheck size={22} /><strong>No daily reports yet</strong><span>Your submitted reports will appear here.</span></div>}
+        {graphicDesignReports.length > 0 && <div className="ecommerce-table-wrap"><PaginatedTable label="My Graphic Design daily reports" resetKey={graphicDesignReports.map(report => `${report.id}-${report.updatedAt}`).join(':')} header={<thead><tr><th>Report date</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th><th>Last updated (IST)</th></tr></thead>} rows={reportRows} /></div>}
+      </section>
+    </section>
   }
 
   if (
@@ -1840,7 +1868,7 @@ function ModuleView(props: {
     }
   }
 
-  const submitGraphicDesignDailyReport = async (event: React.FormEvent<HTMLFormElement>) => {
+  async function submitGraphicDesignDailyReport(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const formElement = event.currentTarget
     const form = new FormData(formElement)
@@ -3017,20 +3045,13 @@ function ModuleView(props: {
           <div className="stat-card"><div className="stat-icon orange"><AlertTriangle size={20} /></div><div className="stat-body"><span>Pending / rejected</span><strong>{pendingCount} / {rejectedCount}</strong><small>Pending review / needs revision</small></div></div>
           <div className="stat-card"><div className="stat-icon purple"><Video size={20} /></div><div className="stat-body"><span>Video shoots / edits complete</span><strong>{shootsCompleted} / {editsCompleted}</strong><small>Of {videos.length} planned videos</small></div></div>
         </div>
-        <section className="panel ecommerce-report-panel" id="graphic-design-daily-report">
-          <div className="panel-heading"><div><h2>{isAdmin ? 'Graphic Designer daily reports' : 'Daily work report'}</h2><p>{isAdmin ? 'Private reports submitted by Graphic Designers' : 'Submit one report each day; a new submission updates today’s report.'}</p></div></div>
+        {isAdmin && <section className="panel ecommerce-report-panel" id="graphic-design-daily-report">
+          <div className="panel-heading"><div><h2>Graphic Designer daily reports</h2><p>Private reports submitted by Graphic Designers</p></div></div>
           {graphicDesignReportsLoading && <div className="empty-state" role="status">Loading daily reports…</div>}
           {graphicDesignReportsError && <p className="ecommerce-error" role="alert">{graphicDesignReportsError}</p>}
-          {!isAdmin && <form className="ecommerce-form" onSubmit={submitGraphicDesignDailyReport}>
-            <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} placeholder="Summarize designs, posts, videos, and other work completed today." /></label>
-            <label>Pending work<textarea name="pending" maxLength={3000} rows={3} placeholder="List work still in progress or waiting for feedback." /></label>
-            <label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} placeholder="Mention blockers or notes for the Admin." /></label>
-            <button className="primary" type="submit" disabled={graphicDesignReportSaving}><CheckCircle2 size={15} /> {graphicDesignReportSaving ? 'Saving…' : 'Submit daily report'}</button>
-          </form>}
-          <p className="ecommerce-feedback" role="status" aria-live="polite">{graphicDesignReportMessage}</p>
           {!graphicDesignReportsLoading && !graphicDesignReportsError && graphicDesignReports.length === 0 && <div className="empty-state"><ClipboardCheck size={22} /><strong>No Graphic Design daily reports yet</strong><span>Submitted reports will appear here.</span></div>}
-          {graphicDesignReports.length > 0 && <div className="ecommerce-table-wrap"><PaginatedTable label={isAdmin ? 'Graphic Designer daily reports' : 'My Graphic Design daily reports'} resetKey={graphicDesignReports.map(report => `${report.id}-${report.updatedAt}`).join(':')} header={<thead><tr><th>Report date</th>{isAdmin && <th>Designer</th>}<th>Completed work</th><th>Pending work</th><th>Issues / notes</th><th>Last updated (IST)</th></tr></thead>} rows={graphicDesignReportRows} /></div>}
-        </section>
+          {graphicDesignReports.length > 0 && <div className="ecommerce-table-wrap"><PaginatedTable label="Graphic Designer daily reports" resetKey={graphicDesignReports.map(report => `${report.id}-${report.updatedAt}`).join(':')} header={<thead><tr><th>Report date</th><th>Designer</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th><th>Last updated (IST)</th></tr></thead>} rows={graphicDesignReportRows} /></div>}
+        </section>}
         <section className="panel">
           <div className="panel-heading"><div><h2>Social platform plan</h2><p>Planned, approved, and rejected items for {graphicPlanMonth}</p></div></div>
           {platformCounts.length
@@ -3180,7 +3201,7 @@ function ModuleView(props: {
         notify(error instanceof Error ? error.message : 'Manager assignment could not be saved')
       }
     }
-    const reportRows = ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)
+    const reportRows = ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform === 'TEAM' ? 'Team' : report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)
     const ecommerceTaskRows = ecommerceTasks.map(task => <tr key={task.id}>
       <td>{formatIndiaDate(task.taskDate)}</td><td>{task.managerName}</td><td>{task.executiveName}</td>
       <td><strong>{task.title}</strong>{task.description && <p className="ecommerce-task-detail">{task.description}</p>}</td>
@@ -3581,7 +3602,7 @@ function EcommerceWorkspace({
   const orderRows = movements.map(item => <tr key={item.id}><td>{formatIndiaDateTime(item.date)}</td><td><code>{item.orderNumber}</code></td><td>{item.type}</td><td><code>{item.sku}</code></td><td>{item.quantity}</td><td>{item.reason || '—'}</td></tr>)
   const labels = data?.labels.filter(label => label.platform === selectedPlatform) || []
   const labelRows = labels.map(label => <div className="ecommerce-label-row" key={label.id}><div><strong>{label.orderNumber}</strong><span>{label.fileName} · {formatIndiaDateTime(label.uploadedAt)}</span></div><button className="secondary" type="button" disabled={busy} onClick={() => void downloadLabel(label)}><Download size={15} /> Download</button></div>)
-  const latestOwnReport = ownReports.find(report => report.platform === selectedPlatform)
+  const latestOwnReport = ownReports.find(report => report.platform === (user.role === 'E-commerce Manager' ? 'TEAM' : selectedPlatform))
   const uniqueStock = new Map(listings.map(listing => [listing.productSku.toLowerCase(), listing.availableStock]))
   const monthlySummaries = (data?.platforms || []).map(platform =>
     summarizeEcommercePlatform(platform, data?.movements || [], [], selectedMonth),
@@ -3611,8 +3632,10 @@ function EcommerceWorkspace({
   const showStock = showAll || page === 'stock'
   const showOrders = showAll || page === 'orders'
   const showLabels = showAll || page === 'labels'
-  const showReport = user.role === 'E-commerce Executive' && (showAll || page === 'report')
-  const managerMonthlyReports = ownReports.filter(report => report.date.slice(0, 7) === selectedMonth)
+  const showReport = user.role === 'E-commerce Executive'
+    ? showAll || page === 'report'
+    : user.role === 'E-commerce Manager' && page === 'report'
+  const managerMonthlyReports = ownReports.filter(report => report.platform !== 'TEAM' && report.date.slice(0, 7) === selectedMonth)
   const targetRows = (data?.targets.executives || []).map(executive => {
     const dailyOrders = countAssignedDispatchedOrders(data?.movements || [], executive.platforms, item => dateForTimestamp(item.date) === todayKey)
     const monthlyOrders = countAssignedDispatchedOrders(data?.movements || [], executive.platforms, item => monthForTimestamp(item.date) === selectedMonth)
@@ -3884,7 +3907,7 @@ function EcommerceWorkspace({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'submitReport',
-          platform: selectedPlatform,
+          platform: user.role === 'E-commerce Manager' ? 'TEAM' : selectedPlatform,
           completed: form.get('completed'),
           pending: form.get('pending'),
           issues: form.get('issues'),
@@ -4045,7 +4068,7 @@ function EcommerceWorkspace({
             {labels.length === 0 ? <div className="empty-state"><FileSpreadsheet size={24} /><strong>No labels for {selectedPlatform}</strong><span>Uploaded shipping labels will be listed here.</span></div> : <PaginatedList label={`${selectedPlatform} shipping labels`} resetKey={selectedPlatform} items={labelRows} className="ecommerce-label-list" />}
           </section>}
           {showReport && <section className="panel ecommerce-section">
-            <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per platform each day; new submissions update today’s report.</p></div></div>
+            <div className="panel-heading"><div><h2>Daily work report</h2><p>{user.role === 'E-commerce Manager' ? 'Submit one team report each day; resubmitting updates today’s report.' : 'One report per platform each day; new submissions update today’s report.'}</p></div></div>
             {reportHistoryError && <p className="ecommerce-error" role="alert">{reportHistoryError}</p>}
             <form className="ecommerce-form" onSubmit={event => void submitDailyReport(event)}><label>Completed work<textarea name="completed" required maxLength={3000} rows={4} /></label><label>Pending work<textarea name="pending" maxLength={3000} rows={3} /></label><label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} /></label><button className="primary" type="submit" disabled={busy}><CheckCircle2 size={15} /> Submit daily report</button></form>
             <section className="ecommerce-report-saved" aria-label="Daily report status">
@@ -4055,7 +4078,7 @@ function EcommerceWorkspace({
                 <p><b>Completed:</b> {latestOwnReport.completed}</p>
                 <p><b>Pending:</b> {latestOwnReport.pending || '—'}</p>
                 <p><b>Issues / notes:</b> {latestOwnReport.issues || '—'}</p>
-              </> : <p>No report has been saved for {selectedPlatform} yet.</p>}
+              </> : <p>No report has been saved for {user.role === 'E-commerce Manager' ? 'your team' : selectedPlatform} yet.</p>}
             </section>
           </section>}
         </div>}

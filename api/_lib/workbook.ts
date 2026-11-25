@@ -411,7 +411,7 @@ export async function downloadWorkbookEcommerceLabel(user: SessionBoundInput, fi
 }
 
 export async function submitWorkbookEcommerceReport(input: SessionBoundInput & {
-  platform: EcommercePlatform
+  platform: EcommercePlatform | 'TEAM'
   completed: string
   pending: string
   issues: string

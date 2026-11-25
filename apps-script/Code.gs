@@ -3098,8 +3098,13 @@
     }
 
     function submitEcommerceReport_(spreadsheet, payload) {
-      if (payload.sessionUserRole !== 'E-commerce Executive') throw apiError_(403, 'Only an E-commerce Executive can submit a daily report.')
-      const platform = assertEcommercePlatformAccess_(payload, payload.platform, spreadsheet)
+      const role = String(payload.sessionUserRole || '')
+      if (role !== 'E-commerce Executive' && role !== 'E-commerce Manager') {
+        throw apiError_(403, 'Only an E-commerce Executive or Manager can submit a daily report.')
+      }
+      const platform = role === 'E-commerce Manager'
+        ? 'TEAM'
+        : assertEcommercePlatformAccess_(payload, payload.platform, spreadsheet)
       const completed = String(payload.completed || '').trim()
       const pending = String(payload.pending || '').trim()
       const issues = String(payload.issues || '').trim()
@@ -3186,11 +3191,14 @@
         }
         if (!report || report.kind !== 'mahalaxmi-erp-ecommerce-report' || report.version !== 1 ||
             typeof report.id !== 'string' || typeof report.date !== 'string' ||
-            ERP_ECOMMERCE_PLATFORMS.indexOf(report.platform) < 0) {
+            (ERP_ECOMMERCE_PLATFORMS.indexOf(report.platform) < 0 && report.platform !== 'TEAM')) {
           throw apiError_(500, 'A stored daily report has an unsupported format.')
         }
         if (role === 'E-commerce Executive' && String(report.userId || '') !== sessionUserId) continue
-        if (role === 'E-commerce Manager' && !teamIds[String(report.userId || '')]) continue
+        if (role === 'E-commerce Manager') {
+          const reportUserId = String(report.userId || '')
+          if (report.platform === 'TEAM' ? reportUserId !== sessionUserId : !teamIds[reportUserId]) continue
+        }
         reports.push(report)
       }
       reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })

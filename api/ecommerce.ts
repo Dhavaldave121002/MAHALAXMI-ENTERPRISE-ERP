@@ -212,6 +212,30 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return
     }
 
+    if (action === 'submitReport') {
+      if (user.role !== 'E-commerce Executive' && user.role !== 'E-commerce Manager') {
+        throw new ApiError(403, 'Only an E-commerce Executive or Manager can submit a daily report.')
+      }
+      let platform: EcommercePlatform | 'TEAM'
+      if (user.role === 'E-commerce Manager') {
+        platform = 'TEAM'
+      } else {
+        platform = requirePlatform(body.platform)
+        requirePlatformAccess(user, platform)
+      }
+      const completed = requireText(body.completed, 'Completed work', 3000)
+      if ((body.pending !== undefined && typeof body.pending !== 'string') ||
+          (body.issues !== undefined && typeof body.issues !== 'string')) {
+        throw new ApiError(400, 'Pending work and issues must be text.')
+      }
+      const pending = typeof body.pending === 'string' ? body.pending.trim() : ''
+      const issues = typeof body.issues === 'string' ? body.issues.trim() : ''
+      if (pending.length > 3000 || issues.length > 3000) throw new ApiError(400, 'Each report field must be 3,000 characters or fewer.')
+      const result = await submitWorkbookEcommerceReport({ id: user.id, role: user.role, platform, completed, pending, issues })
+      sendJson(response, 200, result)
+      return
+    }
+
     const platform = requirePlatform(body.platform)
     requirePlatformAccess(user, platform)
 
@@ -250,23 +274,6 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       }
       const label = await uploadWorkbookEcommerceLabel({ id: user.id, role: user.role, platform, orderNumber, fileName, base64 })
       sendJson(response, 201, { label })
-      return
-    }
-
-    if (action === 'submitReport') {
-      if (user.role !== 'E-commerce Executive') {
-        throw new ApiError(403, 'Only an E-commerce Executive can submit a daily report.')
-      }
-      const completed = requireText(body.completed, 'Completed work', 3000)
-      if ((body.pending !== undefined && typeof body.pending !== 'string') ||
-          (body.issues !== undefined && typeof body.issues !== 'string')) {
-        throw new ApiError(400, 'Pending work and issues must be text.')
-      }
-      const pending = typeof body.pending === 'string' ? body.pending.trim() : ''
-      const issues = typeof body.issues === 'string' ? body.issues.trim() : ''
-      if (pending.length > 3000 || issues.length > 3000) throw new ApiError(400, 'Each report field must be 3,000 characters or fewer.')
-      const result = await submitWorkbookEcommerceReport({ id: user.id, role: user.role, platform, completed, pending, issues })
-      sendJson(response, 200, result)
       return
     }
 
