@@ -155,10 +155,10 @@ export function ScreenMonitoringView() {
   return (
     <section className="camera-monitoring-page">
       <div className="page-heading">
-        <div><p>SUPER ADMIN</p><h1>Screen monitoring</h1><span className="dashboard-description">Webcam capture is disabled. Only team-member-approved screen shares are shown and saved.</span></div>
+        <div><p>SUPER ADMIN</p><h1>Screen monitoring</h1><span className="dashboard-description">Team-member-approved screens appear live; webcam video appears only as an overlay in saved clips.</span></div>
         <div className="heading-actions"><button className="secondary" type="button" onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={16} /> Refresh</button></div>
       </div>
-      <div className="camera-policy-note"><Video size={18} /><span>Webcam and face capture are disabled. Screen sharing is started by the team member, requires browser approval, and shows a visible recording indicator. Active shares appear live below; private screen clips are saved every five minutes and removed after 24 hours. Screen sharing does not capture audio.</span></div>
+      <div className="camera-policy-note"><Video size={18} /><span>Recording is started by the team member and requires approval for both screen sharing and camera access. The webcam is composited as a picture-in-picture overlay in private saved clips only; it is not streamed live. A visible indicator and Stop control stay available. Clips are removed after 24 hours; no audio is captured.</span></div>
       {error && <p className="camera-error" role="alert"><AlertTriangle size={16} />{error}</p>}
       {screenShareError && <p className="camera-error" role="alert"><AlertTriangle size={16} />Live screen shares: {screenShareError}</p>}
       <section className="panel camera-panel">
@@ -168,7 +168,7 @@ export function ScreenMonitoringView() {
           : <div className="empty-state"><VideoOff size={24} /><strong>No team screens are being shared</strong><span>A screen appears here when a signed-in team member starts screen recording and approves the browser prompt.</span></div>}
       </section>
       <section className="panel camera-panel">
-        <div className="panel-heading"><div><h2>Screen recordings</h2><p>Clips from screen shares started by team members · last 24 hours</p></div><span className="camera-retention-tag">24-hour retention</span></div>
+        <div className="panel-heading"><div><h2>Screen recordings</h2><p>Team-member-started clips; approved webcam appears in the saved picture-in-picture overlay · last 24 hours</p></div><span className="camera-retention-tag">24-hour retention</span></div>
         {recordings.length
           ? <div className="dashboard-table"><table><thead><tr><th>Team member</th><th>Clip started (IST)</th><th>Size</th><th>Action</th></tr></thead><tbody>{recordings.map(recording => <tr key={recording.id}><td>{recording.userName}</td><td>{formatRecordingDate(recording.startedAt)}</td><td>{formatRecordingSize(recording.size)}</td><td><button className="secondary camera-play-button" type="button" onClick={() => playRecording(recording)}><Play size={14} /> Play</button></td></tr>)}</tbody></table></div>
           : <div className="empty-state"><VideoOff size={24} /><strong>{busy ? 'Loading screen recordings…' : 'No screen recordings yet'}</strong><span>Completed, user-approved screen clips will appear here.</span></div>}
