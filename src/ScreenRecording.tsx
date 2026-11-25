@@ -14,7 +14,7 @@ type ScreenRecordingUser = { id: string; name: string; role: string }
 function messageFor(error: unknown) {
   const message = error instanceof Error ? error.message : ''
   if (/permission to call UrlFetchApp\.fetch|authorization is required to perform that action|missing required permissions?.*script\.external_request|insufficient authentication scopes/i.test(message)) {
-    return 'Apps Script reports that its upload request lacks authorization. Since authorizeCameraClipUploads succeeded, check the latest Apps Script execution details and confirm the web app runs as that same deployment owner with the Drive and external-request scopes.'
+    return 'Apps Script reports that its upload request lacks authorization. In the Apps Script editor, select authorizeCameraClipUploads (not onOpen), run it as the web-app deployment owner, and approve Drive/external-request permissions. If it succeeds, check Executions for the latest doPost failure and confirm Vercel uses this deployment URL.'
   }
   if (/unknown audit event|unknown erp action|deployment is outdated|google apps script returned an invalid response|incompatible response/i.test(message)) {
     return 'Screen recording needs an Apps Script update. Ask the Super Admin to deploy the latest Code.gs as a new web-app version.'
