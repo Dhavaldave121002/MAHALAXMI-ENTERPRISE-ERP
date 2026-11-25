@@ -360,18 +360,17 @@ export function ChatView({ user }: { user: ChatUser }) {
   return (
     <section className="chat-page">
       <div className="page-heading chat-page-heading">
-        <div><p>TEAM COMMUNICATION</p><h1>Chat</h1></div>
+        <div className="chat-heading-copy">
+          <div><p>TEAM COMMUNICATION</p><h1>Chat</h1></div>
+          <p className="chat-privacy-note" role="note">
+            {adminCanView
+              ? 'Super Admin can view all chats · Messages and files are deleted after 48 hours.'
+              : 'Visible to participants and Super Admin · Messages and files are deleted after 48 hours.'}
+          </p>
+        </div>
         <button className="chat-refresh-button" type="button" onClick={() => { void reload().catch(requestError => setError(requestError instanceof Error ? requestError.message : 'Unable to refresh chats.')) }} aria-label="Refresh chats">
           <RefreshCw size={17} /> Refresh
         </button>
-      </div>
-      <div className="chat-disclosure" role="note">
-        <MessageCircle size={18} />
-        <span>
-          {adminCanView
-            ? 'As Super Admin, you can view all conversations and attachments. Messages and files disappear after 48 hours and are permanently deleted by scheduled cleanup.'
-            : 'Conversations are visible to their participants and the Super Admin. Messages and files disappear after 48 hours and are permanently deleted by scheduled cleanup.'}
-        </span>
       </div>
       {error && <div className="chat-error" role="alert"><AlertCircle size={17} />{error}</div>}
       <div className="chat-workspace">
