@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Circle, Play, RefreshCw, Video, VideoOff, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, Circle, Play, RefreshCw, Video, VideoOff, X } from 'lucide-react'
 import { RemoteVideoTrack, Room, RoomEvent, Track } from 'livekit-client'
 import { cameraScheduleForRole } from '../shared/cameraSchedule'
 
@@ -107,6 +107,7 @@ export function CameraPublisher({ user }: { user: CameraUser }) {
   const [retry, setRetry] = useState(0)
   const [recordingActive, setRecordingActive] = useState(false)
   const [previewReady, setPreviewReady] = useState(false)
+  const [compact, setCompact] = useState(true)
   const roomRef = useRef<Room | null>(null)
   const trackRef = useRef<MediaStreamTrack | null>(null)
   const recorderSegmentRef = useRef<CameraRecorderSegment | null>(null)
@@ -313,12 +314,12 @@ export function CameraPublisher({ user }: { user: CameraUser }) {
   }, [schedule.state, schedule.message, manualPause, retry, startCamera, stopCamera])
 
   useEffect(() => {
-    if (status !== 'recording' || !previewReady || !previewRef.current || !trackRef.current) return
+    if (status !== 'recording' || !previewReady || compact || !previewRef.current || !trackRef.current) return
     const video = previewRef.current
     video.srcObject = new MediaStream([trackRef.current])
     void video.play().catch(() => undefined)
     return () => { video.srcObject = null }
-  }, [status, previewReady])
+  }, [status, previewReady, compact])
 
   useEffect(() => () => { void stopCamera('', true) }, [stopCamera])
 
@@ -330,16 +331,27 @@ export function CameraPublisher({ user }: { user: CameraUser }) {
   }
 
   return (
-    <aside className={`camera-status-card camera-status-${status}`} aria-label="Work camera status">
+    <aside className={`camera-status-card camera-status-${status}${compact ? ' camera-status-compact' : ''}`} aria-label="Work camera status">
       <div className="camera-status-heading">
         <div className="camera-status-icon">{status === 'error' ? <AlertTriangle size={17} /> : status === 'recording' ? <Video size={17} /> : <VideoOff size={17} />}</div>
         <div>
           <strong>{status === 'recording' ? recordingActive ? 'Camera live · recording' : 'Camera live · starting' : status === 'connecting' ? 'Starting work camera' : status === 'paused' ? 'Camera paused' : status === 'error' ? 'Camera unavailable' : schedule.state === 'active' ? 'Work camera starting' : 'Work camera off'}</strong>
           <span>{detail || schedule.message}</span>
         </div>
+        <button
+          type="button"
+          className="camera-collapse-button"
+          aria-expanded={!compact}
+          aria-label={compact ? 'Expand camera status and preview' : 'Minimize camera status'}
+          title={compact ? 'Expand camera details' : 'Minimize camera panel'}
+          onClick={() => setCompact(value => !value)}
+        >
+          {compact ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
       </div>
-      {status === 'recording' && previewReady && <video ref={previewRef} className="camera-self-preview" autoPlay muted playsInline aria-label="Your live camera preview" />}
-      <p className="camera-privacy-note">Video only · No microphone · Admin can view scheduled live sessions · Private 5-minute Drive clips are deleted after 24 hours</p>
+      {!compact && status === 'recording' && previewReady && <video ref={previewRef} className="camera-self-preview" autoPlay muted playsInline aria-label="Your live camera preview" />}
+      {!compact && <p className="camera-privacy-note">Video only · No microphone · Admin can view scheduled live sessions · Private 5-minute Drive clips are deleted after 24 hours</p>}
+      {compact && <p className="camera-privacy-note">Camera activity is visible · Video only · Admin can view scheduled sessions</p>}
       <div className="camera-status-actions">
         {schedule.state === 'active' && status === 'recording' && <button type="button" className="camera-small-button" onClick={() => void pauseCamera()}><VideoOff size={14} /> Pause</button>}
         {schedule.state === 'active' && (status === 'error' || status === 'paused') && <button type="button" className="camera-small-button" onClick={() => { setPausedDate(''); setRetry(value => value + 1) }}><Video size={14} /> {status === 'paused' ? 'Resume' : 'Retry'}</button>}
