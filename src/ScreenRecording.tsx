@@ -70,11 +70,15 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       const upload = uploadQueueRef.current
         .catch(() => undefined)
         .then(() => uploadPrivateClip(new Blob([blob], { type: mimeType }), startedAt, 'screen'))
-      const handledUpload = upload.catch(uploadError => {
+      const handledUpload = upload.then(() => {
+        if (uploadErrorRef.current) {
+          uploadErrorRef.current = ''
+          setError('')
+        }
+      }).catch(uploadError => {
         const detail = `A screen clip could not be saved to Drive: ${messageFor(uploadError)}`
         uploadErrorRef.current = detail
         setError(detail)
-        if (activeRef.current) void stopRef.current()
       })
       uploadQueueRef.current = handledUpload
       setUploadsPending(count => count + 1)

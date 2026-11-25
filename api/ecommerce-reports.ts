@@ -13,11 +13,17 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const users = await listUsers()
     const user = await getSessionUser(request, users)
     if (user.role === 'Super Admin') requireAdmin(user)
-    else if (user.role !== 'E-commerce Executive') throw new ApiError(403, 'Only an E-commerce Executive or Super Admin can view daily reports.')
+    else if (user.role !== 'E-commerce Executive' && user.role !== 'E-commerce Manager') {
+      throw new ApiError(403, 'Only an E-commerce Executive, E-commerce Manager, or Super Admin can view daily reports.')
+    }
     const result = await listWorkbookEcommerceReports(user)
     const visibleReports = user.role === 'Super Admin'
       ? result.reports
-      : result.reports.filter(report => String(report.userId || '') === user.id)
+      : user.role === 'E-commerce Manager'
+        ? result.reports.filter(report => users.some(account =>
+          account.id === String(report.userId || '') && account.role === 'E-commerce Executive' && account.managerId === user.id,
+        ))
+        : result.reports.filter(report => String(report.userId || '') === user.id)
     const reports = visibleReports.map(report => ({
       id: String(report.id || ''),
       date: String(report.date || ''),

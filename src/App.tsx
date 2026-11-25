@@ -15,7 +15,7 @@ const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.C
 import type { SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
 
-type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'Factory' | 'Production' | 'Production Targets' | 'Stitching' | 'Raw Material' | 'Finished Goods' |
+type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'Factory' | 'Production' | 'Production Targets' | 'Stitching' | 'Graphic Design' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
@@ -54,21 +54,58 @@ type MarketplaceImportResult = {
   renamedProducts?: number
   backupName: string
 }
-type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy?: string }
+type Production = {
+  id: string
+  date: string
+  machine: string
+  block: string
+  sku: string
+  product: string
+  actual: number
+  rejected: number
+  qcStatus: 'Pending' | 'Reviewed'
+  qcApproved: number
+  qcRejected: number
+  qcReviewedBy: string
+  qcReviewedAt: string
+  createdBy?: string
+}
 type ProductionTargetPeriod = 'daily' | 'weekly' | 'monthly'
 type ProductionTarget = {
   id: string; period: ProductionTargetPeriod; startDate: string; endDate: string; machineId: string; machineName: string;
   sku: string; productName: string; targetQuantity: number; actual: number; createdBy: string
 }
-type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator' | 'E-commerce Executive' | 'Sales Executive'
+type Role = 'Super Admin' | 'Production Supervisor' | 'Store Manager' | 'Machine Operator' | 'E-commerce Manager' | 'E-commerce Executive' | 'Sales Executive' | 'Graphic Designer'
+type GraphicDesignTask = {
+  id: string
+  plannedDate: string
+  month: string
+  sku: string
+  product: string
+  platforms: string[]
+  contentType: 'Post' | 'Video'
+  brief: string
+  caption: string
+  script: string
+  shootStatus: 'Not required' | 'Not started' | 'In progress' | 'Completed'
+  editStatus: 'Not started' | 'In progress' | 'Completed'
+  reviewStatus: 'Pending' | 'Approved' | 'Rejected'
+  reviewNote: string
+  createdById: string
+  createdBy: string
+  createdAt: string
+  reviewedBy: string
+  reviewedAt: string
+}
 type EcommercePlatform = 'AMAZON' | 'FLIPKART' | 'MEESHO' | 'SHOPIFY' | 'MYNTRA'
-type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean; platforms: EcommercePlatform[] }
+type UserAccount = { id: string; name: string; username: string; role: Role; active: boolean; platforms: EcommercePlatform[]; managerId: string }
 type EcommerceListing = { id: string; platform: EcommercePlatform; platformSku: string; productSku: string; productName: string; mrp: number; sellingPrice: number; availableStock: number; stockStatus: string; status: string }
 type EcommerceMovement = { id: string; date: string; platform: EcommercePlatform; orderNumber: string; type: string; sku: string; quantity: number; unitSellingPrice: number; reason: string }
 type EcommerceLabel = { id: string; platform: EcommercePlatform; orderNumber: string; fileName: string; uploadedAt: string; uploadedBy: string }
 type EcommerceExecutiveTarget = { executiveId: string; executiveName: string; platforms: EcommercePlatform[]; dailyTarget: number; monthlyTarget: number }
-type EcommerceTargetData = { dailyTarget?: number; monthlyTarget?: number; executives?: EcommerceExecutiveTarget[] }
-type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[]; targets: EcommerceTargetData }
+type EcommerceManagerTarget = { managerId: string; managerName: string; platforms: EcommercePlatform[]; dailyTarget: number; monthlyTarget: number }
+type EcommerceTargetData = { dailyTarget?: number; monthlyTarget?: number; executives?: EcommerceExecutiveTarget[]; managers?: EcommerceManagerTarget[] }
+type EcommerceWorkspaceData = { platforms: EcommercePlatform[]; listings: EcommerceListing[]; movements: EcommerceMovement[]; labels: EcommerceLabel[]; targets: EcommerceTargetData; team?: UserAccount[] }
 type EcommerceDailyReport = { id: string; date: string; platform: EcommercePlatform; userName: string; completed: string; pending: string; issues: string; updatedAt: string }
 type EcommercePlatformSummary = { platform: EcommercePlatform; dispatchedOrders: number; dispatchedUnits: number; dispatchedRevenue: number; returnValue: number; damagedValue: number; returnedOrders: number; returnedUnits: number; damagedOrders: number; damagedUnits: number; dailyReports: number }
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
@@ -102,6 +139,7 @@ type WorkbookSnapshot = {
   salesOrders: SalesOrder[]
   salesTargets: SalesTarget[]
   salesUsers: SalesAccount[]
+  graphicDesignTasks: GraphicDesignTask[]
   workbookMeta: { loaded: boolean; name: string; sheetCount: number }
 }
 type AuthStatus = 'checking' | 'ready' | 'unavailable'
@@ -124,10 +162,12 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'CATALOG', items: ['Product Catalog'] },
   { label: 'SALES', items: ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
   { label: 'E-COMMERCE', items: ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'] },
+  { label: 'CREATIVE', items: ['Graphic Design'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Camera Monitoring', 'Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
+const socialPlatforms = ['Instagram', 'Facebook', 'YouTube', 'TikTok', 'LinkedIn']
 const deliveryChannels = ['DIRECT', 'AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const ecommercePlatforms: EcommercePlatform[] = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const deliveryPartnersByChannel: Record<string, string[]> = {
@@ -162,6 +202,7 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   'User Management': UserCog, Settings, 'Audit Logs': Archive, 'E-commerce Workspace': ShoppingCart,
   'E-commerce Stock': Boxes, 'E-commerce Orders': Truck, 'Shipping Labels': FileSpreadsheet,
   'Daily Work Report': ClipboardCheck, 'Camera Monitoring': Video,
+  'Graphic Design': FileSpreadsheet,
   Chat: MessageCircle,
   Factory: Factory,
 } as Record<Module, typeof LayoutDashboard>
@@ -171,8 +212,9 @@ function readStored<T>(key: string, fallback: T): T {
 }
 
 function landingModuleForRole(role: Role): Module {
-  if (role === 'E-commerce Executive') return 'E-commerce Workspace'
+  if (role === 'E-commerce Executive' || role === 'E-commerce Manager') return 'E-commerce Workspace'
   if (role === 'Sales Executive') return 'Sales Dashboard'
+  if (role === 'Graphic Designer') return 'Graphic Design'
   return 'Dashboard'
 }
 
@@ -443,6 +485,7 @@ export default function App() {
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([])
   const [salesTargets, setSalesTargets] = useState<SalesTarget[]>([])
   const [salesAccounts, setSalesAccounts] = useState<SalesAccount[]>([])
+  const [graphicDesignTasks, setGraphicDesignTasks] = useState<GraphicDesignTask[]>([])
   const [activityAuditWarning, setActivityAuditWarning] = useState('')
   const [toast, setToast] = useState('')
   const screenRecordingRef = useRef<ScreenRecordingController>(null)
@@ -467,6 +510,7 @@ export default function App() {
     setSalesOrders(data.salesOrders)
     setSalesTargets(data.salesTargets)
     setSalesAccounts(data.salesUsers)
+    setGraphicDesignTasks(data.graphicDesignTasks)
     setWorkbookMeta(data.workbookMeta)
     workbookLastRefreshAt.current = Date.now()
   }, [])
@@ -699,7 +743,7 @@ export default function App() {
     return result.machine
   }
 
-  const saveProduction = async (input: Omit<Production, 'id' | 'createdBy' | 'product'> & { product: string }) => {
+  const saveProduction = async (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => {
     const result = await apiFetch<{ record: Production & { finishedGood?: FinishedGood; stockMovement?: StockMovement | null } }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -730,6 +774,83 @@ export default function App() {
     workbookLastRefreshAt.current = Date.now()
     notify('Production entry saved to the shared workbook')
     return result.record
+  }
+
+  const reviewProductionQuality = async (input: { productionId: string; approved: number; rejected: number }) => {
+    const result = await apiFetch<{
+      record: Production
+      finishedGood: FinishedGood
+      stockMovement: StockMovement | null
+    }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reviewProductionQuality', ...input }),
+    })
+    setProduction(previous => previous.map(record => record.id === result.record.id ? result.record : record))
+    setFinishedGoods(previous => [result.finishedGood, ...previous.filter(item => item.sku.toLowerCase() !== result.finishedGood.sku.toLowerCase())])
+    setProducts(previous => previous.map(item => item.sku.toLowerCase() === result.finishedGood.sku.toLowerCase()
+      ? { ...item, stock: result.finishedGood.availableStock }
+      : item))
+    const stockMovement = result.stockMovement
+    if (stockMovement) {
+      setStockMovements(previous => [stockMovement, ...previous.filter(item => item.id !== stockMovement.id)])
+    }
+    workbookLastRefreshAt.current = Date.now()
+    notify('Quality review saved; approved quantity is now available in Finished Goods.')
+    return result.record
+  }
+
+  const submitGraphicDesignTask = async (input: {
+    plannedDate: string
+    month: string
+    sku: string
+    platforms: string[]
+    contentType: 'Post' | 'Video'
+    brief: string
+    caption: string
+    script: string
+  }) => {
+    const result = await apiFetch<{ task: GraphicDesignTask }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'submitGraphicDesignTask', ...input }),
+    })
+    setGraphicDesignTasks(previous => [result.task, ...previous.filter(task => task.id !== result.task.id)])
+    workbookLastRefreshAt.current = Date.now()
+    notify('Social content task submitted for Admin review.')
+    return result.task
+  }
+
+  const updateGraphicDesignProgress = async (input: {
+    taskId: string
+    shootStatus: GraphicDesignTask['shootStatus']
+    editStatus: GraphicDesignTask['editStatus']
+  }) => {
+    const result = await apiFetch<{ task: GraphicDesignTask }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'updateGraphicDesignProgress', ...input }),
+    })
+    setGraphicDesignTasks(previous => previous.map(task => task.id === result.task.id ? result.task : task))
+    workbookLastRefreshAt.current = Date.now()
+    notify('Shoot and edit progress saved.')
+    return result.task
+  }
+
+  const reviewGraphicDesignTask = async (input: {
+    taskId: string
+    decision: 'Approved' | 'Rejected'
+    reviewNote: string
+  }) => {
+    const result = await apiFetch<{ task: GraphicDesignTask }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reviewGraphicDesignTask', ...input }),
+    })
+    setGraphicDesignTasks(previous => previous.map(task => task.id === result.task.id ? result.task : task))
+    workbookLastRefreshAt.current = Date.now()
+    notify(`Creative task ${result.task.reviewStatus.toLowerCase()}.`)
+    return result.task
   }
 
   const saveProductionTarget = async (input: {
@@ -1126,7 +1247,9 @@ export default function App() {
     'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat'],
     'Store Manager': ['Dashboard', 'Chat'],
     'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat'],
+    'E-commerce Manager': ['E-commerce Workspace', 'Chat'],
     'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Chat'],
+    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Chat'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -1192,6 +1315,7 @@ export default function App() {
               users={users}
               products={products}
               production={production}
+              graphicDesignTasks={graphicDesignTasks}
               today={indiaDateKey(clock)}
               machines={machines}
               productionChart={productionChart}
@@ -1201,7 +1325,8 @@ export default function App() {
           ) : (
             <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
-              saveProduction={saveProduction} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
+              saveProduction={saveProduction} reviewProductionQuality={reviewProductionQuality} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
+              graphicDesignTasks={graphicDesignTasks} submitGraphicDesignTask={submitGraphicDesignTask} updateGraphicDesignProgress={updateGraphicDesignProgress} reviewGraphicDesignTask={reviewGraphicDesignTask}
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
@@ -1229,6 +1354,11 @@ function ModuleView(props: {
   saveMarketplaceListing: (input: { platform: string; platformSku: string; productSku: string; mrp: number; sellingPrice: number }) => Promise<MarketplaceListing>;
   importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => Promise<MarketplaceImportResult>;
   saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
+  reviewProductionQuality: (input: { productionId: string; approved: number; rejected: number }) => Promise<Production>;
+  graphicDesignTasks: GraphicDesignTask[];
+  submitGraphicDesignTask: (input: { plannedDate: string; month: string; sku: string; platforms: string[]; contentType: 'Post' | 'Video'; brief: string; caption: string; script: string }) => Promise<GraphicDesignTask>;
+  updateGraphicDesignProgress: (input: { taskId: string; shootStatus: GraphicDesignTask['shootStatus']; editStatus: GraphicDesignTask['editStatus'] }) => Promise<GraphicDesignTask>;
+  reviewGraphicDesignTask: (input: { taskId: string; decision: 'Approved' | 'Rejected'; reviewNote: string }) => Promise<GraphicDesignTask>;
   saveProductionTarget: (input: { period: ProductionTargetPeriod; date: string; machineId: string; sku: string; productName: string; targetQuantity: number }) => Promise<ProductionTarget>;
   saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
   applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string; linkToDispatch?: boolean }) => Promise<void>;
@@ -1252,7 +1382,7 @@ function ModuleView(props: {
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditLoading, setAuditLoading] = useState(true)
   const [auditError, setAuditError] = useState('')
@@ -1310,6 +1440,16 @@ function ModuleView(props: {
   const [productionTargetDate, setProductionTargetDate] = useState(() => indiaDateKey(clock))
   const [productionTargetProduct, setProductionTargetProduct] = useState('')
   const [productionTargetBusy, setProductionTargetBusy] = useState(false)
+  const [machineTypeChoice, setMachineTypeChoice] = useState('')
+  const [stitchingReportDate, setStitchingReportDate] = useState(() => indiaDateKey(clock))
+  const [qualityReportDate, setQualityReportDate] = useState(() => indiaDateKey(clock))
+  const [qualityDrafts, setQualityDrafts] = useState<Record<string, { approved: string; rejected: string }>>({})
+  const [qualitySavingId, setQualitySavingId] = useState('')
+  const [graphicPlanMonth, setGraphicPlanMonth] = useState(() => indiaDateKey(clock).slice(0, 7))
+  const [graphicPlanDate, setGraphicPlanDate] = useState(() => indiaDateKey(clock))
+  const [graphicContentTypeChoice, setGraphicContentTypeChoice] = useState<'Post' | 'Video'>('Post')
+  const [graphicProgressDrafts, setGraphicProgressDrafts] = useState<Record<string, { shootStatus: GraphicDesignTask['shootStatus']; editStatus: GraphicDesignTask['editStatus'] }>>({})
+  const [graphicReviewDrafts, setGraphicReviewDrafts] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (module !== 'User Management' || sessionUser.role !== 'Super Admin') return
@@ -1517,6 +1657,7 @@ function ModuleView(props: {
       notify('Choose an active catalog product or the custom product option.')
       return
     }
+
     const targetQuantity = Number(form.get('targetQuantity'))
     if (!Number.isInteger(targetQuantity) || targetQuantity < 1 || targetQuantity > 1000000) {
       notify('Enter a whole-number target from 1 to 1,000,000.')
@@ -1538,6 +1679,112 @@ function ModuleView(props: {
       notify(error instanceof Error ? error.message : 'Production target could not be saved.')
     } finally {
       setProductionTargetBusy(false)
+    }
+  }
+
+  const saveQualityReview = async (record: Production) => {
+    const draft = qualityDrafts[record.id] || {
+      approved: String(Math.max(0, record.actual - record.rejected)),
+      rejected: String(record.rejected),
+    }
+    const approved = Number(draft.approved)
+    const rejected = Number(draft.rejected)
+    if (
+      !Number.isInteger(approved) || approved < 0 ||
+      !Number.isInteger(rejected) || rejected < 0 ||
+      approved + rejected !== record.actual
+    ) {
+      notify(`QC pass and reject quantities must add up to ${record.actual}.`)
+      return
+    }
+    setQualitySavingId(record.id)
+    try {
+      await reviewProductionQuality({ productionId: record.id, approved, rejected })
+      setQualityDrafts(previous => {
+        const next = { ...previous }
+        delete next[record.id]
+        return next
+      })
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Quality review could not be saved.')
+    } finally {
+      setQualitySavingId('')
+    }
+  }
+
+  const submitGraphicPlanTask = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const plannedDate = String(form.get('plannedDate') || '')
+    const month = graphicPlanMonth
+    const sku = String(form.get('sku') || '')
+    const contentType = String(form.get('contentType') || '') as 'Post' | 'Video'
+    const platforms = form.getAll('platforms').map(String)
+    if (plannedDate.slice(0, 7) !== month) {
+      notify('Choose a posting date within the selected month.')
+      return
+    }
+    if (!products.some(product => product.sku === sku && product.status === 'Active')) {
+      notify('Choose an active product or variant from the catalog.')
+      return
+    }
+    if (!platforms.length) {
+      notify('Select at least one social platform.')
+      return
+    }
+    if (contentType === 'Video' && !String(form.get('script') || '').trim()) {
+      notify('Add a video script or shot-by-shot plan before submitting.')
+      return
+    }
+    try {
+      await submitGraphicDesignTask({
+        plannedDate,
+        month,
+        sku,
+        platforms,
+        contentType,
+        brief: String(form.get('brief') || ''),
+        caption: String(form.get('caption') || ''),
+        script: String(form.get('script') || ''),
+      })
+      setGraphicPlanDate(`${month}-01`)
+      formElement.reset()
+      setGraphicContentTypeChoice('Post')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Social content task could not be submitted.')
+    }
+  }
+
+  const saveGraphicProgress = async (task: GraphicDesignTask) => {
+    const draft = graphicProgressDrafts[task.id] || { shootStatus: task.shootStatus, editStatus: task.editStatus }
+    try {
+      await updateGraphicDesignProgress({ taskId: task.id, ...draft })
+      setGraphicProgressDrafts(previous => {
+        const next = { ...previous }
+        delete next[task.id]
+        return next
+      })
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Creative production progress could not be saved.')
+    }
+  }
+
+  const decideGraphicTask = async (task: GraphicDesignTask, decision: 'Approved' | 'Rejected') => {
+    const reviewNote = graphicReviewDrafts[task.id] || ''
+    if (decision === 'Rejected' && !reviewNote.trim()) {
+      notify('Enter a review note so the designer knows what to revise.')
+      return
+    }
+    try {
+      await reviewGraphicDesignTask({ taskId: task.id, decision, reviewNote })
+      setGraphicReviewDrafts(previous => {
+        const next = { ...previous }
+        delete next[task.id]
+        return next
+      })
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Creative review could not be saved.')
     }
   }
 
@@ -2005,6 +2252,12 @@ function ModuleView(props: {
   }
 
   if (module === 'Machines') {
+    const machineTypeOptions = [...new Set([
+      'Production Machine',
+      'Stitching Machine',
+      'Cutting Machine',
+      ...machines.map(machine => machine.type.trim()).filter(Boolean),
+    ])]
     const machineRows = machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)
     const exportMachines = () => {
       const rows = machines.map(({ id, name, type, operator, status }) => ({ id, name, type, operator, status }))
@@ -2022,15 +2275,23 @@ function ModuleView(props: {
       const formElement = event.currentTarget
       const form = new FormData(formElement)
       const name = String(form.get('name')).trim()
+      const selectedType = String(form.get('type') || '')
+      const customType = String(form.get('customType') || '').trim()
+      const type = selectedType === '__custom__' ? customType : selectedType
       if (!name) return
+      if (selectedType === '__custom__' && !type) {
+        notify('Enter a custom machine type.')
+        return
+      }
       try {
         await saveMachine({
           name,
-          type: String(form.get('type')),
+          type,
           operator: String(form.get('operator')),
           status: String(form.get('status')),
         })
         formElement.reset()
+        setMachineTypeChoice('')
       } catch (error) {
         notify(error instanceof Error ? error.message : 'Machine could not be saved')
       }
@@ -2042,7 +2303,8 @@ function ModuleView(props: {
           <div className="panel-heading"><div><h2>Add machine</h2><p>Machine roster used in production entries</p></div></div>
           <div className="field-grid">
             <label>Machine name<input name="name" required placeholder="e.g. Cutting machine" /></label>
-            <label>Machine type<input name="type" placeholder="Type" /></label>
+            <label>Machine type<select name="type" value={machineTypeChoice} onChange={event => setMachineTypeChoice(event.target.value)}><option value="">Select type</option>{machineTypeOptions.map(type => <option key={type} value={type}>{type}</option>)}<option value="__custom__">Other / custom</option></select></label>
+            {machineTypeChoice === '__custom__' && <label>Custom machine type<input name="customType" maxLength={80} required placeholder="Enter machine type" /></label>}
             <label>Operator<input name="operator" placeholder="Operator name" /></label>
             <label>Status<select name="status"><option>Idle</option><option>Running</option><option>Maintenance</option></select></label>
           </div>
@@ -2365,7 +2627,7 @@ function ModuleView(props: {
     )
     const availableMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
     const visibleProduction = production.filter(row => row.date === today)
-    const productionRows = visibleProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td>{row.createdBy || '—'}</td></tr>)
+    const productionRows = visibleProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td><span className={`status ${row.qcStatus === 'Reviewed' ? 'active' : 'pending'}`}>{row.qcStatus}</span></td><td>{row.qcApproved}</td><td>{row.qcRejected}</td><td>{row.createdBy || '—'}</td></tr>)
     const exportDailyReport = () => {
       const sheet = XLSX.utils.json_to_sheet(visibleProduction)
       const workbook = XLSX.utils.book_new()
@@ -2384,7 +2646,9 @@ function ModuleView(props: {
         Month: month,
         Records: monthlyRows.length,
         Total: monthlyRows.reduce((sum, row) => sum + row.actual, 0),
-        Rejected: monthlyRows.reduce((sum, row) => sum + row.rejected, 0),
+        QCApproved: monthlyRows.reduce((sum, row) => sum + row.qcApproved, 0),
+        QCRejected: monthlyRows.reduce((sum, row) => sum + row.qcRejected, 0),
+        PendingQC: monthlyRows.reduce((sum, row) => sum + Math.max(0, row.actual - row.qcApproved - row.qcRejected), 0),
         PreparedFor: sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor' ? 'All users' : sessionUser.name,
       }]), 'Summary')
       XLSX.writeFile(workbook, `Mahalaxmi-Production-${month}.xlsx`)
@@ -2405,7 +2669,7 @@ function ModuleView(props: {
               <label>Production block<select name={autoProductionBlock ? undefined : 'block'} required value={selectedProductionBlock} disabled={Boolean(autoProductionBlock)} onChange={event => setProductionBlockChoice(event.target.value)}><option value="">Select time block</option>{productionBlocks.map(block => <option key={block.name} value={block.name}>{block.name} · {block.time}</option>)}</select>{autoProductionBlock && <input type="hidden" name="block" value={autoProductionBlock.name} />}</label>
               <label>Product + SKU<select name="sku" required disabled={activeProducts.length === 0}><option value="">Select product and SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{[product.size, product.color].filter(Boolean).length ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
               <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
-              <label>Rejected quantity<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /></label>
+              <label>Initial reject estimate<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /><small className="field-hint">Quality Control confirms the final pass/reject quantities.</small></label>
             </div>
             {autoProductionBlock
               ? <p className="local-storage-note">Automatically selected from current India time: {autoProductionBlock.name} ({autoProductionBlock.time}).</p>
@@ -2421,7 +2685,242 @@ function ModuleView(props: {
             <div className="break-note"><AlertTriangle size={16} /> Break time is not counted as production time.</div>
           </div>
         </div>
-        <div className="table-card entries-table"><PaginatedTable label="Today's production entries" resetKey={today} header={<thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Rejected</th><th>Entered by</th></tr></thead>} rows={productionRows} />{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
+        <div className="table-card entries-table"><PaginatedTable label="Today's production entries" resetKey={today} header={<thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Initial reject estimate</th><th>QC status</th><th>QC pass</th><th>QC reject</th><th>Entered by</th></tr></thead>} rows={productionRows} />{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
+      </section>
+    )
+  }
+
+  if (module === 'Stitching') {
+    const stitchingMachines = machines.filter(machine => /stitch/i.test(machine.type))
+    const stitchingMachineIds = new Set(stitchingMachines.map(machine => machine.id.toLowerCase()))
+    const reportRows = production.filter(row => row.date === stitchingReportDate && stitchingMachineIds.has(row.machine.toLowerCase()))
+    const targetRows = productionTargets
+      .filter(target => target.startDate <= stitchingReportDate && target.endDate >= stitchingReportDate && stitchingMachineIds.has(target.machineId.toLowerCase()))
+      .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.machineName.localeCompare(right.machineName))
+    const produced = reportRows.reduce((total, row) => total + row.actual, 0)
+    const approved = reportRows.reduce((total, row) => total + row.qcApproved, 0)
+    const rejected = reportRows.reduce((total, row) => total + row.qcRejected, 0)
+    const pending = reportRows.reduce((total, row) => total + Math.max(0, row.actual - row.qcApproved - row.qcRejected), 0)
+    const reportStock = [...new Set(reportRows.map(row => row.sku.toLowerCase()))]
+      .reduce((total, sku) => total + (finishedGoods.find(item => item.sku.toLowerCase() === sku)?.availableStock || 0), 0)
+    const exportStitchingReport = () => {
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(reportRows.map(row => {
+        const machine = stitchingMachines.find(item => item.id.toLowerCase() === row.machine.toLowerCase())
+        const stock = finishedGoods.find(item => item.sku.toLowerCase() === row.sku.toLowerCase())
+        return {
+          Date: row.date,
+          Block: row.block,
+          Machine: machine?.name || row.machine,
+          'Machine Type': machine?.type || '',
+          Operator: row.createdBy || '',
+          'Batch ID': row.id,
+          Product: row.product,
+          SKU: row.sku,
+          Produced: row.actual,
+          'QC Status': row.qcStatus,
+          'QC Pass': row.qcApproved,
+          'QC Reject': row.qcRejected,
+          'Finished Stock Available': stock?.availableStock || 0,
+        }
+      })), 'Stitching Output')
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(targetRows.map(target => ({
+        Period: target.period,
+        'Period Start': target.startDate,
+        'Period End': target.endDate,
+        Machine: target.machineName,
+        Product: target.productName,
+        SKU: target.sku,
+        Target: target.targetQuantity,
+        Actual: target.actual,
+        Shortfall: Math.max(0, target.targetQuantity - target.actual),
+      }))), 'Machine Targets')
+      XLSX.writeFile(workbook, `Mahalaxmi-Stitching-${stitchingReportDate}.xlsx`)
+    }
+    return (
+      <section>
+        <div className="page-heading">
+          <div><p>FACTORY OPERATIONS</p><h1>Stitching</h1><span className="dashboard-description">Machine-wise output, QC results, target progress, and finished stock.</span></div>
+          <div className="heading-actions"><label>Report date<input type="date" value={stitchingReportDate} onChange={event => setStitchingReportDate(event.target.value || indiaDateKey(clock))} /></label><button className="primary" type="button" onClick={exportStitchingReport}><FileSpreadsheet size={16} /> Export report</button></div>
+        </div>
+        <p className="local-storage-note">Daily, weekly, and monthly targets are shown as separate target rows; their totals are not combined. Only machines whose type includes “Stitching” appear here.</p>
+        <div className="stats-grid">
+          <div className="stat-card"><div className="stat-icon blue"><Factory size={20} /></div><div className="stat-body"><span>Produced</span><strong>{produced.toLocaleString('en-IN')}</strong><small>{formatIndiaDate(stitchingReportDate)}</small></div></div>
+          <div className="stat-card"><div className="stat-icon green"><ClipboardCheck size={20} /></div><div className="stat-body"><span>QC approved</span><strong>{approved.toLocaleString('en-IN')}</strong><small>Added to finished-goods stock</small></div></div>
+          <div className="stat-card"><div className="stat-icon orange"><AlertTriangle size={20} /></div><div className="stat-body"><span>QC rejected</span><strong>{rejected.toLocaleString('en-IN')}</strong><small>Quality-confirmed quantity</small></div></div>
+          <div className="stat-card"><div className="stat-icon purple"><Boxes size={20} /></div><div className="stat-body"><span>Pending QC</span><strong>{pending.toLocaleString('en-IN')}</strong><small>Available stock for listed SKUs: {reportStock.toLocaleString('en-IN')}</small></div></div>
+        </div>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Machine targets</h2><p>Actual output is measured across each target’s full period.</p></div></div>
+          <div className="table-card entries-table"><PaginatedTable label="Stitching machine targets" resetKey={stitchingReportDate} header={<thead><tr><th>Period</th><th>Machine</th><th>Product / SKU</th><th>Target</th><th>Actual</th><th>Shortfall</th><th>Progress</th></tr></thead>} rows={targetRows.map(target => {
+            const percent = Math.round(target.actual / target.targetQuantity * 100)
+            return <tr key={target.id}><td>{target.period}<br /><small>{formatIndiaDate(target.startDate)} – {formatIndiaDate(target.endDate)}</small></td><td><strong>{target.machineName}</strong></td><td>{target.productName}<br /><code>{target.sku || 'Custom target'}</code></td><td>{target.targetQuantity.toLocaleString('en-IN')}</td><td>{target.actual.toLocaleString('en-IN')}</td><td>{Math.max(0, target.targetQuantity - target.actual).toLocaleString('en-IN')}</td><td><progress value={Math.min(target.actual, target.targetQuantity)} max={target.targetQuantity} aria-label={`${target.productName}: ${percent}% of target`} />{percent}%</td></tr>
+          })} />{targetRows.length === 0 && <div className="empty-state"><Target size={24} /><strong>No stitching targets for this date</strong><span>Set a target for a Stitching machine in Production Targets.</span></div>}</div>
+        </section>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Stitching production report</h2><p>{reportRows.length} batches on {formatIndiaDate(stitchingReportDate)}</p></div></div>
+          <div className="table-card entries-table"><PaginatedTable label="Stitching production report" resetKey={`${stitchingReportDate}:${reportRows.length}`} header={<thead><tr><th>Date / block</th><th>Machine / operator</th><th>Batch</th><th>Product / SKU</th><th>Produced</th><th>QC status</th><th>Pass</th><th>Reject</th><th>Available stock</th></tr></thead>} rows={reportRows.map(row => {
+            const machine = stitchingMachines.find(item => item.id.toLowerCase() === row.machine.toLowerCase())
+            const stock = finishedGoods.find(item => item.sku.toLowerCase() === row.sku.toLowerCase())
+            return <tr key={row.id}><td>{formatIndiaDate(row.date)}<br /><small>{row.block || '—'}</small></td><td>{machine?.name || row.machine}<br /><small>{row.createdBy || '—'}</small></td><td><code>{row.id}</code></td><td>{row.product}<br /><code>{row.sku}</code></td><td>{row.actual.toLocaleString('en-IN')}</td><td><span className={`status ${row.qcStatus === 'Reviewed' ? 'active' : 'pending'}`}>{row.qcStatus}</span></td><td>{row.qcApproved.toLocaleString('en-IN')}</td><td>{row.qcRejected.toLocaleString('en-IN')}</td><td>{(stock?.availableStock || 0).toLocaleString('en-IN')}</td></tr>
+          })} />{reportRows.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>{stitchingMachines.length ? 'No stitching production for this date' : 'No Stitching Machine configured'}</strong><span>{stitchingMachines.length ? 'Production entries from Stitching machines will appear here.' : 'Add a machine and choose “Stitching Machine” as its type.'}</span></div>}</div>
+        </section>
+      </section>
+    )
+  }
+
+  if (module === 'Quality Control') {
+    const canReview = sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor'
+    const pendingQuality = production.filter(row => row.qcStatus === 'Pending').sort((left, right) => left.date.localeCompare(right.date))
+    const reviewedQuality = production.filter(row => row.qcStatus === 'Reviewed' && row.date === qualityReportDate)
+    const targetRows = productionTargets
+      .filter(target => target.startDate <= qualityReportDate && target.endDate >= qualityReportDate)
+      .sort((left, right) => left.startDate.localeCompare(right.startDate) || left.machineName.localeCompare(right.machineName))
+    const pendingUnits = pendingQuality.reduce((total, row) => total + Math.max(0, row.actual - row.qcApproved - row.qcRejected), 0)
+    const reviewedApproved = reviewedQuality.reduce((total, row) => total + row.qcApproved, 0)
+    const reviewedRejected = reviewedQuality.reduce((total, row) => total + row.qcRejected, 0)
+    const totalAvailableStock = finishedGoods.reduce((total, item) => total + item.availableStock, 0)
+    const qualityDraft = (record: Production) => qualityDrafts[record.id] || {
+      approved: String(Math.max(0, record.actual - record.rejected)),
+      rejected: String(record.rejected),
+    }
+    const updateQualityDraft = (record: Production, field: 'approved' | 'rejected', value: string) => {
+      setQualityDrafts(previous => {
+        const existing = previous[record.id] || {
+          approved: String(Math.max(0, record.actual - record.rejected)),
+          rejected: String(record.rejected),
+        }
+        return { ...previous, [record.id]: { ...existing, [field]: value } }
+      })
+    }
+    const reviewedRows = reviewedQuality.map(record => {
+      const stock = finishedGoods.find(item => item.sku.toLowerCase() === record.sku.toLowerCase())
+      return <tr key={record.id}><td>{formatIndiaDate(record.date)}<br /><small>{record.block || '—'}</small></td><td>{record.machine}</td><td><code>{record.id}</code></td><td>{record.product}<br /><code>{record.sku}</code></td><td>{record.actual}</td><td>{record.qcApproved}</td><td>{record.qcRejected}</td><td>{record.qcReviewedBy || '—'}</td><td>{stock?.availableStock || 0}</td></tr>
+    })
+    const targetReportRows = targetRows.map(target => <tr key={target.id}><td>{target.period}<br /><small>{formatIndiaDate(target.startDate)} – {formatIndiaDate(target.endDate)}</small></td><td>{target.machineName}</td><td>{target.productName}<br /><code>{target.sku || 'Custom target'}</code></td><td>{target.targetQuantity}</td><td>{target.actual}</td><td>{Math.max(0, target.targetQuantity - target.actual)}</td></tr>)
+    return (
+      <section>
+        <div className="page-heading">
+          <div><p>FACTORY OPERATIONS</p><h1>Quality Control</h1><span className="dashboard-description">Pass/reject production batches; only QC-approved quantities increase finished-goods stock.</span></div>
+          <div className="heading-actions"><label>Report date<input type="date" value={qualityReportDate} onChange={event => setQualityReportDate(event.target.value || indiaDateKey(clock))} /></label></div>
+        </div>
+        {!canReview && <p className="local-storage-note">Only the Super Admin or Production Supervisor can submit QC decisions.</p>}
+        <div className="stats-grid">
+          <div className="stat-card"><div className="stat-icon orange"><AlertTriangle size={20} /></div><div className="stat-body"><span>Pending batches</span><strong>{pendingQuality.length}</strong><small>Awaiting review</small></div></div>
+          <div className="stat-card"><div className="stat-icon blue"><Factory size={20} /></div><div className="stat-body"><span>Units awaiting QC</span><strong>{pendingUnits.toLocaleString('en-IN')}</strong><small>Not available as stock</small></div></div>
+          <div className="stat-card"><div className="stat-icon green"><ClipboardCheck size={20} /></div><div className="stat-body"><span>Approved on report date</span><strong>{reviewedApproved.toLocaleString('en-IN')}</strong><small>{formatIndiaDate(qualityReportDate)}</small></div></div>
+          <div className="stat-card"><div className="stat-icon purple"><Boxes size={20} /></div><div className="stat-body"><span>Rejected / available stock</span><strong>{reviewedRejected.toLocaleString('en-IN')} / {totalAvailableStock.toLocaleString('en-IN')}</strong><small>QC-rejected / all finished SKUs</small></div></div>
+        </div>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Pending quality inspection</h2><p>Enter pass and reject quantities; both must add up to produced quantity.</p></div></div>
+          <div className="table-card entries-table"><PaginatedTable label="Pending quality inspection" resetKey={pendingQuality.map(record => record.id).join(':')} header={<thead><tr><th>Date / block</th><th>Machine</th><th>Batch</th><th>Product / SKU</th><th>Produced</th><th>Initial reject estimate</th><th>QC decision</th></tr></thead>} rows={pendingQuality.map(record => {
+            const draft = qualityDraft(record)
+            return <tr key={record.id}><td>{formatIndiaDate(record.date)}<br /><small>{record.block || '—'}</small></td><td>{record.machine}</td><td><code>{record.id}</code></td><td>{record.product}<br /><code>{record.sku}</code></td><td>{record.actual}</td><td>{record.rejected}</td><td><form className="inline-listing-form" onSubmit={event => { event.preventDefault(); void saveQualityReview(record) }}><label>Pass<input aria-label={`QC pass quantity for batch ${record.id}`} type="number" min="0" max={record.actual} step="1" required disabled={!canReview || qualitySavingId !== ''} value={draft.approved} onChange={event => updateQualityDraft(record, 'approved', event.target.value)} /></label><label>Reject<input aria-label={`QC reject quantity for batch ${record.id}`} type="number" min="0" max={record.actual} step="1" required disabled={!canReview || qualitySavingId !== ''} value={draft.rejected} onChange={event => updateQualityDraft(record, 'rejected', event.target.value)} /></label><button className="primary" type="submit" disabled={!canReview || qualitySavingId !== ''}>{qualitySavingId === record.id ? 'Saving…' : 'Approve QC'}</button></form></td></tr>
+          })} />{pendingQuality.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No batches awaiting QC</strong><span>New production entries will appear here until inspected.</span></div>}</div>
+        </section>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Production target report</h2><p>Period targets remain separate; target actual is total output across each target period.</p></div></div>
+          <div className="table-card entries-table"><PaginatedTable label="Quality control production targets" resetKey={qualityReportDate} header={<thead><tr><th>Period</th><th>Machine</th><th>Product / SKU</th><th>Target</th><th>Actual</th><th>Shortfall</th></tr></thead>} rows={targetReportRows} />{targetRows.length === 0 && <div className="empty-state"><Target size={24} /><strong>No production targets for this date</strong></div>}</div>
+        </section>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Completed QC report</h2><p>{reviewedQuality.length} batches for {formatIndiaDate(qualityReportDate)}</p></div></div>
+          <div className="table-card entries-table"><PaginatedTable label="Completed quality control report" resetKey={`${qualityReportDate}:${reviewedQuality.length}`} header={<thead><tr><th>Date / block</th><th>Machine</th><th>Batch</th><th>Product / SKU</th><th>Produced</th><th>Pass</th><th>Reject</th><th>Reviewed by</th><th>Available stock</th></tr></thead>} rows={reviewedRows} />{reviewedQuality.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No completed QC records for this date</strong><span>Choose another production date to review its QC report.</span></div>}</div>
+        </section>
+      </section>
+    )
+  }
+
+  if (module === 'Graphic Design') {
+    const isAdmin = sessionUser.role === 'Super Admin'
+    const monthTasks = graphicDesignTasks
+      .filter(task => task.month === graphicPlanMonth)
+      .sort((left, right) => left.plannedDate.localeCompare(right.plannedDate) || left.createdAt.localeCompare(right.createdAt))
+    const pendingCount = monthTasks.filter(task => task.reviewStatus === 'Pending').length
+    const approvedCount = monthTasks.filter(task => task.reviewStatus === 'Approved').length
+    const rejectedCount = monthTasks.filter(task => task.reviewStatus === 'Rejected').length
+    const videos = monthTasks.filter(task => task.contentType === 'Video')
+    const shootsCompleted = videos.filter(task => task.shootStatus === 'Completed').length
+    const editsCompleted = monthTasks.filter(task => task.editStatus === 'Completed').length
+    const platformCounts = socialPlatforms.map(platform => ({
+      platform,
+      planned: monthTasks.filter(task => task.platforms.includes(platform)).length,
+      approved: monthTasks.filter(task => task.platforms.includes(platform) && task.reviewStatus === 'Approved').length,
+      rejected: monthTasks.filter(task => task.platforms.includes(platform) && task.reviewStatus === 'Rejected').length,
+    })).filter(item => item.planned > 0)
+    const creativeRows = monthTasks.map(task => {
+      const progress = graphicProgressDrafts[task.id] || { shootStatus: task.shootStatus, editStatus: task.editStatus }
+      return <tr key={task.id}>
+        <td>{formatIndiaDate(task.plannedDate)}<br /><small>{task.contentType}</small></td>
+        <td>{task.product}<br /><code>{task.sku}</code></td>
+        <td>{task.platforms.join(', ')}</td>
+        <td><strong>{task.brief}</strong><br /><span className="ecommerce-report-cell">{task.caption || 'No caption added'}</span>{task.script && <details><summary>View video script / shot plan</summary><p className="ecommerce-report-cell">{task.script}</p></details>}</td>
+        <td><span className={`status ${task.reviewStatus === 'Approved' ? 'active' : task.reviewStatus === 'Rejected' ? 'draft' : 'pending'}`}>{task.reviewStatus}</span>{task.reviewNote && <p className="ecommerce-report-cell">{task.reviewNote}</p>}{isAdmin && task.reviewStatus === 'Pending' && <label>Review note<textarea maxLength={1000} value={graphicReviewDrafts[task.id] ?? task.reviewNote} onChange={event => setGraphicReviewDrafts(previous => ({ ...previous, [task.id]: event.target.value }))} placeholder="Required when rejecting" /></label>}</td>
+        <td>{task.contentType === 'Video' ? task.shootStatus : 'Not required'}<br />Edit: {task.editStatus}{!isAdmin && task.reviewStatus !== 'Rejected' && <div className="field-grid"><label>Shoot<select disabled={task.contentType !== 'Video'} value={progress.shootStatus} onChange={event => setGraphicProgressDrafts(previous => ({ ...previous, [task.id]: { ...progress, shootStatus: event.target.value as GraphicDesignTask['shootStatus'] } }))}><option>Not required</option><option>Not started</option><option>In progress</option><option>Completed</option></select></label><label>Edit<select value={progress.editStatus} onChange={event => setGraphicProgressDrafts(previous => ({ ...previous, [task.id]: { ...progress, editStatus: event.target.value as GraphicDesignTask['editStatus'] } }))}><option>Not started</option><option>In progress</option><option>Completed</option></select></label><button className="secondary" type="button" onClick={() => void saveGraphicProgress(task)}>Save progress</button></div>}</td>
+        {isAdmin && <td><div className="heading-actions"><button className="primary" type="button" disabled={task.reviewStatus !== 'Pending'} onClick={() => void decideGraphicTask(task, 'Approved')}>Approve</button><button className="secondary" type="button" disabled={task.reviewStatus !== 'Pending'} onClick={() => void decideGraphicTask(task, 'Rejected')}>Reject</button></div><small>By {task.createdBy}</small></td>}
+      </tr>
+    })
+    const exportCreativePlan = () => {
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthTasks.map(task => ({
+        Date: task.plannedDate,
+        Product: task.product,
+        SKU: task.sku,
+        Platforms: task.platforms.join(', '),
+        Type: task.contentType,
+        Brief: task.brief,
+        Caption: task.caption,
+        Script: task.script,
+        Shoot: task.shootStatus,
+        Edit: task.editStatus,
+        Review: task.reviewStatus,
+        'Review note': task.reviewNote,
+        'Created by': task.createdBy,
+      }))), 'Monthly Content Plan')
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(platformCounts), 'Platform Summary')
+      XLSX.writeFile(workbook, `Mahalaxmi-Social-Plan-${graphicPlanMonth}.xlsx`)
+    }
+    return (
+      <section>
+        <div className="page-heading">
+          <div><p>{isAdmin ? 'ADMIN REVIEW' : 'CREATIVE STUDIO'}</p><h1>Graphic Design & Social Plan</h1><span className="dashboard-description">{isAdmin ? 'Review planned social content, scripts, shoot/edit progress, and designer submissions.' : 'Build this month’s product-linked social plan and track each shoot, edit, and review.'}</span></div>
+          <div className="heading-actions"><label>Plan month<input type="month" value={graphicPlanMonth} onChange={event => {
+            const value = event.target.value
+            if (!value) return
+            setGraphicPlanMonth(value)
+            setGraphicPlanDate(`${value}-01`)
+          }} /></label><button className="secondary" type="button" onClick={exportCreativePlan}><FileSpreadsheet size={16} /> Export month</button></div>
+        </div>
+        <div className="stats-grid">
+          <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Planned content</span><strong>{monthTasks.length}</strong><small>{videos.length} videos · {monthTasks.length - videos.length} posts</small></div></div>
+          <div className="stat-card"><div className="stat-icon green"><CheckCircle2 size={20} /></div><div className="stat-body"><span>Admin approved</span><strong>{approvedCount}</strong><small>Ready for scheduled publishing</small></div></div>
+          <div className="stat-card"><div className="stat-icon orange"><AlertTriangle size={20} /></div><div className="stat-body"><span>Pending / rejected</span><strong>{pendingCount} / {rejectedCount}</strong><small>Pending review / needs revision</small></div></div>
+          <div className="stat-card"><div className="stat-icon purple"><Video size={20} /></div><div className="stat-body"><span>Video shoots / edits complete</span><strong>{shootsCompleted} / {editsCompleted}</strong><small>Of {videos.length} planned videos</small></div></div>
+        </div>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Social platform plan</h2><p>Planned, approved, and rejected items for {graphicPlanMonth}</p></div></div>
+          {platformCounts.length
+            ? <div className="table-card entries-table"><table><thead><tr><th>Platform</th><th>Planned</th><th>Approved</th><th>Rejected</th><th>Awaiting review</th></tr></thead><tbody>{platformCounts.map(item => <tr key={item.platform}><td>{item.platform}</td><td>{item.planned}</td><td>{item.approved}</td><td>{item.rejected}</td><td>{item.planned - item.approved - item.rejected}</td></tr>)}</tbody></table></div>
+            : <div className="empty-state"><FileSpreadsheet size={22} /><strong>No content planned this month</strong><span>Add tasks below to build the posting calendar.</span></div>}
+        </section>
+        {!isAdmin && <section className="panel form-card">
+          <div className="panel-heading"><div><h2>Plan a social post or video</h2><p>Each submission is one content item and goes to the Super Admin for review.</p></div></div>
+          <form onSubmit={submitGraphicPlanTask}>
+            <div className="field-grid">
+              <label>Posting date<input type="date" name="plannedDate" required min={`${graphicPlanMonth}-01`} max={`${graphicPlanMonth}-${new Date(Number(graphicPlanMonth.slice(0, 4)), Number(graphicPlanMonth.slice(5, 7)), 0).getDate()}`} value={graphicPlanDate} onChange={event => setGraphicPlanDate(event.target.value)} /></label>
+              <label>Product / catalog listing<select name="sku" required defaultValue=""><option value="">Select product or SKU</option>{products.filter(product => product.status === 'Active').map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{product.isVariant ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
+              <label>Content format<select name="contentType" value={graphicContentTypeChoice} onChange={event => setGraphicContentTypeChoice(event.target.value as 'Post' | 'Video')}><option>Post</option><option>Video</option></select></label>
+              <fieldset className="platform-assignment"><legend>Social platforms</legend>{socialPlatforms.map(platform => <label key={platform}><input type="checkbox" name="platforms" value={platform} /> {platform}</label>)}</fieldset>
+              <label>Creative brief / concept<textarea name="brief" required maxLength={2000} placeholder="Describe the product angle, audience, and creative direction." /></label>
+              <label>Caption / post copy<textarea name="caption" maxLength={2000} placeholder="Draft the social caption or post copy." /></label>
+              {graphicContentTypeChoice === 'Video' && <label>Video script / shot-by-shot description<textarea name="script" required maxLength={5000} placeholder="Hook, product shots, voice-over, on-screen text, and call to action." /></label>}
+            </div>
+            <button className="primary wide" type="submit"><Plus size={16} /> Submit content for Admin review</button>
+          </form>
+        </section>}
+        <section className="panel">
+          <div className="panel-heading"><div><h2>{isAdmin ? 'Designer submissions and review' : 'Monthly content calendar'}</h2><p>{monthTasks.length} planned items · review, shooting, editing, scripts and captions</p></div></div>
+          <div className="table-card entries-table"><PaginatedTable label="Graphic design social content plan" resetKey={`${graphicPlanMonth}:${monthTasks.map(task => `${task.id}-${task.reviewStatus}-${task.shootStatus}-${task.editStatus}`).join(':')}`} header={<thead><tr><th>Post date / type</th><th>Product / SKU</th><th>Platforms</th><th>Brief / caption / script</th><th>Admin review</th><th>Shoot / edit</th>{isAdmin && <th>Decision</th>}</tr></thead>} rows={creativeRows} />{monthTasks.length === 0 && <div className="empty-state"><FileSpreadsheet size={22} /><strong>No tasks for {graphicPlanMonth}</strong><span>{isAdmin ? 'Designer submissions will appear here for review.' : 'Use the form above to add posts and videos to your monthly plan.'}</span></div>}</div>
+        </section>
       </section>
     )
   }
@@ -2456,7 +2955,10 @@ function ModuleView(props: {
       }
     }
     const exportUsers = () => {
-      const safeRows = users.map(({ id, name, username, role, active, platforms }) => ({ ID: id, Name: name, Username: username, Role: role, Platforms: platforms.join(', '), Status: active ? 'Active' : 'Inactive' }))
+      const safeRows = users.map(({ id, name, username, role, active, platforms, managerId }) => ({
+        ID: id, Name: name, Username: username, Role: role, Manager: users.find(account => account.id === managerId)?.name || '',
+        Platforms: platforms.join(', '), Status: active ? 'Active' : 'Inactive',
+      }))
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(safeRows), 'User Accounts')
       XLSX.writeFile(workbook, `Mahalaxmi-Users-${indiaDateKey()}.xlsx`)
@@ -2470,11 +2972,12 @@ function ModuleView(props: {
       const password = String(form.get('password'))
       const requestedRole = String(form.get('role'))
       const requestedPlatforms = form.getAll('platforms').map(String)
+      const requestedManagerId = String(form.get('managerId') || '')
       if (password.length < 10) {
         notify('Password must be at least 10 characters')
         return
       }
-      if (!['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive', 'Sales Executive'].includes(requestedRole)) {
+      if (!['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Manager', 'E-commerce Executive', 'Sales Executive', 'Graphic Designer'].includes(requestedRole)) {
         notify('Only one Super Admin is allowed')
         return
       }
@@ -2482,12 +2985,16 @@ function ModuleView(props: {
         notify('Assign at least one marketplace platform')
         return
       }
+      if (requestedRole === 'E-commerce Executive' && !requestedManagerId) {
+        notify('Assign the executive to an active E-commerce Manager')
+        return
+      }
       if (!username) return
       try {
         const result = await apiFetch<{ user: UserAccount }>('/api/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: String(form.get('name')), username, password, role: requestedRole, platforms: requestedPlatforms }),
+          body: JSON.stringify({ name: String(form.get('name')), username, password, role: requestedRole, platforms: requestedPlatforms, managerId: requestedManagerId }),
         })
         setUsers(prev => [...prev, result.user])
         if (result.user.role === 'Sales Executive') {
@@ -2525,8 +3032,30 @@ function ModuleView(props: {
         notify(error instanceof Error ? error.message : 'Account status could not be changed')
       }
     }
+    const assignExecutiveManager = async (executive: UserAccount, managerId: string) => {
+      try {
+        await apiFetch<{ ok: boolean; managerId: string }>('/api/users', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: executive.id, managerId }),
+        })
+        setUsers(prev => prev.map(account => account.id === executive.id ? { ...account, managerId } : account))
+        notify(managerId ? 'E-commerce Manager assigned' : 'Executive is now unassigned')
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'Manager assignment could not be saved')
+      }
+    }
     const reportRows = ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)
-    const userRows = users.map(user => <tr key={user.id}><td>{user.name}</td><td><code>{user.username}</code></td><td>{user.role}</td><td>{user.platforms.join(', ') || '—'}</td><td><span className={`status ${user.active ? 'active' : 'draft'}`}>{user.active ? 'Active' : 'Inactive'}</span></td><td><button className="secondary" disabled={user.id === sessionUser.id} onClick={() => setAccountActive(user)}>{user.active ? 'Deactivate' : 'Activate'}</button></td></tr>)
+    const managerAccounts = users.filter(account => account.role === 'E-commerce Manager' && account.active)
+    const userRows = users.map(user => <tr key={user.id}>
+      <td>{user.name}</td><td><code>{user.username}</code></td><td>{user.role}</td>
+      <td>{user.role === 'E-commerce Executive' ? <select aria-label={`Manager for ${user.name}`} value={user.managerId || ''} onChange={event => void assignExecutiveManager(user, event.target.value)}>
+        <option value="">Unassigned</option>{managerAccounts.map(manager => <option key={manager.id} value={manager.id}>{manager.name}</option>)}
+      </select> : user.managerId ? users.find(manager => manager.id === user.managerId)?.name || 'Unknown manager' : '—'}</td>
+      <td>{user.platforms.join(', ') || '—'}</td>
+      <td><span className={`status ${user.active ? 'active' : 'draft'}`}>{user.active ? 'Active' : 'Inactive'}</span></td>
+      <td><button className="secondary" disabled={user.id === sessionUser.id} onClick={() => setAccountActive(user)}>{user.active ? 'Deactivate' : 'Activate'}</button></td>
+    </tr>)
     return (
       <section>
         <div className="page-heading"><div><p>ADMINISTRATION</p><h1>User Management</h1></div><div className="heading-actions"><button className="secondary" onClick={() => void refreshUsers()}><RotateCcw size={16} /> Refresh users</button><button className="secondary" onClick={exportUsers}><Download size={16} /> Export users</button></div></div>
@@ -2537,7 +3066,8 @@ function ModuleView(props: {
               <label>Full name<input name="name" required placeholder="Employee name" /></label>
               <label>Username<input name="username" required autoComplete="off" placeholder="login name" /></label>
               <label>Password<input name="password" type="password" required minLength={10} placeholder="Minimum 10 characters" /></label>
-              <label>Role<select name="role" required value={newUserRole} onChange={event => setNewUserRole(event.target.value as Role)}><option>Production Supervisor</option><option>Machine Operator</option><option>Store Manager</option><option>E-commerce Executive</option><option>Sales Executive</option></select></label>
+              <label>Role<select name="role" required value={newUserRole} onChange={event => setNewUserRole(event.target.value as Role)}><option>Production Supervisor</option><option>Machine Operator</option><option>Store Manager</option><option>E-commerce Manager</option><option>E-commerce Executive</option><option>Sales Executive</option><option>Graphic Designer</option></select></label>
+              {newUserRole === 'E-commerce Executive' && <label>Reporting manager<select name="managerId" required defaultValue=""><option value="">Choose an active manager</option>{managerAccounts.map(manager => <option key={manager.id} value={manager.id}>{manager.name}</option>)}</select></label>}
               {newUserRole === 'E-commerce Executive' && <fieldset className="platform-assignment"><legend>Assigned platform access</legend>{ecommercePlatforms.map(platform => <label key={platform}><input type="checkbox" name="platforms" value={platform} /> {platform}</label>)}</fieldset>}
             </div>
             <button className="primary wide" type="submit"><Plus size={17} /> Create account</button>
@@ -2551,7 +3081,7 @@ function ModuleView(props: {
           {!ecommerceReportsLoading && !ecommerceReportsError && ecommerceReports.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No daily reports yet</strong><span>Submitted reports will appear here.</span></div>}
           {ecommerceReports.length > 0 && <div className="ecommerce-table-wrap"><PaginatedTable label="Executive daily reports" header={<thead><tr><th>Report date</th><th>Last updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed</th><th>Pending</th><th>Issues / notes</th></tr></thead>} rows={reportRows} /></div>}
         </section>
-        <div className="table-card entries-table"><PaginatedTable label="User accounts" header={<thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Platforms</th><th>Status</th><th /></tr></thead>} rows={userRows} /></div>
+        <div className="table-card entries-table"><PaginatedTable label="User accounts" header={<thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Reporting manager</th><th>Platforms</th><th>Status</th><th /></tr></thead>} rows={userRows} /></div>
       </section>
     )
   }
@@ -2605,10 +3135,13 @@ function EcommerceMonthlyDashboard() {
     ]).then(([workspace, reportResult]) => {
       if (!active) return
       setData(workspace)
-      setTargetDrafts(Object.fromEntries((workspace.targets.executives || []).map(executive => [
-        executive.executiveId,
-        { daily: String(executive.dailyTarget), monthly: String(executive.monthlyTarget) },
-      ])))
+      setTargetDrafts(Object.fromEntries([
+        ...(workspace.targets.executives || []).map(account => [account.executiveId, account] as const),
+        ...(workspace.targets.managers || []).map(account => [account.managerId, account] as const),
+      ].map(([id, account]) => [id, {
+        daily: String(account.dailyTarget),
+        monthly: String(account.monthlyTarget),
+      }])))
       setReports(reportResult.reports)
       setError('')
     }).catch(requestError => {
@@ -2633,6 +3166,17 @@ function EcommerceMonthlyDashboard() {
       monthlyAchievement: achievementPercent(ordersThisMonth, executive.monthlyTarget),
     }
   })
+  const managerSummaries = (data?.targets.managers || []).map(manager => {
+    const ordersToday = countAssignedDispatchedOrders(data?.movements || [], manager.platforms, item => dateForTimestamp(item.date) === indiaDateKey())
+    const ordersThisMonth = countAssignedDispatchedOrders(data?.movements || [], manager.platforms, item => monthForTimestamp(item.date) === selectedMonth)
+    return {
+      ...manager,
+      ordersToday,
+      ordersThisMonth,
+      dailyAchievement: achievementPercent(ordersToday, manager.dailyTarget),
+      monthlyAchievement: achievementPercent(ordersThisMonth, manager.monthlyTarget),
+    }
+  })
   const monthlyReports = reports.filter(report => report.date.slice(0, 7) === selectedMonth)
   const orderCount = summaries.reduce((total, item) => total + item.dispatchedOrders, 0)
   const dispatchedUnits = summaries.reduce((total, item) => total + item.dispatchedUnits, 0)
@@ -2642,8 +3186,8 @@ function EcommerceMonthlyDashboard() {
   const executiveRows = executiveSummaries.map(executive => <tr key={executive.executiveId}><td><strong>{executive.executiveName}</strong></td><td>{executive.platforms.join(', ') || '—'}</td><td>{executive.dailyTarget}</td><td>{executive.ordersToday}</td><td>{executive.dailyAchievement === null ? '—' : `${executive.dailyAchievement}%`}</td><td>{executive.monthlyTarget}</td><td>{executive.ordersThisMonth}</td><td>{executive.monthlyAchievement === null ? '—' : `${executive.monthlyAchievement}%`}</td></tr>)
   const monthlyReportRows = monthlyReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)
 
-  const saveExecutiveTarget = async (executive: EcommerceExecutiveTarget) => {
-    const draft = targetDrafts[executive.executiveId]
+  const saveTarget = async (targetType: 'manager' | 'executive', targetId: string, accountName: string) => {
+    const draft = targetDrafts[targetId]
     const dailyTarget = Number(draft?.daily ?? '')
     const monthlyTarget = Number(draft?.monthly ?? '')
     if (!draft?.daily.trim() || !draft.monthly.trim() ||
@@ -2652,24 +3196,25 @@ function EcommerceMonthlyDashboard() {
       setTargetMessage('Enter whole-number daily and monthly targets from 0 to 100,000.')
       return
     }
-    setSavingTarget(executive.executiveId)
+    setSavingTarget(targetId)
     setTargetMessage('')
     try {
-      const result = await apiFetch<{ executiveId: string; dailyTarget: number; monthlyTarget: number }>('/api/ecommerce', {
+      const result = await apiFetch<{ targetType: 'manager' | 'executive'; targetId: string; dailyTarget: number; monthlyTarget: number }>('/api/ecommerce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'setTarget', executiveId: executive.executiveId, dailyTarget, monthlyTarget }),
+        body: JSON.stringify({ action: 'setTarget', targetType, targetId, dailyTarget, monthlyTarget }),
       })
       setData(current => current ? {
         ...current,
         targets: {
           ...current.targets,
-          executives: current.targets.executives?.map(item => item.executiveId === result.executiveId
-            ? { ...item, dailyTarget: result.dailyTarget, monthlyTarget: result.monthlyTarget }
-            : item),
+          executives: current.targets.executives?.map(item => result.targetType === 'executive' && item.executiveId === result.targetId
+            ? { ...item, dailyTarget: result.dailyTarget, monthlyTarget: result.monthlyTarget } : item),
+          managers: current.targets.managers?.map(item => result.targetType === 'manager' && item.managerId === result.targetId
+            ? { ...item, dailyTarget: result.dailyTarget, monthlyTarget: result.monthlyTarget } : item),
         },
       } : current)
-      setTargetMessage(`${executive.executiveName} daily and monthly targets saved.`)
+      setTargetMessage(`${accountName} daily and monthly targets saved.`)
     } catch (requestError) {
       setTargetMessage(requestError instanceof Error ? requestError.message : 'Executive targets could not be saved.')
     } finally {
@@ -2702,6 +3247,16 @@ function EcommerceMonthlyDashboard() {
       'Orders This Month': item.ordersThisMonth,
       'Monthly Achievement (%)': item.monthlyAchievement ?? '',
     }))), 'Executive Targets')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(managerSummaries.map(item => ({
+      Manager: item.managerName,
+      'Team Platforms': item.platforms.join(', '),
+      'Daily Target': item.dailyTarget,
+      'Orders Today': item.ordersToday,
+      'Daily Achievement (%)': item.dailyAchievement ?? '',
+      'Monthly Target': item.monthlyTarget,
+      'Orders This Month': item.ordersThisMonth,
+      'Monthly Achievement (%)': item.monthlyAchievement ?? '',
+    }))), 'Manager Targets')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthlyReports.map(report => ({
       Date: report.date,
       Executive: report.userName,
@@ -2731,13 +3286,27 @@ function EcommerceMonthlyDashboard() {
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returned orders</span><strong>{returnedOrders}</strong><small>{selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon purple"><ClipboardCheck size={20} /></div><div className="stat-body"><span>Gross sales / net after returns & damage</span><strong>₹{grossSales.toLocaleString('en-IN')} / ₹{netSales.toLocaleString('en-IN')}</strong><small>{selectedMonth} · platform selling prices</small></div></div>
         </div>
-        <section className="ecommerce-target-settings" aria-label="E-commerce Executive targets">
+        <section className="ecommerce-target-settings" aria-label="E-commerce targets">
+          <div className="ecommerce-admin-reports-heading"><strong>E-commerce Manager targets</strong><span>Set manager targets; team actuals count each order once across the team's assigned platforms.</span></div>
+          {managerSummaries.length === 0 ? <div className="empty-state"><Users size={22} /><strong>No active E-commerce Manager accounts</strong><span>Create a manager account before assigning manager targets.</span></div> : <>
+            <div className="ecommerce-target-grid">{managerSummaries.map(manager => {
+              const draft = targetDrafts[manager.managerId] || { daily: String(manager.dailyTarget), monthly: String(manager.monthlyTarget) }
+              return <form key={manager.managerId} className="ecommerce-target-form" onSubmit={event => { event.preventDefault(); void saveTarget('manager', manager.managerId, manager.managerName) }}>
+                <strong>{manager.managerName}</strong>
+                <span className="ecommerce-target-platforms">{manager.platforms.length ? manager.platforms.join(' · ') : 'No active executive platforms'}</span>
+                <label>Orders per day<input type="number" min="0" max="100000" step="1" value={draft.daily} onChange={event => setTargetDrafts(current => ({ ...current, [manager.managerId]: { ...(current[manager.managerId] || draft), daily: event.target.value } }))} /></label>
+                <label>Orders per month<input type="number" min="0" max="100000" step="1" value={draft.monthly} onChange={event => setTargetDrafts(current => ({ ...current, [manager.managerId]: { ...(current[manager.managerId] || draft), monthly: event.target.value } }))} /></label>
+                <button className="secondary" type="submit" disabled={savingTarget !== null}>{savingTarget === manager.managerId ? 'Saving…' : 'Save manager targets'}</button>
+              </form>
+            })}</div>
+            <div className="ecommerce-table-wrap"><PaginatedTable label="Manager order targets and achievement" header={<thead><tr><th>Manager</th><th>Team platforms</th><th>Daily target</th><th>Orders today</th><th>Daily achievement</th><th>Monthly target</th><th>Orders this month</th><th>Monthly achievement</th></tr></thead>} rows={managerSummaries.map(manager => <tr key={manager.managerId}><td>{manager.managerName}</td><td>{manager.platforms.join(', ') || '—'}</td><td>{manager.dailyTarget}</td><td>{manager.ordersToday}</td><td>{manager.dailyAchievement === null ? '—' : `${manager.dailyAchievement}%`}</td><td>{manager.monthlyTarget}</td><td>{manager.ordersThisMonth}</td><td>{manager.monthlyAchievement === null ? '—' : `${manager.monthlyAchievement}%`}</td></tr>)} /></div>
+          </>}
           <div className="ecommerce-admin-reports-heading"><strong>Executive order targets</strong><span>Set daily and monthly targets per active account.</span></div>
           <p className="ecommerce-metric-note">Actuals count unique dispatched order numbers from the ERP ledger across each executive’s assigned platforms. No marketplace API is used.</p>
           {executiveSummaries.length === 0 ? <div className="empty-state"><Users size={22} /><strong>No active E-commerce Executive accounts</strong><span>Create an executive account and assign platforms to set targets.</span></div> : <>
             <div className="ecommerce-target-grid">{executiveSummaries.map(executive => {
               const draft = targetDrafts[executive.executiveId] || { daily: String(executive.dailyTarget), monthly: String(executive.monthlyTarget) }
-              return <form key={executive.executiveId} className="ecommerce-target-form" onSubmit={event => { event.preventDefault(); void saveExecutiveTarget(executive) }}>
+              return <form key={executive.executiveId} className="ecommerce-target-form" onSubmit={event => { event.preventDefault(); void saveTarget('executive', executive.executiveId, executive.executiveName) }}>
                 <strong>{executive.executiveName}</strong>
                 <span className="ecommerce-target-platforms">{executive.platforms.length ? executive.platforms.join(' · ') : 'No platforms assigned'}</span>
                 <label>Orders per day<input type="number" min="0" max="100000" step="1" value={draft.daily} onChange={event => setTargetDrafts(current => ({ ...current, [executive.executiveId]: { ...(current[executive.executiveId] || draft), daily: event.target.value } }))} /></label>
@@ -2777,6 +3346,8 @@ function EcommerceWorkspace({
   const [reportHistoryError, setReportHistoryError] = useState('')
   const [actionMessage, setActionMessage] = useState('')
   const [ownReports, setOwnReports] = useState<EcommerceDailyReport[]>([])
+  const [targetDrafts, setTargetDrafts] = useState<Record<string, { daily: string; monthly: string }>>({})
+  const [savingTarget, setSavingTarget] = useState('')
   const [busy, setBusy] = useState(false)
   const [editingListingId, setEditingListingId] = useState('')
   const [platformSkuDraft, setPlatformSkuDraft] = useState('')
@@ -2789,7 +3360,11 @@ function EcommerceWorkspace({
       setData(result)
       setError('')
       setSelectedPlatform(current => result.platforms.includes(current) ? current : result.platforms[0] || 'AMAZON')
-      if (user.role === 'E-commerce Executive') {
+      setTargetDrafts(Object.fromEntries((result.targets.executives || []).map(executive => [
+        executive.executiveId,
+        { daily: String(executive.dailyTarget), monthly: String(executive.monthlyTarget) },
+      ])))
+      if (user.role === 'E-commerce Executive' || user.role === 'E-commerce Manager') {
         try {
           const reportResult = await apiFetch<{ reports: EcommerceDailyReport[] }>('/api/ecommerce-reports')
           setOwnReports(reportResult.reports)
@@ -2867,13 +3442,110 @@ function EcommerceWorkspace({
     : page === 'orders' ? 'Dispatches and returns'
       : page === 'labels' ? 'Shipping labels'
         : page === 'report' ? 'Daily work report'
-          : 'E-commerce Workspace'
+          : user.role === 'E-commerce Manager' ? 'E-commerce Manager Dashboard' : 'E-commerce Workspace'
   const showAll = page === 'all'
   const showOverview = showAll || page === 'overview'
   const showStock = showAll || page === 'stock'
   const showOrders = showAll || page === 'orders'
   const showLabels = showAll || page === 'labels'
   const showReport = user.role === 'E-commerce Executive' && (showAll || page === 'report')
+  const managerMonthlyReports = ownReports.filter(report => report.date.slice(0, 7) === selectedMonth)
+  const targetRows = (data?.targets.executives || []).map(executive => {
+    const dailyOrders = countAssignedDispatchedOrders(data?.movements || [], executive.platforms, item => dateForTimestamp(item.date) === todayKey)
+    const monthlyOrders = countAssignedDispatchedOrders(data?.movements || [], executive.platforms, item => monthForTimestamp(item.date) === selectedMonth)
+    const achievement = achievementPercent(dailyOrders, executive.dailyTarget)
+    return <tr key={executive.executiveId}>
+      <td><strong>{executive.executiveName}</strong></td><td>{executive.platforms.join(', ') || '—'}</td>
+      <td>{executive.dailyTarget}</td><td>{dailyOrders}</td><td>{achievement === null ? '—' : `${achievement}%`}</td>
+      <td>{executive.monthlyTarget}</td><td>{monthlyOrders}</td>
+    </tr>
+  })
+  const managerReportRows = managerMonthlyReports.map(report => <tr key={report.id}>
+    <td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform}</td>
+    <td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td>
+  </tr>)
+
+  const saveTeamExecutiveTarget = async (executive: EcommerceExecutiveTarget) => {
+    const draft = targetDrafts[executive.executiveId]
+    const daily = Number(draft?.daily ?? '')
+    const monthly = Number(draft?.monthly ?? '')
+    if (!draft?.daily.trim() || !draft.monthly.trim() || !Number.isInteger(daily) || daily < 0 || daily > 100000 ||
+        !Number.isInteger(monthly) || monthly < 0 || monthly > 100000) {
+      setActionMessage('Enter whole-number daily and monthly targets from 0 to 100,000.')
+      return
+    }
+    setSavingTarget(executive.executiveId)
+    setActionMessage('')
+    try {
+      const saved = await apiFetch<{ targetId: string; dailyTarget: number; monthlyTarget: number }>('/api/ecommerce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'setTarget', targetType: 'executive', targetId: executive.executiveId, dailyTarget: daily, monthlyTarget: monthly }),
+      })
+      setData(current => current ? {
+        ...current,
+        targets: { ...current.targets, executives: current.targets.executives?.map(item => item.executiveId === saved.targetId
+          ? { ...item, dailyTarget: saved.dailyTarget, monthlyTarget: saved.monthlyTarget }
+          : item) },
+      } : current)
+      setActionMessage(`${executive.executiveName} targets saved.`)
+    } catch (requestError) {
+      setActionMessage(requestError instanceof Error ? requestError.message : 'Executive targets could not be saved.')
+    } finally {
+      setSavingTarget('')
+    }
+  }
+
+  const createTeamExecutive = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const platforms = form.getAll('platforms').map(String)
+    if (!platforms.length) {
+      setActionMessage('Assign at least one marketplace platform.')
+      return
+    }
+    setBusy(true)
+    setActionMessage('')
+    try {
+      await apiFetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.get('name'),
+          username: form.get('username'),
+          password: form.get('password'),
+          role: 'E-commerce Executive',
+          platforms,
+        }),
+      })
+      formElement.reset()
+      setActionMessage('Executive account created under your manager account.')
+      await reload()
+    } catch (requestError) {
+      setActionMessage(requestError instanceof Error ? requestError.message : 'Executive account could not be created.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const changeTeamExecutiveStatus = async (executive: UserAccount) => {
+    setBusy(true)
+    setActionMessage('')
+    try {
+      await apiFetch('/api/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: executive.id, active: !executive.active }),
+      })
+      setActionMessage(`${executive.name} account ${executive.active ? 'deactivated' : 'activated'}.`)
+      await reload()
+    } catch (requestError) {
+      setActionMessage(requestError instanceof Error ? requestError.message : 'Executive account status could not be changed.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const saveListing = async (event: React.FormEvent<HTMLFormElement>, listing: EcommerceListing) => {
     event.preventDefault()
@@ -3004,7 +3676,7 @@ function EcommerceWorkspace({
   return (
     <section className="ecommerce-workspace">
       <div className="page-heading"><div><p>PLATFORM OPERATIONS</p><h1>{pageTitle}</h1><span className="catalog-intro">Platform access is verified on the server for stock, orders, SKU updates, labels, and reports.</span></div><button className="secondary" onClick={() => { setLoading(true); void reload() }} disabled={loading}><RotateCcw size={16} /> Refresh</button></div>
-      {(showOverview || showAll) && <nav className="ecommerce-quick-links" aria-label="E-commerce workspace shortcuts">
+      {(showOverview || showAll) && user.role !== 'E-commerce Manager' && <nav className="ecommerce-quick-links" aria-label="E-commerce workspace shortcuts">
         <button className="secondary" type="button" onClick={() => setModule('E-commerce Stock')}><Boxes size={16} /> Stock & SKUs</button>
         <button className="secondary" type="button" onClick={() => setModule('E-commerce Orders')}><Truck size={16} /> Dispatches & Returns</button>
         <button className="secondary" type="button" onClick={() => setModule('Shipping Labels')}><FileSpreadsheet size={16} /> Shipping Labels</button>
@@ -3015,12 +3687,59 @@ function EcommerceWorkspace({
       {data && <>
         {(showOverview || showAll) && <section className="panel ecommerce-section">
           <div className="panel-heading ecommerce-month-heading">
-            <div><h2>Assigned platforms</h2><p>Your account can access only the tagged platforms below.</p></div>
+            <div><h2>{user.role === 'E-commerce Manager' ? 'Executive team platforms' : 'Assigned platforms'}</h2><p>{user.role === 'E-commerce Manager' ? 'Read-only platform data is limited to your active executives’ independently assigned platforms.' : 'Your account can access only the tagged platforms below.'}</p></div>
             <label className="ecommerce-month-filter">Monthly analysis<input type="month" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} /></label>
           </div>
           <div className="ecommerce-platform-tags">{data.platforms.map(platform => <span className="ecommerce-platform-tag" key={platform}>{platform}</span>)}</div>
           <p className="ecommerce-metric-note">Dispatched orders are counted by unique order number; the ledger does not track delivery confirmation.</p>
           <div className="ecommerce-table-wrap"><table><thead><tr><th>Platform</th><th>Orders dispatched</th><th>Units dispatched</th><th>Gross sales</th><th>Return value</th><th>Damage value</th><th>Net sales</th></tr></thead><tbody>{monthlySummaries.map(summary => <tr key={summary.platform}><td><strong>{summary.platform}</strong></td><td>{summary.dispatchedOrders}</td><td>{summary.dispatchedUnits.toLocaleString('en-IN')}</td><td>₹{summary.dispatchedRevenue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{summary.returnValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{summary.damagedValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>₹{(summary.dispatchedRevenue - summary.returnValue - summary.damagedValue).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td></tr>)}</tbody></table></div>
+        </section>}
+        {showOverview && user.role === 'E-commerce Manager' && <section className="panel ecommerce-section">
+          <div className="panel-heading ecommerce-month-heading">
+            <div><h2>Manager target and team progress</h2><p>Team actuals count each unique dispatched order once across your active executives’ platforms.</p></div>
+            <label className="ecommerce-month-filter">Month<input type="month" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} /></label>
+          </div>
+          <div className="stats-grid ecommerce-target-progress">
+            <div className="stat-card"><div className="stat-icon blue"><Target size={20} /></div><div className="stat-body"><span>Today · team orders / manager target</span><strong>{ordersToday} / {dailyTarget || '—'}</strong><small>{dailyAchievement === null ? 'Admin has not set a daily manager target' : `${dailyAchievement}% of target`}</small></div></div>
+            <div className="stat-card"><div className="stat-icon green"><BarChart3 size={20} /></div><div className="stat-body"><span>{selectedMonth} · team orders / manager target</span><strong>{ordersThisMonth} / {monthlyTarget || '—'}</strong><small>{monthlyAchievement === null ? 'Admin has not set a monthly manager target' : `${monthlyAchievement}% of target`}</small></div></div>
+            <div className="stat-card"><div className="stat-icon purple"><Users size={20} /></div><div className="stat-body"><span>Executive accounts</span><strong>{data.team?.filter(account => account.active).length || 0}</strong><small>Active direct reports</small></div></div>
+            <div className="stat-card"><div className="stat-icon orange"><ClipboardCheck size={20} /></div><div className="stat-body"><span>Team reports</span><strong>{managerMonthlyReports.length}</strong><small>{selectedMonth} submitted reports</small></div></div>
+          </div>
+          <div className="ecommerce-admin-reports-heading"><strong>Executive daily and monthly targets</strong><span>Set targets for your active direct reports.</span></div>
+          {(data.targets.executives || []).length === 0 ? <div className="empty-state"><Users size={22} /><strong>No active executives assigned</strong><span>Create an executive account below or ask Admin to assign one to you.</span></div> : <>
+            <div className="ecommerce-target-grid">{data.targets.executives?.map(executive => {
+              const draft = targetDrafts[executive.executiveId] || { daily: String(executive.dailyTarget), monthly: String(executive.monthlyTarget) }
+              return <form key={executive.executiveId} className="ecommerce-target-form" onSubmit={event => { event.preventDefault(); void saveTeamExecutiveTarget(executive) }}>
+                <strong>{executive.executiveName}</strong><span className="ecommerce-target-platforms">{executive.platforms.join(' · ') || 'No platforms assigned'}</span>
+                <label>Orders per day<input type="number" min="0" max="100000" step="1" value={draft.daily} onChange={event => setTargetDrafts(current => ({ ...current, [executive.executiveId]: { ...(current[executive.executiveId] || draft), daily: event.target.value } }))} /></label>
+                <label>Orders per month<input type="number" min="0" max="100000" step="1" value={draft.monthly} onChange={event => setTargetDrafts(current => ({ ...current, [executive.executiveId]: { ...(current[executive.executiveId] || draft), monthly: event.target.value } }))} /></label>
+                <button className="secondary" type="submit" disabled={savingTarget !== ''}>{savingTarget === executive.executiveId ? 'Saving…' : 'Save targets'}</button>
+              </form>
+            })}</div>
+            <div className="ecommerce-table-wrap"><PaginatedTable label="Team executive target progress" header={<thead><tr><th>Executive</th><th>Platforms</th><th>Daily target</th><th>Orders today</th><th>Daily achievement</th><th>Monthly target</th><th>Orders this month</th></tr></thead>} rows={targetRows} /></div>
+          </>}
+          <p className="ecommerce-feedback" role="status" aria-live="polite">{actionMessage}</p>
+        </section>}
+        {showOverview && user.role === 'E-commerce Manager' && <section className="panel ecommerce-section form-card">
+          <div className="panel-heading"><div><h2>Create an E-commerce Executive</h2><p>New executives are automatically assigned to your manager account; platform access remains independently selected.</p></div></div>
+          <form className="ecommerce-form" onSubmit={event => void createTeamExecutive(event)}>
+            <div className="field-grid">
+              <label>Full name<input name="name" required minLength={2} /></label>
+              <label>Username<input name="username" required minLength={3} autoComplete="off" /></label>
+              <label>Password<input name="password" type="password" required minLength={10} autoComplete="new-password" /></label>
+              <fieldset className="platform-assignment"><legend>Assigned platform access</legend>{ecommercePlatforms.map(platform => <label key={platform}><input type="checkbox" name="platforms" value={platform} /> {platform}</label>)}</fieldset>
+            </div>
+            <button className="primary" type="submit" disabled={busy}><Plus size={15} /> Create team executive</button>
+          </form>
+          <div className="ecommerce-table-wrap"><PaginatedTable label="E-commerce manager team accounts" header={<thead><tr><th>Executive</th><th>Username</th><th>Platforms</th><th>Status</th><th /></tr></thead>} rows={(data.team || []).map(executive => <tr key={executive.id}>
+            <td>{executive.name}</td><td><code>{executive.username}</code></td><td>{executive.platforms.join(', ') || '—'}</td>
+            <td>{executive.active ? 'Active' : 'Inactive'}</td><td><button className="secondary" type="button" disabled={busy} onClick={() => void changeTeamExecutiveStatus(executive)}>{executive.active ? 'Deactivate' : 'Activate'}</button></td>
+          </tr>)} /></div>
+        </section>}
+        {showOverview && user.role === 'E-commerce Manager' && <section className="panel ecommerce-section">
+          <div className="panel-heading"><div><h2>Executive daily reports · {selectedMonth}</h2><p>Reports submitted by your direct reports</p></div></div>
+          {reportHistoryError && <p className="ecommerce-error" role="alert">{reportHistoryError}</p>}
+          {managerMonthlyReports.length === 0 ? <div className="empty-state"><ClipboardCheck size={22} /><strong>No executive reports this month</strong></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedMonth} manager team daily reports`} resetKey={selectedMonth} header={<thead><tr><th>Date</th><th>Updated (IST)</th><th>Executive</th><th>Platform</th><th>Completed work</th><th>Pending work</th><th>Issues / notes</th></tr></thead>} rows={managerReportRows} /></div>}
         </section>}
         {showOverview && user.role === 'E-commerce Executive' && <div className="stats-grid ecommerce-target-progress">
           <div className="stat-card"><div className="stat-icon blue"><Target size={20} /></div><div className="stat-body"><span>Today · dispatched orders / daily target</span><strong>{ordersToday} / {dailyTarget || '—'}</strong><small>{dailyAchievement === null ? 'Daily target not set' : `${dailyAchievement}% of daily target`}</small></div></div>
@@ -3180,6 +3899,7 @@ type DashboardViewProps = {
   users: UserAccount[]
   products: Product[]
   production: Production[]
+  graphicDesignTasks: GraphicDesignTask[]
   today: string
   machines: Machine[]
   productionChart: { date: string; qty: number }[]
@@ -3188,7 +3908,7 @@ type DashboardViewProps = {
 }
 
 function DashboardView({
-  role, user, users, products, production, today, machines, productionChart, setModule, exportExcel,
+  role, user, users, products, production, graphicDesignTasks, today, machines, productionChart, setModule, exportExcel,
 }: DashboardViewProps) {
   if (role === 'Store Manager') {
     return (
@@ -3208,7 +3928,7 @@ function DashboardView({
   const zeroStockCount = activeProducts.filter(product => product.stock <= 0).length
   const availableStock = activeProducts.reduce((sum, product) => sum + product.stock, 0)
   const activeUsers = users.filter(account => account.active)
-  const roleCounts = (['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive', 'Sales Executive'] as Role[])
+  const roleCounts = (['Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Manager', 'E-commerce Executive', 'Sales Executive', 'Graphic Designer'] as Role[])
     .map(accountRole => ({
       role: accountRole,
       count: users.filter(account => account.role === accountRole).length,
@@ -3221,8 +3941,10 @@ function DashboardView({
     'Production Supervisor': 'Manage production, inventory, catalog, machines, and sales. Management, User Management, Settings, and Audit Logs are Admin-only.',
     'Machine Operator': 'Record your daily output and review your own production entries.',
     'Store Manager': 'This account has dashboard-only access. Contact the Super Admin if your assigned workspace needs to change.',
+    'E-commerce Manager': 'Manage your assigned E-commerce Executives, set team targets, and review their daily reports.',
     'E-commerce Executive': 'Review assigned-platform stock and dispatches, upload labels, update marketplace SKUs, and submit your daily report.',
     'Sales Executive': 'Manage assigned leads, record call updates, view available stock, book orders, and track your monthly and yearly targets.',
+    'Graphic Designer': 'Plan social posts and videos, write captions and scripts, track shoot/edit progress, and submit work for Admin review.',
   }
   const statsByRole: Record<Role, { label: string; value: string; detail: string; icon: typeof Package; tone: string }[]> = {
     'Super Admin': [
@@ -3249,16 +3971,23 @@ function DashboardView({
       { label: 'Out of stock', value: String(zeroStockCount), detail: 'Active SKUs at zero', icon: AlertTriangle, tone: 'orange' },
       { label: 'Stocked SKUs', value: String(activeProducts.filter(product => product.stock > 0).length), detail: 'Active SKUs with stock', icon: CheckCircle2, tone: 'purple' },
     ],
+    'E-commerce Manager': [
+      { label: 'Team workspace', value: 'Open dashboard', detail: 'Executive targets, reports, and platform activity', icon: Users, tone: 'blue' },
+    ],
     'E-commerce Executive': [
       { label: 'Assigned platforms', value: '—', detail: 'Open your e-commerce workspace', icon: ShoppingCart, tone: 'blue' },
     ],
     'Sales Executive': [
       { label: 'Sales workspace', value: 'Ready', detail: 'Open assigned leads and targets', icon: BarChart3, tone: 'blue' },
     ],
+    'Graphic Designer': [
+      { label: 'Monthly social plan', value: 'Open plan', detail: 'Posts, videos, and review status', icon: FileSpreadsheet, tone: 'purple' },
+    ],
   }
   const shortcuts: Record<Role, { module: Module; detail: string }[]> = {
     'Super Admin': [
-      { module: 'Camera Monitoring', detail: 'View scheduled team cameras and recent recordings' },
+      { module: 'Camera Monitoring', detail: 'View approved live screen shares and saved clips' },
+      { module: 'Graphic Design', detail: 'Review social content plans, scripts, and production progress' },
       { module: 'User Management', detail: 'Create accounts and assign team roles' },
       { module: 'Inventory', detail: 'Review raw materials and finished goods' },
       { module: 'Product Catalog', detail: 'Create products, SKUs, and marketplace listings' },
@@ -3284,6 +4013,9 @@ function DashboardView({
       { module: 'Production Targets', detail: 'See the target assigned to your machine' },
     ],
     'Store Manager': [],
+    'E-commerce Manager': [
+      { module: 'E-commerce Workspace', detail: 'Manage executive accounts, targets, reports, and team platforms' },
+    ],
     'E-commerce Executive': [
       { module: 'E-commerce Workspace', detail: 'View assigned platforms, shipping labels, and daily tasks' },
     ],
@@ -3291,6 +4023,9 @@ function DashboardView({
       { module: 'Sales Dashboard', detail: 'View your monthly and yearly booked sales targets' },
       { module: 'Leads', detail: 'Update call outcomes and follow-up dates' },
       { module: 'Orders', detail: 'Book orders and see stock reserved' },
+    ],
+    'Graphic Designer': [
+      { module: 'Graphic Design', detail: 'Plan social posts and videos, track shoots and edits, and submit work for review' },
     ],
   }
   const recentProduction = [...production].reverse().slice(0, 5)
@@ -3314,7 +4049,20 @@ function DashboardView({
         ))}
       </div>
 
-      {role === 'Super Admin' && <EcommerceMonthlyDashboard />}
+      {role === 'Super Admin' && <>
+        <EcommerceMonthlyDashboard />
+        <section className="panel ecommerce-report-panel">
+          <div className="panel-heading"><div><h2>Social content plan · {today.slice(0, 7)}</h2><p>Graphic Designer submissions and approval status for this month</p></div><button className="text-button" type="button" onClick={() => setModule('Graphic Design')}>Review content</button></div>
+          <div className="stats-grid">
+            {([
+              ['Planned', graphicDesignTasks.filter(task => task.month === today.slice(0, 7)).length],
+              ['Awaiting review', graphicDesignTasks.filter(task => task.month === today.slice(0, 7) && task.reviewStatus === 'Pending').length],
+              ['Approved', graphicDesignTasks.filter(task => task.month === today.slice(0, 7) && task.reviewStatus === 'Approved').length],
+              ['Rejected', graphicDesignTasks.filter(task => task.month === today.slice(0, 7) && task.reviewStatus === 'Rejected').length],
+            ] as const).map(([label, count]) => <div className="stat-card" key={label}><div className="stat-icon purple"><FileSpreadsheet size={18} /></div><div className="stat-body"><span>{label}</span><strong>{count}</strong><small>Social posts and videos</small></div></div>)}
+          </div>
+        </section>
+      </>}
 
       <div className="dashboard-grid">
         <section className="panel production-panel">

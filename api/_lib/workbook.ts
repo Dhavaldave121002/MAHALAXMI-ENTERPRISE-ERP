@@ -3,9 +3,9 @@ import { promisify } from 'node:util'
 import { ApiError } from './http.js'
 
 const pbkdf2 = promisify(pbkdf2Callback)
-const USER_ROLES = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive', 'Sales Executive'] as const
+const USER_ROLES = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Manager', 'E-commerce Executive', 'Sales Executive', 'Graphic Designer'] as const
 export const ECOMMERCE_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA'] as const
-const USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
+const USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms', 'Manager ID']
 
 export type UserRole = typeof USER_ROLES[number]
 export type EcommercePlatform = typeof ECOMMERCE_PLATFORMS[number]
@@ -16,10 +16,18 @@ export type EcommerceExecutiveTarget = {
   dailyTarget: number
   monthlyTarget: number
 }
+export type EcommerceManagerTarget = {
+  managerId: string
+  managerName: string
+  platforms: EcommercePlatform[]
+  dailyTarget: number
+  monthlyTarget: number
+}
 export type EcommerceTargetSettings = {
   dailyTarget?: number
   monthlyTarget?: number
   executives?: EcommerceExecutiveTarget[]
+  managers?: EcommerceManagerTarget[]
 }
 export type WorkbookUser = {
   id: string
@@ -31,8 +39,9 @@ export type WorkbookUser = {
   passwordHash: string
   createdAt: string
   platforms: EcommercePlatform[]
+  managerId: string
 }
-export type PublicUser = Pick<WorkbookUser, 'id' | 'name' | 'username' | 'role' | 'active' | 'platforms'>
+export type PublicUser = Pick<WorkbookUser, 'id' | 'name' | 'username' | 'role' | 'active' | 'platforms' | 'managerId'>
 export type WorkbookCapabilities = { sessionBoundWrites?: boolean }
 export type WorkbookData = {
   name: string
@@ -208,6 +217,7 @@ export function readUsers(rows: Record<string, unknown>[]): WorkbookUser[] {
       passwordHash,
       createdAt: String(row['Created At'] || ''),
       platforms: parsePlatforms(row['Assigned Platforms']),
+      managerId: String(row['Manager ID'] || '').trim(),
     }]
   })
 }
@@ -234,6 +244,7 @@ function toSheetUser(user: WorkbookUser) {
     'Password Hash': user.passwordHash,
     'Created At': user.createdAt,
     'Assigned Platforms': user.platforms.join(','),
+    'Manager ID': user.managerId,
   }
 }
 
@@ -247,6 +258,10 @@ export async function appendUser(user: WorkbookUser, actor: Pick<PublicUser, 'id
 
 export async function setUserActive(userId: string, active: boolean, actor: Pick<PublicUser, 'id' | 'role'>) {
   await callAppsScript('setUserActive', { id: userId, active, ...sessionBoundPayload(actor) })
+}
+
+export async function setUserManager(executiveId: string, managerId: string, actor: Pick<PublicUser, 'id' | 'role'>) {
+  await callAppsScript('setUserManager', { executiveId, managerId, ...sessionBoundPayload(actor) })
 }
 
 export async function appendWorkbookRecord(
@@ -374,11 +389,12 @@ export async function listWorkbookEcommerceTargets(user: SessionBoundInput) {
 }
 
 export async function setWorkbookEcommerceTarget(input: SessionBoundInput & {
-  executiveId: string
+  targetType: 'manager' | 'executive'
+  targetId: string
   dailyTarget: number
   monthlyTarget: number
 }) {
-  return callAppsScript<{ executiveId: string; dailyTarget: number; monthlyTarget: number }>(
+  return callAppsScript<{ targetType: 'manager' | 'executive'; targetId: string; dailyTarget: number; monthlyTarget: number }>(
     'setEcommerceTarget',
     { ...input, ...sessionBoundPayload(input) },
   )
@@ -462,6 +478,50 @@ export async function recordWorkbookProduction(record: Record<string, unknown>, 
   return callAppsScript<{ finishedGood: Record<string, unknown>; movement: Record<string, unknown> | null }>(
     'recordProduction',
     { record, ...sessionBoundPayload(actor) },
+  )
+}
+
+export async function reviewWorkbookProductionQuality(input: SessionBoundInput & {
+  productionId: string
+  approved: number
+  rejected: number
+  createdBy: string
+}) {
+  return callAppsScript<{
+    record: Record<string, unknown>
+    finishedGood: Record<string, unknown>
+    movement: Record<string, unknown> | null
+    backupName: string
+  }>('reviewProductionQuality', { ...input, ...sessionBoundPayload(input) })
+}
+
+export async function submitWorkbookGraphicDesignTask(input: SessionBoundInput & Record<string, unknown>) {
+  return callAppsScript<{ task: Record<string, unknown>; backupName: string }>(
+    'submitGraphicDesignTask',
+    { ...input, ...sessionBoundPayload(input) },
+  )
+}
+
+export async function updateWorkbookGraphicDesignProgress(input: SessionBoundInput & {
+  taskId: string
+  shootStatus: string
+  editStatus: string
+}) {
+  return callAppsScript<{ task: Record<string, unknown>; backupName: string }>(
+    'updateGraphicDesignProgress',
+    { ...input, ...sessionBoundPayload(input) },
+  )
+}
+
+export async function reviewWorkbookGraphicDesignTask(input: SessionBoundInput & {
+  taskId: string
+  decision: 'Approved' | 'Rejected'
+  reviewNote: string
+  createdBy: string
+}) {
+  return callAppsScript<{ task: Record<string, unknown>; backupName: string }>(
+    'reviewGraphicDesignTask',
+    { ...input, ...sessionBoundPayload(input) },
   )
 }
 
@@ -656,7 +716,7 @@ export async function setWorkbookSalesTarget(input: SessionBoundInput & {
 }
 
 export function publicUser(user: WorkbookUser): PublicUser {
-  return { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active, platforms: user.platforms }
+  return { id: user.id, name: user.name, username: user.username, role: user.role, active: user.active, platforms: user.platforms, managerId: user.managerId }
 }
 
 export async function makePasswordHash(password: string) {
@@ -675,12 +735,15 @@ export function isUserRole(role: string): role is UserRole {
   return USER_ROLES.includes(role as UserRole)
 }
 
-export function newUser(input: { id: string; name: string; username: string; role: UserRole; passwordHash: string; salt: string; platforms?: EcommercePlatform[] }): WorkbookUser {
+export function newUser(input: { id: string; name: string; username: string; role: UserRole; passwordHash: string; salt: string; platforms?: EcommercePlatform[]; managerId?: string }): WorkbookUser {
   const platforms = ECOMMERCE_PLATFORMS.filter(platform => input.platforms?.includes(platform))
   if (input.role === 'E-commerce Executive' && platforms.length === 0) {
     throw new ApiError(400, 'Assign at least one marketplace platform to an E-commerce Executive.')
   }
-  return { ...input, platforms, active: true, createdAt: new Date().toISOString() }
+  if (input.role === 'E-commerce Executive' && !input.managerId) {
+    throw new ApiError(400, 'Assign the E-commerce Executive to an active E-commerce Manager.')
+  }
+  return { ...input, managerId: input.managerId || '', platforms, active: true, createdAt: new Date().toISOString() }
 }
 
 export function userColumns() {

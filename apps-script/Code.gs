@@ -1,8 +1,8 @@
-    const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
-    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets']
+    const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms', 'Manager ID']
+    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets', 'Graphic_Design_Tasks']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
-    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
     const ERP_AUDIT_HEADERS = ['Event ID', 'Timestamp', 'User ID', 'User Name', 'Role', 'Action', 'Target', 'Outcome']
@@ -26,6 +26,8 @@
     const ERP_SALES_REPORT_FOLDER_PROPERTY = 'ERP_SALES_REPORT_FOLDER_ID'
     const ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_DAILY_TARGET_'
     const ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_'
+    const ERP_ECOMMERCE_MANAGER_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_DAILY_TARGET_'
+    const ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_'
     const ERP_WORKBOOK_CACHE_SECONDS = 10
     const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
@@ -35,6 +37,7 @@
     const ERP_SALES_ACTIVITY_HEADERS = ['Activity ID', 'Lead ID', 'Activity Type', 'Outcome', 'Notes', 'Next Follow-Up', 'Created At', 'Created By', 'Created By Name']
     const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes']
     const ERP_SALES_TARGET_HEADERS = ['Target ID', 'Sales User ID', 'Sales User Name', 'Period', 'Period Key', 'Target Amount', 'Updated At', 'Updated By']
+    const ERP_GRAPHIC_DESIGN_HEADERS = ['Task ID', 'Planned Date', 'Month', 'Product SKU', 'Product Name', 'Platforms', 'Content Type', 'Brief', 'Caption', 'Script', 'Shoot Status', 'Edit Status', 'Review Status', 'Review Note', 'Created By ID', 'Created By', 'Created At', 'Reviewed By', 'Reviewed At']
 
     function onOpen(event) {
       if (!event || !event.source) {
@@ -149,6 +152,7 @@
         id: userId,
         name: String(user.Name || '').trim(),
         role: String(user.Role || '').trim(),
+        managerId: String(user['Manager ID'] || '').trim(),
         platforms: String(user['Assigned Platforms'] || '').split(',').map(function (platform) { return platform.trim().toUpperCase() }).filter(Boolean),
       }
     }
@@ -178,18 +182,20 @@
         case 'createInitialAdmin':
           return createInitialAdmin_(spreadsheet, payload.user)
         case 'appendUser':
-          return appendUser_(spreadsheet, payload.user)
+          return appendUser_(spreadsheet, payload)
         case 'setUserActive':
-          return setUserActive_(spreadsheet, payload.id, payload.active)
+          return setUserActive_(spreadsheet, payload)
+        case 'setUserManager':
+          return setUserManager_(spreadsheet, payload)
         case 'updateMarketplaceSku':
         case 'updateMarketplaceListing':
           return updateMarketplaceSku_(spreadsheet, payload)
         case 'uploadEcommerceLabel':
           return uploadEcommerceLabel_(payload)
         case 'listEcommerceLabels':
-          return listEcommerceLabels_(payload)
+          return listEcommerceLabels_(spreadsheet, payload)
         case 'downloadEcommerceLabel':
-          return downloadEcommerceLabel_(payload)
+          return downloadEcommerceLabel_(spreadsheet, payload)
         case 'startCameraClipUpload':
           return startCameraClipUpload_(payload)
         case 'uploadCameraClipChunk':
@@ -246,6 +252,14 @@
           return deleteUnusedStockItem_(spreadsheet, payload)
         case 'recordProduction':
           return recordProduction_(spreadsheet, payload)
+        case 'reviewProductionQuality':
+          return reviewProductionQuality_(spreadsheet, payload)
+        case 'submitGraphicDesignTask':
+          return submitGraphicDesignTask_(spreadsheet, payload)
+        case 'updateGraphicDesignProgress':
+          return updateGraphicDesignProgress_(spreadsheet, payload)
+        case 'reviewGraphicDesignTask':
+          return reviewGraphicDesignTask_(spreadsheet, payload)
         default:
           throw apiError_(400, 'Unknown ERP action.')
       }
@@ -675,8 +689,13 @@
       const labels = {
         appendUser: 'Created user account',
         setUserActive: payload.active ? 'Activated user account' : 'Deactivated user account',
+        setUserManager: 'Assigned E-commerce Manager',
         addMarketplaceListing: 'Created marketplace listing',
         recordProduction: 'Recorded production',
+        reviewProductionQuality: 'Reviewed production quality',
+        submitGraphicDesignTask: 'Submitted creative task',
+        updateGraphicDesignProgress: 'Updated creative production status',
+        reviewGraphicDesignTask: 'Reviewed creative task',
         addRawMaterial: 'Created raw material',
         applyStockMovement: 'Recorded stock movement',
         initializeZeroFinishedStock: 'Initialized finished-goods stock',
@@ -728,7 +747,7 @@
       const record = payload.record && typeof payload.record === 'object' ? payload.record : {}
       const user = payload.user && typeof payload.user === 'object' ? payload.user : {}
       const candidates = [
-        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId,
+        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId, payload.executiveId,
         payload.sku, user['User ID'], record.id, record['Internal Product ID'],
         record['Variant ID'], record['Machine ID'], record['Production ID'], record['Movement ID'],
       ]
@@ -764,11 +783,11 @@
         name: String(payload.userName || '').trim().slice(0, 120),
         role: String(payload.role || '').trim().slice(0, 80),
       }
-      const roles = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Executive', 'Sales Executive']
+      const roles = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Manager', 'E-commerce Executive', 'Sales Executive', 'Graphic Designer']
       if (!user.id || !user.name || roles.indexOf(user.role) < 0) throw apiError_(400, 'Audit actor details are invalid.')
       let target = ''
       if (eventType === 'module_view') {
-        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Machines', 'Quality Control', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat']
+        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Machines', 'Quality Control', 'Graphic Design', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat']
         target = String(payload.module || '')
         if (modules.indexOf(target) < 0) throw apiError_(400, 'ERP module is invalid.')
       }
@@ -1459,6 +1478,14 @@
       })
     }
 
+    function ensureProductionHeaders_(spreadsheet, sheet, headers, requiredHeaders, backupState) {
+      const missing = requiredHeaders.filter(function (header) { return headers.indexOf(header) < 0 })
+      if (!missing.length) return
+      createBackupOnce_(spreadsheet, backupState)
+      sheet.getRange(1, headers.length + 1, 1, missing.length).setValues([missing])
+      headers.push.apply(headers, missing)
+    }
+
     function recordProduction_(spreadsheet, payload) {
       return withWriteLock_(function () {
         const record = payload.record
@@ -1471,26 +1498,19 @@
         const productionSheet = spreadsheet.getSheetByName('Production')
         if (!productionSheet || productionSheet.getLastRow() < 1) throw apiError_(422, 'The Production sheet is missing its header row.')
         let productionHeaders = productionSheet.getRange(1, 1, 1, productionSheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
-        const required = ['Production ID', 'Date', 'Machine ID', 'Product Name', 'Master SKU', 'Actual Quantity', 'Rejected Quantity', 'Created By', 'Created Date', 'Variant SKU']
-        const missing = required.filter(function (header) { return header !== 'Variant SKU' && productionHeaders.indexOf(header) < 0 })
+        const required = ['Production ID', 'Date', 'Machine ID', 'Product Name', 'Master SKU', 'Actual Quantity', 'Rejected Quantity', 'Created By', 'Created Date']
+        const missing = required.filter(function (header) { return productionHeaders.indexOf(header) < 0 })
         if (missing.length) throw apiError_(422, 'The Production sheet is missing required columns: ' + missing.join(', ') + '.')
         const productionBlock = String(record['Production Block'] || '').trim()
         if (['Block 1', 'Block 2', 'Block 3'].indexOf(productionBlock) < 0) throw apiError_(400, 'Choose a valid production time block.')
         assertRecordUnique_(spreadsheet, 'Production', record)
         const backupState = { created: false }
-        if (productionHeaders.indexOf('Variant SKU') < 0) {
-          createBackupOnce_(spreadsheet, backupState)
-          productionSheet.getRange(1, productionHeaders.length + 1).setValue('Variant SKU')
-          productionHeaders.push('Variant SKU')
-        }
-        if (productionHeaders.indexOf('Production Block') < 0) {
-          createBackupOnce_(spreadsheet, backupState)
-          productionSheet.getRange(1, productionHeaders.length + 1).setValue('Production Block')
-          productionHeaders.push('Production Block')
-        }
+        ensureProductionHeaders_(spreadsheet, productionSheet, productionHeaders, [
+          'Variant SKU', 'Production Block', 'QC Status', 'QC Approved Quantity',
+          'QC Rejected Quantity', 'QC Reviewed By', 'QC Reviewed At',
+        ], backupState)
 
         const finished = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
-        const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
         const rowNumber = findStockRow_(finished.sheet, finished.headers, 'Product SKU', sku)
         let item = readStockRow_(finished.sheet, finished.headers, rowNumber)
         if (!item) {
@@ -1502,12 +1522,21 @@
           }
         }
         if (String(item.Status || 'Active').toLowerCase() === 'archived') throw apiError_(409, 'This finished-good SKU is archived.')
-        const opening = finishedAvailableStock_(item)
-        item['Production Received'] = stockNumber_(item['Production Received'], 'Production received') + actual
-        item['Quality Approved'] = stockNumber_(item['Quality Approved'], 'Quality approved') + actual - rejected
-        item.Rejected = stockNumber_(item.Rejected, 'Rejected') + rejected
+        const productionReceived = stockNumber_(item['Production Received'], 'Production received')
+        const priorRejected = stockNumber_(item.Rejected, 'Rejected')
+        const priorApprovedValue = item['Quality Approved']
+        const priorApproved = priorApprovedValue === '' || priorApprovedValue === null || priorApprovedValue === undefined
+          ? Math.max(0, productionReceived - priorRejected)
+          : stockNumber_(priorApprovedValue, 'Quality approved')
+        item['Production Received'] = productionReceived + actual
+        item['Quality Approved'] = priorApproved
         item['Available Stock'] = finishedAvailableStock_(item)
         item['Last Updated'] = new Date().toISOString()
+        record['QC Status'] = 'Pending'
+        record['QC Approved Quantity'] = 0
+        record['QC Rejected Quantity'] = 0
+        record['QC Reviewed By'] = ''
+        record['QC Reviewed At'] = ''
 
         createBackupOnce_(spreadsheet, backupState)
         productionSheet.appendRow(productionHeaders.map(function (header) {
@@ -1515,20 +1544,218 @@
         }))
         if (rowNumber) updateStockRow_(finished.sheet, finished.headers, rowNumber, item)
         else appendStockRow_(finished.sheet, finished.headers, item)
-        const approved = actual - rejected
+        SpreadsheetApp.flush()
+        return { finishedGood: item, movement: null }
+      })
+    }
+
+    function reviewProductionQuality_(spreadsheet, payload) {
+      if (!['Super Admin', 'Production Supervisor'].includes(String(payload.sessionUserRole || ''))) {
+        throw apiError_(403, 'Only the Super Admin or Production Supervisor can review production quality.')
+      }
+      return withWriteLock_(function () {
+        const productionId = String(payload.productionId || '').trim()
+        const approved = Number(payload.approved)
+        const rejected = Number(payload.rejected)
+        if (!productionId || productionId.length > 120) throw apiError_(400, 'Choose a valid production batch.')
+        if (!Number.isInteger(approved) || approved < 0 || !Number.isInteger(rejected) || rejected < 0) {
+          throw apiError_(400, 'QC pass and reject quantities must be whole numbers greater than or equal to zero.')
+        }
+
+        const productionSheet = spreadsheet.getSheetByName('Production')
+        if (!productionSheet || productionSheet.getLastRow() < 2) throw apiError_(404, 'The production batch was not found.')
+        const productionHeaders = productionSheet.getRange(1, 1, 1, productionSheet.getLastColumn())
+          .getDisplayValues()[0].map(function (value) { return value.trim() })
+        const productionRow = findStockRow_(productionSheet, productionHeaders, 'Production ID', productionId)
+        if (!productionRow) throw apiError_(404, 'The production batch was not found.')
+        const record = readStockRow_(productionSheet, productionHeaders, productionRow)
+        const actual = stockNumber_(record['Actual Quantity'], 'Actual quantity')
+        if (approved + rejected !== actual) {
+          throw apiError_(400, 'QC pass and reject quantities must add up to the batch actual quantity (' + actual + ').')
+        }
+        if (String(record['QC Status'] || '').trim() !== 'Pending') {
+          throw apiError_(409, 'This batch is not awaiting quality review.')
+        }
+        const sku = String(record['Variant SKU'] || record['Master SKU'] || '').trim()
+        if (!sku) throw apiError_(409, 'The production batch has no SKU and cannot update finished-goods stock.')
+
+        const backupState = { created: false, backupName: '' }
+        const finished = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
+        const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
+        const stockRow = findStockRow_(finished.sheet, finished.headers, 'Product SKU', sku)
+        if (!stockRow) throw apiError_(409, 'The finished-goods stock record for this pending batch is missing.')
+        const item = readStockRow_(finished.sheet, finished.headers, stockRow)
+        if (String(item.Status || 'Active').toLowerCase() === 'archived') {
+          throw apiError_(409, 'This finished-good SKU is archived and cannot receive QC-approved stock.')
+        }
+        const opening = finishedAvailableStock_(item)
+        const approvedValue = item['Quality Approved']
+        if (approvedValue === '' || approvedValue === null || approvedValue === undefined) {
+          item['Quality Approved'] = Math.max(
+            0,
+            stockNumber_(item['Production Received'], 'Production received') - stockNumber_(item.Rejected, 'Rejected'),
+          )
+        }
+        item['Quality Approved'] = stockNumber_(item['Quality Approved'], 'Quality approved') + approved
+        item.Rejected = stockNumber_(item.Rejected, 'Rejected') + rejected
+        item['Available Stock'] = finishedAvailableStock_(item)
+        item['Last Updated'] = new Date().toISOString()
+        record['QC Status'] = 'Reviewed'
+        record['QC Approved Quantity'] = approved
+        record['QC Rejected Quantity'] = rejected
+        record['QC Reviewed By'] = String(payload.createdBy || '')
+        record['QC Reviewed At'] = new Date().toISOString()
+
+        createBackupOnce_(spreadsheet, backupState)
+        updateStockRow_(productionSheet, productionHeaders, productionRow, record)
+        updateStockRow_(finished.sheet, finished.headers, stockRow, item)
         let movement = null
         if (approved > 0) {
           movement = stockMovementRecord_({
-            sku: sku, type: 'Production Received', quantity: approved,
-            referenceId: String(record['Production ID'] || ''),
-            reason: 'Production complete; rejected quantity: ' + rejected,
+            sku: sku, type: 'QC Approved', quantity: approved,
+            referenceId: productionId, machineId: String(record['Machine ID'] || ''),
+            reason: 'QC approved production batch; rejected quantity: ' + rejected,
             opening: opening, closing: item['Available Stock'],
-            createdBy: String(record['Created By'] || ''), itemType: 'Finished Goods',
+            createdBy: String(payload.createdBy || ''), itemType: 'Finished Goods',
           })
           appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
         }
         SpreadsheetApp.flush()
-        return { finishedGood: item, movement: movement }
+        return { record: record, finishedGood: item, movement: movement, backupName: backupState.backupName }
+      })
+    }
+
+    function graphicDesignTaskSheet_(spreadsheet, backupState) {
+      return ensureStockSheet_(spreadsheet, 'Graphic_Design_Tasks', ERP_GRAPHIC_DESIGN_HEADERS, backupState)
+    }
+
+    function submitGraphicDesignTask_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Graphic Designer') {
+        throw apiError_(403, 'Only a Graphic Designer can submit social content tasks.')
+      }
+      const plannedDate = String(payload.plannedDate || '').trim()
+      const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(plannedDate)
+      const month = String(payload.month || '').trim()
+      const expectedMonth = plannedDate.slice(0, 7)
+      const date = dateMatch ? new Date(Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]), 12)) : null
+      if (!date || date.toISOString().slice(0, 10) !== plannedDate || month !== expectedMonth) {
+        throw apiError_(400, 'Choose a valid posting date within the selected month.')
+      }
+      const sku = String(payload.sku || '').trim()
+      const productName = findCatalogProductName_(spreadsheet, sku)
+      if (!sku || !productName) throw apiError_(400, 'Choose an active product or variant from the catalog.')
+      const platforms = Array.isArray(payload.platforms)
+        ? Array.from(new Set(payload.platforms.map(function (value) { return String(value || '').trim() })))
+        : []
+      const allowedPlatforms = ['Instagram', 'Facebook', 'YouTube', 'TikTok', 'LinkedIn']
+      if (!platforms.length || platforms.some(function (platform) { return allowedPlatforms.indexOf(platform) < 0 })) {
+        throw apiError_(400, 'Choose at least one valid social platform.')
+      }
+      const contentType = String(payload.contentType || '').trim()
+      if (['Post', 'Video'].indexOf(contentType) < 0) throw apiError_(400, 'Choose Post or Video content.')
+      const brief = String(payload.brief || '').trim()
+      const caption = String(payload.caption || '').trim()
+      const script = String(payload.script || '').trim()
+      if (!brief || brief.length > 2000 || caption.length > 2000 || script.length > 5000) {
+        throw apiError_(400, 'Enter a brief and keep the brief, caption, and script within their character limits.')
+      }
+      const now = new Date().toISOString()
+      const task = {
+        'Task ID': Utilities.getUuid(),
+        'Planned Date': plannedDate,
+        Month: month,
+        'Product SKU': sku,
+        'Product Name': productName,
+        Platforms: platforms.join(', '),
+        'Content Type': contentType,
+        Brief: brief,
+        Caption: caption,
+        Script: script,
+        'Shoot Status': contentType === 'Video' ? 'Not started' : 'Not required',
+        'Edit Status': 'Not started',
+        'Review Status': 'Pending',
+        'Review Note': '',
+        'Created By ID': String(payload.sessionUserId || ''),
+        'Created By': String(payload.createdBy || ''),
+        'Created At': now,
+        'Reviewed By': '',
+        'Reviewed At': '',
+      }
+      if (!task['Created By ID']) throw apiError_(401, 'Sign in again before submitting a creative task.')
+      return withWriteLock_(function () {
+        const backupState = { created: false, backupName: '' }
+        const sheet = graphicDesignTaskSheet_(spreadsheet, backupState)
+        createBackupOnce_(spreadsheet, backupState)
+        appendStockRow_(sheet.sheet, sheet.headers, task)
+        SpreadsheetApp.flush()
+        return { task: task, backupName: backupState.backupName }
+      })
+    }
+
+    function updateGraphicDesignProgress_(spreadsheet, payload) {
+      const role = String(payload.sessionUserRole || '')
+      if (!['Graphic Designer', 'Super Admin'].includes(role)) {
+        throw apiError_(403, 'Only the task owner or Super Admin can update creative production progress.')
+      }
+      return withWriteLock_(function () {
+        const taskId = String(payload.taskId || '').trim()
+        const shootStatus = String(payload.shootStatus || '').trim()
+        const editStatus = String(payload.editStatus || '').trim()
+        const validProgress = ['Not started', 'In progress', 'Completed']
+        if (!taskId || taskId.length > 120 || validProgress.indexOf(editStatus) < 0 ||
+            (shootStatus !== 'Not required' && validProgress.indexOf(shootStatus) < 0)) {
+          throw apiError_(400, 'Choose valid shoot and edit statuses.')
+        }
+        const taskSheet = graphicDesignTaskSheet_(spreadsheet, { created: false, backupName: '' })
+        const rowNumber = findStockRow_(taskSheet.sheet, taskSheet.headers, 'Task ID', taskId)
+        if (!rowNumber) throw apiError_(404, 'The creative task was not found.')
+        const task = readStockRow_(taskSheet.sheet, taskSheet.headers, rowNumber)
+        if (role === 'Graphic Designer' && String(task['Created By ID'] || '') !== String(payload.sessionUserId || '')) {
+          throw apiError_(403, 'You can only update your own creative tasks.')
+        }
+        if (String(task['Review Status'] || '') === 'Rejected') {
+          throw apiError_(409, 'This task was rejected. Submit a revised creative as a new task.')
+        }
+        if (String(task['Content Type'] || '') !== 'Video' && shootStatus !== 'Not required') {
+          throw apiError_(400, 'Only video tasks can have shoot progress.')
+        }
+        const backupState = { created: false, backupName: '' }
+        createBackupOnce_(spreadsheet, backupState)
+        task['Shoot Status'] = shootStatus
+        task['Edit Status'] = editStatus
+        updateStockRow_(taskSheet.sheet, taskSheet.headers, rowNumber, task)
+        SpreadsheetApp.flush()
+        return { task: task, backupName: backupState.backupName }
+      })
+    }
+
+    function reviewGraphicDesignTask_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can review social content tasks.')
+      }
+      return withWriteLock_(function () {
+        const taskId = String(payload.taskId || '').trim()
+        const decision = String(payload.decision || '').trim()
+        const reviewNote = String(payload.reviewNote || '').trim()
+        if (!taskId || taskId.length > 120 || ['Approved', 'Rejected'].indexOf(decision) < 0 || reviewNote.length > 1000) {
+          throw apiError_(400, 'Choose an approval decision and keep review notes within 1,000 characters.')
+        }
+        const taskSheet = graphicDesignTaskSheet_(spreadsheet, { created: false, backupName: '' })
+        const rowNumber = findStockRow_(taskSheet.sheet, taskSheet.headers, 'Task ID', taskId)
+        if (!rowNumber) throw apiError_(404, 'The creative task was not found.')
+        const task = readStockRow_(taskSheet.sheet, taskSheet.headers, rowNumber)
+        if (String(task['Review Status'] || '') !== 'Pending') {
+          throw apiError_(409, 'This creative task has already been reviewed.')
+        }
+        const backupState = { created: false, backupName: '' }
+        createBackupOnce_(spreadsheet, backupState)
+        task['Review Status'] = decision
+        task['Review Note'] = reviewNote
+        task['Reviewed By'] = String(payload.createdBy || '')
+        task['Reviewed At'] = new Date().toISOString()
+        updateStockRow_(taskSheet.sheet, taskSheet.headers, rowNumber, task)
+        SpreadsheetApp.flush()
+        return { task: task, backupName: backupState.backupName }
       })
     }
 
@@ -2046,10 +2273,29 @@
       })
     }
 
-    function appendUser_(spreadsheet, user) {
+    function appendUser_(spreadsheet, payload) {
       return withWriteLock_(function () {
+        const user = payload.user
+        const actorRole = String(payload.sessionUserRole || '')
+        const actorId = String(payload.sessionUserId || '')
         if (!user || user.Role === 'Super Admin') throw apiError_(403, 'Only the initial account can be Super Admin.')
+        if (actorRole !== 'Super Admin' && !(actorRole === 'E-commerce Manager' && user.Role === 'E-commerce Executive')) {
+          throw apiError_(403, 'This account cannot create the requested user role.')
+        }
         const users = readSheetRecords_(spreadsheet, 'Users')
+        if (user.Role === 'E-commerce Executive') {
+          const managerId = String(user['Manager ID'] || '').trim()
+          const manager = users.find(function (row) {
+            const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+            return active && String(row['User ID'] || '').trim() === managerId && String(row.Role || '').trim() === 'E-commerce Manager'
+          })
+          if (!managerId || !manager) throw apiError_(400, 'Assign the E-commerce Executive to an active E-commerce Manager.')
+          if (actorRole === 'E-commerce Manager' && managerId !== actorId) {
+            throw apiError_(403, 'An E-commerce Manager can only create executives who report to them.')
+          }
+        } else if (String(user['Manager ID'] || '').trim()) {
+          throw apiError_(400, 'Only E-commerce Executives can be assigned to an E-commerce Manager.')
+        }
         assertUsernameAvailable_(users, user)
         createBackup_(spreadsheet)
         const sheet = ensureUserSheet_(spreadsheet)
@@ -2060,11 +2306,31 @@
       })
     }
 
-    function assertEcommercePlatformAccess_(payload, platform) {
+    function ecommercePlatformsForManager_(spreadsheet, managerId) {
+      const assigned = {}
+      readSheetRecords_(spreadsheet, 'Users').forEach(function (row) {
+        const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+        if (!active || String(row.Role || '').trim() !== 'E-commerce Executive' ||
+            String(row['Manager ID'] || '').trim() !== String(managerId || '').trim()) return
+        String(row['Assigned Platforms'] || '').split(',').forEach(function (platform) {
+          const normalized = platform.trim().toUpperCase()
+          if (ERP_ECOMMERCE_PLATFORMS.indexOf(normalized) >= 0) assigned[normalized] = true
+        })
+      })
+      return ERP_ECOMMERCE_PLATFORMS.filter(function (platform) { return assigned[platform] })
+    }
+
+    function assertEcommercePlatformAccess_(payload, platform, spreadsheet) {
       const normalizedPlatform = String(platform || '').trim().toUpperCase()
       if (ERP_ECOMMERCE_PLATFORMS.indexOf(normalizedPlatform) < 0) throw apiError_(400, 'Choose a valid marketplace platform.')
       const role = String(payload.sessionUserRole || '')
       if (role === 'Super Admin' || role === 'Production Supervisor') return normalizedPlatform
+      if (role === 'E-commerce Manager') {
+        if (!spreadsheet || ecommercePlatformsForManager_(spreadsheet, payload.sessionUserId).indexOf(normalizedPlatform) < 0) {
+          throw apiError_(403, 'This marketplace platform is not assigned to your executive team.')
+        }
+        return normalizedPlatform
+      }
       if (role !== 'E-commerce Executive') throw apiError_(403, 'This account cannot access e-commerce platform data.')
       const assigned = Array.isArray(payload.sessionUserPlatforms) ? payload.sessionUserPlatforms : []
       if (assigned.indexOf(normalizedPlatform) < 0) throw apiError_(403, 'This marketplace platform is not assigned to your account.')
@@ -2085,7 +2351,7 @@
 
     function updateMarketplaceSku_(spreadsheet, payload) {
       assertEcommerceWriteRole_(payload)
-      const platform = assertEcommercePlatformAccess_(payload, payload.platform)
+      const platform = assertEcommercePlatformAccess_(payload, payload.platform, spreadsheet)
       const listingId = String(payload.listingId || '').trim()
       const platformSku = String(payload.platformSku || '').trim()
       if (!listingId || !platformSku || platformSku.length > 120) throw apiError_(400, 'A listing and platform SKU of 1 to 120 characters are required.')
@@ -2651,12 +2917,15 @@
       return ecommerceLabelMetadata_(file)
     }
 
-    function listEcommerceLabels_(payload) {
-      if (['E-commerce Executive', 'Production Supervisor', 'Super Admin'].indexOf(String(payload.sessionUserRole || '')) < 0) {
+    function listEcommerceLabels_(spreadsheet, payload) {
+      if (['E-commerce Executive', 'E-commerce Manager', 'Production Supervisor', 'Super Admin'].indexOf(String(payload.sessionUserRole || '')) < 0) {
         throw apiError_(403, 'This account cannot view shipping labels.')
       }
       const platform = String(payload.platform || '').trim().toUpperCase()
-      if (platform) assertEcommercePlatformAccess_(payload, platform)
+      if (platform) assertEcommercePlatformAccess_(payload, platform, spreadsheet)
+      const managerPlatforms = payload.sessionUserRole === 'E-commerce Manager'
+        ? ecommercePlatformsForManager_(spreadsheet, payload.sessionUserId)
+        : []
       const folder = getEcommerceLabelFolder_(false)
       if (!folder) return { labels: [] }
       cleanupExpiredEcommerceLabels_()
@@ -2666,7 +2935,8 @@
         const metadata = ecommerceLabelMetadata_(files.next())
         if ((!platform || metadata.platform === platform) &&
             (payload.sessionUserRole !== 'E-commerce Executive' ||
-              (Array.isArray(payload.sessionUserPlatforms) && payload.sessionUserPlatforms.indexOf(metadata.platform) >= 0))) {
+              (Array.isArray(payload.sessionUserPlatforms) && payload.sessionUserPlatforms.indexOf(metadata.platform) >= 0)) &&
+            (payload.sessionUserRole !== 'E-commerce Manager' || managerPlatforms.indexOf(metadata.platform) >= 0)) {
           labels.push(metadata)
         }
       }
@@ -2674,7 +2944,7 @@
       return { labels: labels }
     }
 
-    function downloadEcommerceLabel_(payload) {
+    function downloadEcommerceLabel_(spreadsheet, payload) {
       const fileId = String(payload.fileId || '').trim()
       if (!fileId) throw apiError_(400, 'A shipping-label ID is required.')
       const folder = getEcommerceLabelFolder_(false)
@@ -2685,7 +2955,7 @@
         const file = files.next()
         if (file.getId() !== fileId) continue
         const metadata = ecommerceLabelMetadata_(file)
-        assertEcommercePlatformAccess_(payload, metadata.platform)
+        assertEcommercePlatformAccess_(payload, metadata.platform, spreadsheet)
         return {
           fileName: metadata.fileName,
           base64: Utilities.base64Encode(file.getBlob().getBytes()),
@@ -2707,7 +2977,7 @@
 
     function submitEcommerceReport_(spreadsheet, payload) {
       if (payload.sessionUserRole !== 'E-commerce Executive') throw apiError_(403, 'Only an E-commerce Executive can submit a daily report.')
-      const platform = assertEcommercePlatformAccess_(payload, payload.platform)
+      const platform = assertEcommercePlatformAccess_(payload, payload.platform, spreadsheet)
       const completed = String(payload.completed || '').trim()
       const pending = String(payload.pending || '').trim()
       const issues = String(payload.issues || '').trim()
@@ -2767,10 +3037,19 @@
 
     function listEcommerceReports_(spreadsheet, payload) {
       const role = String(payload.sessionUserRole || '')
-      if (role !== 'Super Admin' && role !== 'E-commerce Executive') {
-        throw apiError_(403, 'Only an E-commerce Executive or Super Admin can view daily reports.')
+      if (role !== 'Super Admin' && role !== 'E-commerce Executive' && role !== 'E-commerce Manager') {
+        throw apiError_(403, 'Only an E-commerce Executive, E-commerce Manager, or Super Admin can view daily reports.')
       }
       const sessionUserId = String(payload.sessionUserId || '')
+      const teamIds = {}
+      if (role === 'E-commerce Manager') {
+        readSheetRecords_(spreadsheet, 'Users').forEach(function (row) {
+          if (String(row.Role || '').trim() === 'E-commerce Executive' &&
+              String(row['Manager ID'] || '').trim() === sessionUserId) {
+            teamIds[String(row['User ID'] || '').trim()] = true
+          }
+        })
+      }
       const folder = getEcommerceReportFolder_(false)
       if (!folder) return { reports: [] }
       const reports = []
@@ -2789,6 +3068,7 @@
           throw apiError_(500, 'A stored daily report has an unsupported format.')
         }
         if (role === 'E-commerce Executive' && String(report.userId || '') !== sessionUserId) continue
+        if (role === 'E-commerce Manager' && !teamIds[String(report.userId || '')]) continue
         reports.push(report)
       }
       reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })
@@ -2918,70 +3198,135 @@
       return { dailyTarget: dailyTarget, monthlyTarget: monthlyTarget }
     }
 
+    function ecommerceManagerTarget_(properties, managerId) {
+      const dailyValue = properties.getProperty(ERP_ECOMMERCE_MANAGER_DAILY_TARGET_PREFIX + managerId)
+      const monthlyValue = properties.getProperty(ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_PREFIX + managerId)
+      const dailyTarget = dailyValue === null ? 0 : Number(dailyValue)
+      const monthlyTarget = monthlyValue === null ? 0 : Number(monthlyValue)
+      if (!Number.isInteger(dailyTarget) || dailyTarget < 0 || dailyTarget > 100000 ||
+          !Number.isInteger(monthlyTarget) || monthlyTarget < 0 || monthlyTarget > 100000) {
+        throw apiError_(500, 'The saved order target for this manager is invalid.')
+      }
+      return { dailyTarget: dailyTarget, monthlyTarget: monthlyTarget }
+    }
+
+    function ecommerceTargetPlatforms_(user) {
+      return String(user['Assigned Platforms'] || '').split(',').map(function (platform) {
+        return platform.trim().toUpperCase()
+      }).filter(function (platform) {
+        return ERP_ECOMMERCE_PLATFORMS.indexOf(platform) >= 0
+      })
+    }
+
     function getEcommerceTargets_(spreadsheet, payload) {
       const role = String(payload.sessionUserRole || '')
-      if (role !== 'E-commerce Executive' && role !== 'Super Admin') {
+      if (role !== 'E-commerce Executive' && role !== 'E-commerce Manager' && role !== 'Super Admin') {
         throw apiError_(403, 'This account cannot view e-commerce targets.')
       }
       const properties = PropertiesService.getScriptProperties()
+      const users = readSheetRecords_(spreadsheet, 'Users')
       if (role === 'E-commerce Executive') {
         const executiveId = String(payload.sessionUserId || '').trim()
         if (!/^[A-Za-z0-9_-]{1,120}$/.test(executiveId)) throw apiError_(401, 'Sign in again before viewing targets.')
         return { targets: ecommerceExecutiveTarget_(properties, executiveId) }
       }
 
-      const executives = readSheetRecords_(spreadsheet, 'Users').filter(function (row) {
+      const managerId = String(payload.sessionUserId || '').trim()
+      if (role === 'E-commerce Manager' && !/^[A-Za-z0-9_-]{1,120}$/.test(managerId)) {
+        throw apiError_(401, 'Sign in again before viewing manager targets.')
+      }
+      const executives = users.filter(function (row) {
         const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
-        return active && String(row.Role || '').trim() === 'E-commerce Executive'
+        return active && String(row.Role || '').trim() === 'E-commerce Executive' &&
+          (role !== 'E-commerce Manager' || String(row['Manager ID'] || '').trim() === managerId)
       }).map(function (row) {
         const executiveId = String(row['User ID'] || '').trim()
         const target = ecommerceExecutiveTarget_(properties, executiveId)
-        const platforms = String(row['Assigned Platforms'] || '').split(',').map(function (platform) {
-          return platform.trim().toUpperCase()
-        }).filter(function (platform) {
-          return ERP_ECOMMERCE_PLATFORMS.indexOf(platform) >= 0
-        })
         return {
           executiveId: executiveId,
           executiveName: String(row.Name || '').trim(),
-          platforms: platforms,
+          platforms: ecommerceTargetPlatforms_(row),
           dailyTarget: target.dailyTarget,
           monthlyTarget: target.monthlyTarget,
         }
       })
-      return { targets: { executives: executives } }
+      if (role === 'E-commerce Manager') {
+        const target = ecommerceManagerTarget_(properties, managerId)
+        return { targets: { dailyTarget: target.dailyTarget, monthlyTarget: target.monthlyTarget, executives: executives } }
+      }
+      const managers = users.filter(function (row) {
+        const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+        return active && String(row.Role || '').trim() === 'E-commerce Manager'
+      }).map(function (row) {
+        const id = String(row['User ID'] || '').trim()
+        const platforms = {}
+        users.forEach(function (executive) {
+          const active = executive.Active === true || ['true', '1', 'yes'].indexOf(String(executive.Active || '').toLowerCase()) >= 0
+          if (!active || String(executive.Role || '').trim() !== 'E-commerce Executive' ||
+              String(executive['Manager ID'] || '').trim() !== id) return
+          ecommerceTargetPlatforms_(executive).forEach(function (platform) { platforms[platform] = true })
+        })
+        const target = ecommerceManagerTarget_(properties, id)
+        return {
+          managerId: id,
+          managerName: String(row.Name || '').trim(),
+          platforms: ERP_ECOMMERCE_PLATFORMS.filter(function (platform) { return platforms[platform] }),
+          dailyTarget: target.dailyTarget,
+          monthlyTarget: target.monthlyTarget,
+        }
+      })
+      return { targets: { executives: executives, managers: managers } }
     }
 
     function setEcommerceTarget_(spreadsheet, payload) {
-      if (payload.sessionUserRole !== 'Super Admin') {
-        throw apiError_(403, 'Only the Super Admin can set executive order targets.')
-      }
-      const executiveId = String(payload.executiveId || '').trim()
+      const role = String(payload.sessionUserRole || '')
+      const targetType = String(payload.targetType || 'executive')
+      const targetId = String(payload.targetId || payload.executiveId || payload.managerId || '').trim()
       const dailyTarget = payload.dailyTarget
       const monthlyTarget = payload.monthlyTarget
-      if (!/^[A-Za-z0-9_-]{1,120}$/.test(executiveId)) throw apiError_(400, 'Choose a valid E-commerce Executive account.')
-      const executive = readSheetRecords_(spreadsheet, 'Users').find(function (row) {
+      if (!['manager', 'executive'].includes(targetType)) throw apiError_(400, 'Choose a manager or executive target.')
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(targetId)) throw apiError_(400, 'Choose a valid E-commerce account.')
+      if (targetType === 'manager' && role !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can set E-commerce Manager targets.')
+      }
+      if (targetType === 'executive' && role !== 'Super Admin' && role !== 'E-commerce Manager') {
+        throw apiError_(403, 'Only the Super Admin or owning E-commerce Manager can set executive targets.')
+      }
+      const target = readSheetRecords_(spreadsheet, 'Users').find(function (row) {
         const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
-        return active && String(row['User ID'] || '').trim() === executiveId &&
-          String(row.Role || '').trim() === 'E-commerce Executive'
+        const expectedRole = targetType === 'manager' ? 'E-commerce Manager' : 'E-commerce Executive'
+        return active && String(row['User ID'] || '').trim() === targetId && String(row.Role || '').trim() === expectedRole
       })
-      if (!executive) throw apiError_(404, 'The selected active E-commerce Executive account was not found.')
+      if (!target) throw apiError_(404, 'The selected active E-commerce account was not found.')
+      if (targetType === 'executive' && role === 'E-commerce Manager' &&
+          String(target['Manager ID'] || '').trim() !== String(payload.sessionUserId || '').trim()) {
+        throw apiError_(403, 'You can only set targets for your own E-commerce Executives.')
+      }
       if (typeof dailyTarget !== 'number' || !Number.isInteger(dailyTarget) || dailyTarget < 0 || dailyTarget > 100000 ||
           typeof monthlyTarget !== 'number' || !Number.isInteger(monthlyTarget) || monthlyTarget < 0 || monthlyTarget > 100000) {
         throw apiError_(400, 'Daily and monthly order targets must be whole numbers from 0 to 100,000.')
       }
       return withWriteLock_(function () {
         const properties = {}
-        properties[ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX + executiveId] = String(dailyTarget)
-        properties[ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX + executiveId] = String(monthlyTarget)
+        const dailyPrefix = targetType === 'manager' ? ERP_ECOMMERCE_MANAGER_DAILY_TARGET_PREFIX : ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX
+        const monthlyPrefix = targetType === 'manager' ? ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_PREFIX : ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX
+        properties[dailyPrefix + targetId] = String(dailyTarget)
+        properties[monthlyPrefix + targetId] = String(monthlyTarget)
         PropertiesService.getScriptProperties().setProperties(properties, false)
-        return { executiveId: executiveId, dailyTarget: dailyTarget, monthlyTarget: monthlyTarget }
+        return { targetType: targetType, targetId: targetId, dailyTarget: dailyTarget, monthlyTarget: monthlyTarget }
       })
     }
 
-    function setUserActive_(spreadsheet, userId, active) {
+    function setUserActive_(spreadsheet, payload) {
       return withWriteLock_(function () {
-        if (typeof userId !== 'string' || !userId || typeof active !== 'boolean') {
+        const userId = String(payload.id || '')
+        const active = payload.active
+        const actorRole = String(payload.sessionUserRole || '')
+        const actorId = String(payload.sessionUserId || '')
+        if (actorRole !== 'Super Admin' && actorRole !== 'E-commerce Manager') {
+          throw apiError_(403, 'Only the Super Admin or owning E-commerce Manager can change this account status.')
+        }
+        if (!userId || typeof active !== 'boolean') {
           throw apiError_(400, 'A user ID and active status are required.')
         }
         const sheet = spreadsheet.getSheetByName('Users')
@@ -2990,11 +3335,13 @@
         const idColumn = headers.indexOf('User ID')
         const activeColumn = headers.indexOf('Active')
         const roleColumn = headers.indexOf('Role')
+        const managerColumn = headers.indexOf('Manager ID')
         if (idColumn < 0 || activeColumn < 0 || roleColumn < 0) throw apiError_(422, 'The Users sheet is missing required columns.')
 
         const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues()
         let targetRow = 0
         let targetRole = ''
+        let targetManagerId = ''
         let activeAdmins = 0
         rows.forEach(function (row, index) {
           const rowRole = String(row[roleColumn] || '')
@@ -3003,9 +3350,13 @@
           if (String(row[idColumn] || '') === userId) {
             targetRow = index + 2
             targetRole = rowRole
+            targetManagerId = managerColumn < 0 ? '' : String(row[managerColumn] || '').trim()
           }
         })
         if (!targetRow) throw apiError_(404, 'User account was not found.')
+        if (actorRole === 'E-commerce Manager' && (targetRole !== 'E-commerce Executive' || targetManagerId !== actorId)) {
+          throw apiError_(403, 'An E-commerce Manager can only change the status of their own executives.')
+        }
         if (!active && targetRole === 'Super Admin' && activeAdmins <= 1) {
           throw apiError_(400, 'The only Super Admin account cannot be deactivated.')
         }
@@ -3014,6 +3365,40 @@
         sheet.getRange(targetRow, activeColumn + 1).setValue(active ? 'TRUE' : 'FALSE')
         SpreadsheetApp.flush()
         return { updated: true }
+      })
+    }
+
+    function setUserManager_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can assign an E-commerce Manager.')
+      }
+      const executiveId = String(payload.executiveId || '').trim()
+      const managerId = String(payload.managerId || '').trim()
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(executiveId)) throw apiError_(400, 'Choose a valid E-commerce Executive account.')
+      return withWriteLock_(function () {
+        const users = readSheetRecords_(spreadsheet, 'Users')
+        const executive = users.find(function (row) {
+          return String(row['User ID'] || '').trim() === executiveId && String(row.Role || '').trim() === 'E-commerce Executive'
+        })
+        if (!executive) throw apiError_(404, 'E-commerce Executive account was not found.')
+        if (managerId) {
+          const manager = users.find(function (row) {
+            const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+            return active && String(row['User ID'] || '').trim() === managerId && String(row.Role || '').trim() === 'E-commerce Manager'
+          })
+          if (!manager) throw apiError_(400, 'Choose an active E-commerce Manager.')
+        }
+        createBackup_(spreadsheet)
+        const sheet = ensureUserSheet_(spreadsheet)
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+        const idColumn = headers.indexOf('User ID')
+        const managerColumn = headers.indexOf('Manager ID')
+        const values = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), sheet.getLastColumn()).getValues()
+        const rowIndex = values.findIndex(function (row) { return String(row[idColumn] || '').trim() === executiveId })
+        if (rowIndex < 0 || managerColumn < 0) throw apiError_(404, 'E-commerce Executive account was not found.')
+        sheet.getRange(rowIndex + 2, managerColumn + 1).setValue(managerId)
+        SpreadsheetApp.flush()
+        return { executiveId: executiveId, managerId: managerId }
       })
     }
 

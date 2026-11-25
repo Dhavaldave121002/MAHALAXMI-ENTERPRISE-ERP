@@ -13,6 +13,7 @@ type SessionPayload = {
   username?: string
   role?: UserRole
   platforms?: EcommercePlatform[]
+  managerId?: string
   sessionBoundWrites?: boolean
 }
 
@@ -37,6 +38,7 @@ function writeSessionCookie(response: ApiResponse, user: PublicUser, expiresAt: 
     username: user.username,
     role: user.role,
     platforms: user.platforms,
+    managerId: user.managerId,
     sessionBoundWrites,
   }
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
@@ -89,6 +91,9 @@ function readSessionPayload(request: ApiRequest): SessionPayload {
   if (payload.platforms !== undefined && (!Array.isArray(payload.platforms) || payload.platforms.some(platform => typeof platform !== 'string'))) {
     throw new ApiError(401, 'Your session is invalid. Please sign in again.')
   }
+  if (payload.managerId !== undefined && typeof payload.managerId !== 'string') {
+    throw new ApiError(401, 'Your session is invalid. Please sign in again.')
+  }
   return payload
 }
 
@@ -120,6 +125,7 @@ export function getSessionClaims(request: ApiRequest): PublicUser | null {
     role: payload.role,
     active: true,
     platforms: payload.platforms || [],
+    managerId: payload.managerId || '',
   }
 }
 
@@ -134,6 +140,7 @@ export function getSignedSessionUser(request: ApiRequest): PublicUser | null {
     role: payload.role,
     active: true,
     platforms: payload.platforms || [],
+    managerId: payload.managerId || '',
   }
 }
 

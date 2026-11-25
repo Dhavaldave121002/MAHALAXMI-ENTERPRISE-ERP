@@ -8,7 +8,7 @@ const ERP_MODULES = new Set([
   'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog',
   'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO',
   'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels',
-  'Daily Work Report', 'Machines', 'Quality Control', 'Employees', 'Suppliers', 'Accounts',
+  'Daily Work Report', 'Machines', 'Quality Control', 'Graphic Design', 'Employees', 'Suppliers', 'Accounts',
   'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat',
 ])
 
@@ -23,7 +23,9 @@ const ROLE_MODULES: Record<UserRole, Set<string>> = {
   'Machine Operator': new Set(['Dashboard', 'Production', 'Production Targets', 'Chat']),
   'Store Manager': new Set(['Dashboard', 'Chat']),
   'E-commerce Executive': new Set(['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat']),
+  'E-commerce Manager': new Set(['E-commerce Workspace', 'Chat']),
   'Sales Executive': new Set(['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Chat']),
+  'Graphic Designer': new Set(['Dashboard', 'Graphic Design', 'Chat']),
 }
 
 export default async function auditHandler(request: ApiRequest, response: ApiResponse) {

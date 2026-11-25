@@ -12,7 +12,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     const users = await listUsers()
     const user = await getSessionUser(request, users)
-    if (!['E-commerce Executive', 'Production Supervisor', 'Super Admin'].includes(user.role)) {
+    if (!['E-commerce Executive', 'E-commerce Manager', 'Production Supervisor', 'Super Admin'].includes(user.role)) {
       throw new ApiError(403, 'This account cannot download shipping labels.')
     }
     const url = new URL(request.url || '/', 'http://localhost')

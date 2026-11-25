@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
-import { getSessionUser, requireAdmin } from './_lib/session.js'
-import { appendUser, ECOMMERCE_PLATFORMS, isUserRole, listUsers, makePasswordHash, newUser, publicUser, setUserActive, type EcommercePlatform, type UserRole } from './_lib/workbook.js'
+import { getSessionUser } from './_lib/session.js'
+import { appendUser, ECOMMERCE_PLATFORMS, isUserRole, listUsers, makePasswordHash, newUser, publicUser, setUserActive, setUserManager, type EcommercePlatform, type UserRole } from './_lib/workbook.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!['GET', 'POST', 'PATCH'].includes(request.method || '')) {
@@ -13,10 +13,18 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     const users = await listUsers()
     const currentUser = await getSessionUser(request, users)
-    requireAdmin(currentUser)
     if (request.method === 'GET') {
-      sendJson(response, 200, { users: users.map(publicUser) })
-      return
+      if (currentUser.role === 'Super Admin') {
+        sendJson(response, 200, { users: users.map(publicUser) })
+        return
+      }
+      if (currentUser.role === 'E-commerce Manager') {
+        sendJson(response, 200, {
+          users: users.filter(user => user.role === 'E-commerce Executive' && user.managerId === currentUser.id).map(publicUser),
+        })
+        return
+      }
+      throw new ApiError(403, 'Only the Super Admin or an E-commerce Manager can view these accounts.')
     }
 
     const body = await readJsonBody(request)
@@ -29,8 +37,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (name.length < 2 || username.length < 3 || !/^[a-z0-9._-]+$/.test(username) || password.length < 10) {
         throw new ApiError(400, 'Enter a name, valid login ID, and password of at least 10 characters.')
       }
-      if (!isUserRole(roleValue) || roleValue === 'Super Admin') {
-        throw new ApiError(403, 'Only the initial account can be Super Admin.')
+      const isAdmin = currentUser.role === 'Super Admin'
+      const isManager = currentUser.role === 'E-commerce Manager'
+      if (!isUserRole(roleValue) || roleValue === 'Super Admin' ||
+          (!isAdmin && !(isManager && roleValue === 'E-commerce Executive'))) {
+        throw new ApiError(403, 'This account cannot create the requested role.')
       }
       if (!Array.isArray(requestedPlatforms) || requestedPlatforms.some(platform => typeof platform !== 'string' || !ECOMMERCE_PLATFORMS.includes(platform as EcommercePlatform))) {
         throw new ApiError(400, 'Choose valid marketplace platforms.')
@@ -42,6 +53,16 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (roleValue !== 'E-commerce Executive' && platforms.length > 0) {
         throw new ApiError(400, 'Marketplace platform access can only be assigned to E-commerce Executives.')
       }
+      let managerId = ''
+      if (roleValue === 'E-commerce Executive') {
+        managerId = isManager
+          ? currentUser.id
+          : typeof body.managerId === 'string' ? body.managerId.trim() : ''
+        const manager = users.find(account => account.id === managerId && account.role === 'E-commerce Manager' && account.active)
+        if (!manager) throw new ApiError(400, 'Assign the E-commerce Executive to an active E-commerce Manager.')
+      } else if (body.managerId !== undefined && body.managerId !== '') {
+        throw new ApiError(400, 'Only E-commerce Executives can be assigned to a manager.')
+      }
       if (users.some(user => user.username === username)) throw new ApiError(409, 'That login ID is already in use.')
       const credentials = await makePasswordHash(password)
       const user = newUser({
@@ -50,6 +71,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         username,
         role: roleValue as UserRole,
         platforms,
+        managerId,
         ...credentials,
       })
       await appendUser(user, currentUser)
@@ -58,11 +80,28 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const id = typeof body.id === 'string' ? body.id : ''
+    if (Object.prototype.hasOwnProperty.call(body, 'managerId')) {
+      if (currentUser.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can assign an executive manager.')
+      if (!id || typeof body.managerId !== 'string') throw new ApiError(400, 'An executive ID and manager ID are required.')
+      const executive = users.find(account => account.id === id && account.role === 'E-commerce Executive')
+      if (!executive) throw new ApiError(404, 'E-commerce Executive account was not found.')
+      const managerId = body.managerId.trim()
+      if (managerId && !users.some(account => account.id === managerId && account.role === 'E-commerce Manager' && account.active)) {
+        throw new ApiError(400, 'Choose an active E-commerce Manager.')
+      }
+      await setUserManager(id, managerId, currentUser)
+      sendJson(response, 200, { ok: true, managerId })
+      return
+    }
     const active = body.active
     if (!id || typeof active !== 'boolean') throw new ApiError(400, 'A user ID and active status are required.')
     if (id === currentUser.id && !active) throw new ApiError(400, 'You cannot deactivate your own account.')
     const target = users.find(user => user.id === id)
     if (!target) throw new ApiError(404, 'User account was not found.')
+    if (currentUser.role !== 'Super Admin' &&
+        !(currentUser.role === 'E-commerce Manager' && target.role === 'E-commerce Executive' && target.managerId === currentUser.id)) {
+      throw new ApiError(403, 'You can only change the status of your own executive accounts.')
+    }
     if (!active && target.role === 'Super Admin' && users.filter(user => user.role === 'Super Admin' && user.active).length <= 1) {
       throw new ApiError(400, 'The only Super Admin account cannot be deactivated.')
     }

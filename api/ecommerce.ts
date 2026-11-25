@@ -15,6 +15,8 @@ import {
   type EcommercePlatform,
   type PublicUser,
   type WorkbookData,
+  type WorkbookUser,
+  publicUser,
 } from './_lib/workbook.js'
 
 function text(value: unknown) {
@@ -40,7 +42,7 @@ function requirePlatform(value: unknown): EcommercePlatform {
 }
 
 function requireWorkspaceRole(user: PublicUser) {
-  if (!['E-commerce Executive', 'Production Supervisor', 'Super Admin'].includes(user.role)) {
+  if (!['E-commerce Executive', 'E-commerce Manager', 'Production Supervisor', 'Super Admin'].includes(user.role)) {
     throw new ApiError(403, 'This account cannot access the e-commerce workspace.')
   }
 }
@@ -62,8 +64,14 @@ function availableStock(row: Record<string, unknown>) {
     - number(row['Dispatched Stock']) - number(row['Damaged Stock']) - number(row['Reserved Stock']) - number(row['Adjustment Out'])
 }
 
-function workspaceData(data: WorkbookData, user: PublicUser) {
-  const platforms = user.role === 'E-commerce Executive' ? user.platforms : [...ECOMMERCE_PLATFORMS]
+function workspaceData(data: WorkbookData, user: PublicUser, users: WorkbookUser[]) {
+  const team = user.role === 'E-commerce Manager'
+    ? users.filter(account => account.role === 'E-commerce Executive' && account.managerId === user.id)
+    : []
+  const teamPlatforms = ECOMMERCE_PLATFORMS.filter(platform => team.some(account => account.active && account.platforms.includes(platform)))
+  const platforms = user.role === 'E-commerce Executive'
+    ? user.platforms
+    : user.role === 'E-commerce Manager' ? teamPlatforms : [...ECOMMERCE_PLATFORMS]
   const finishedRows = readSheetRecords(data, 'Finished_Goods')
   const previousSkusByCurrent = new Map<string, string[]>()
   readSheetRecords(data, 'Products').forEach(row => {
@@ -140,7 +148,7 @@ function workspaceData(data: WorkbookData, user: PublicUser) {
       reason: text(row.Reason),
     }]
   }).sort((a, b) => b.date.localeCompare(a.date))
-  return { platforms, listings, movements }
+  return { platforms, listings, movements, team: team.map(publicUser) }
 }
 
 function requireText(value: unknown, label: string, maximum: number) {
@@ -165,7 +173,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     requireWorkspaceRole(user)
 
     if (request.method === 'GET') {
-      const targetRequest = user.role === 'Super Admin' || user.role === 'E-commerce Executive'
+      const targetRequest = user.role === 'Super Admin' || user.role === 'E-commerce Executive' || user.role === 'E-commerce Manager'
         ? listWorkbookEcommerceTargets(user)
         : Promise.resolve({ targets: {} })
       const [data, labelResult, targetResult] = await Promise.all([
@@ -173,7 +181,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         listWorkbookEcommerceLabels(user),
         targetRequest,
       ])
-      sendJson(response, 200, { ...workspaceData(data, user), labels: labelResult.labels, targets: targetResult.targets })
+      sendJson(response, 200, { ...workspaceData(data, user, users), labels: labelResult.labels, targets: targetResult.targets })
       return
     }
 
@@ -181,14 +189,25 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const action = text(body.action)
 
     if (action === 'setTarget') {
-      if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can set executive order targets.')
-      const executiveId = requireText(body.executiveId, 'E-commerce Executive account', 120)
+      const targetType = body.targetType === 'manager' ? 'manager' : body.targetType === 'executive' || body.targetType === undefined ? 'executive' : null
+      if (!targetType) throw new ApiError(400, 'Choose a manager or executive target.')
+      const targetId = requireText(body.targetId ?? body.executiveId ?? body.managerId, targetType === 'manager' ? 'E-commerce Manager account' : 'E-commerce Executive account', 120)
+      const target = users.find(account => account.id === targetId && account.active &&
+        account.role === (targetType === 'manager' ? 'E-commerce Manager' : 'E-commerce Executive'))
+      if (!target) throw new ApiError(404, `The selected active E-commerce ${targetType === 'manager' ? 'Manager' : 'Executive'} account was not found.`)
+      if (targetType === 'manager' && user.role !== 'Super Admin') {
+        throw new ApiError(403, 'Only the Super Admin can set E-commerce Manager targets.')
+      }
+      if (targetType === 'executive' && user.role !== 'Super Admin' &&
+          !(user.role === 'E-commerce Manager' && target.managerId === user.id)) {
+        throw new ApiError(403, 'You can only set targets for your own E-commerce Executives.')
+      }
       const { dailyTarget, monthlyTarget } = body
       if (typeof dailyTarget !== 'number' || !Number.isInteger(dailyTarget) || dailyTarget < 0 || dailyTarget > 100000 ||
           typeof monthlyTarget !== 'number' || !Number.isInteger(monthlyTarget) || monthlyTarget < 0 || monthlyTarget > 100000) {
         throw new ApiError(400, 'Daily and monthly order targets must be whole numbers from 0 to 100,000.')
       }
-      const result = await setWorkbookEcommerceTarget({ id: user.id, role: user.role, executiveId, dailyTarget, monthlyTarget })
+      const result = await setWorkbookEcommerceTarget({ id: user.id, role: user.role, targetType, targetId, dailyTarget, monthlyTarget })
       sendJson(response, 200, result)
       return
     }

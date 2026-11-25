@@ -22,11 +22,15 @@ import {
   initializeWorkbookZeroFinishedStock,
   importWorkbookMarketplaceCatalog,
   recordWorkbookProduction,
+  reviewWorkbookProductionQuality,
   readWorkbookChatAttachment,
   recordWorkbookSalesActivity,
   sendWorkbookChatMessage,
   setWorkbookSalesTarget,
   setWorkbookProductionTarget,
+  submitWorkbookGraphicDesignTask,
+  updateWorkbookGraphicDesignProgress,
+  reviewWorkbookGraphicDesignTask,
   setWorkbookChatTyping,
   readUsers,
   readSheetRecords,
@@ -64,8 +68,46 @@ type MarketplaceListing = {
 }
 
 const MARKETPLACES = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
+const SOCIAL_PLATFORMS = ['Instagram', 'Facebook', 'YouTube', 'TikTok', 'LinkedIn'] as const
+const DESIGN_PROGRESS = ['Not started', 'In progress', 'Completed'] as const
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
-type Production = { id: string; date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number; createdBy: string }
+type Production = {
+  id: string
+  date: string
+  machine: string
+  block: string
+  sku: string
+  product: string
+  actual: number
+  rejected: number
+  qcStatus: 'Pending' | 'Reviewed'
+  qcApproved: number
+  qcRejected: number
+  qcReviewedBy: string
+  qcReviewedAt: string
+  createdBy: string
+}
+type GraphicDesignTask = {
+  id: string
+  plannedDate: string
+  month: string
+  sku: string
+  product: string
+  platforms: string[]
+  contentType: 'Post' | 'Video'
+  brief: string
+  caption: string
+  script: string
+  shootStatus: 'Not required' | 'Not started' | 'In progress' | 'Completed'
+  editStatus: 'Not started' | 'In progress' | 'Completed'
+  reviewStatus: 'Pending' | 'Approved' | 'Rejected'
+  reviewNote: string
+  createdById: string
+  createdBy: string
+  createdAt: string
+  reviewedBy: string
+  reviewedAt: string
+}
 type ProductionTargetPeriod = 'daily' | 'weekly' | 'monthly'
 type ProductionTarget = {
   id: string
@@ -127,6 +169,91 @@ function stockMovementFromRecord(row: Record<string, unknown>): StockMovement {
     openingStock: number(row['Opening Stock']),
     closingStock: number(row['Closing Stock']),
     createdBy: text(row['Created By']),
+  }
+}
+
+function productionFromRecord(row: Record<string, unknown>, index: number): Production {
+  const actual = number(row['Actual Quantity'])
+  const rejected = number(row['Rejected Quantity'])
+  const statusValue = text(row['QC Status'])
+  const normalizedStatus = statusValue.toLowerCase()
+  if (statusValue && normalizedStatus !== 'pending' && normalizedStatus !== 'reviewed') {
+    throw new ApiError(503, 'A production record has an invalid QC status.')
+  }
+
+  const qcStatus = normalizedStatus === 'pending' ? 'Pending' : 'Reviewed'
+  const approvedValue = row['QC Approved Quantity']
+  const rejectedValue = row['QC Rejected Quantity']
+  const qcApproved = approvedValue === undefined || approvedValue === '' || approvedValue === null
+    ? qcStatus === 'Pending' ? 0 : Math.max(0, actual - rejected)
+    : number(approvedValue)
+  const qcRejected = rejectedValue === undefined || rejectedValue === '' || rejectedValue === null
+    ? qcStatus === 'Pending' ? 0 : rejected
+    : number(rejectedValue)
+  if (
+    !Number.isInteger(actual) || actual < 0 ||
+    !Number.isInteger(rejected) || rejected < 0 || rejected > actual ||
+    !Number.isInteger(qcApproved) || qcApproved < 0 ||
+    !Number.isInteger(qcRejected) || qcRejected < 0 ||
+    (qcStatus === 'Reviewed' && qcApproved + qcRejected !== actual) ||
+    (qcStatus === 'Pending' && qcApproved + qcRejected > actual)
+  ) throw new ApiError(503, 'A production record has invalid production or QC quantities.')
+  return {
+    id: text(row['Production ID']) || `PRO-${index + 1}`,
+    date: dateKey(row.Date),
+    machine: text(row['Machine ID']),
+    block: text(row['Production Block']),
+    sku: text(row['Variant SKU']) || text(row['Master SKU']),
+    product: text(row['Product Name']),
+    actual,
+    rejected,
+    qcStatus,
+    qcApproved,
+    qcRejected,
+    qcReviewedBy: text(row['QC Reviewed By']),
+    qcReviewedAt: text(row['QC Reviewed At']),
+    createdBy: text(row['Created By']),
+  }
+}
+
+function graphicDesignTaskFromRecord(row: Record<string, unknown>): GraphicDesignTask {
+  const platforms = text(row.Platforms).split(',').map(value => value.trim()).filter(Boolean)
+  const contentType = text(row['Content Type'])
+  const shootStatus = text(row['Shoot Status'])
+  const editStatus = text(row['Edit Status'])
+  const reviewStatus = text(row['Review Status'])
+  const month = text(row.Month)
+  const plannedDate = dateKey(row['Planned Date'])
+  if (
+    !text(row['Task ID']) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(plannedDate) || plannedDate.slice(0, 7) !== month ||
+    !text(row['Product SKU']) || !text(row['Product Name']) ||
+    !platforms.length || platforms.some(platform => !SOCIAL_PLATFORMS.includes(platform as typeof SOCIAL_PLATFORMS[number])) ||
+    !['Post', 'Video'].includes(contentType) ||
+    (!DESIGN_PROGRESS.includes(shootStatus as typeof DESIGN_PROGRESS[number]) && shootStatus !== 'Not required') ||
+    !DESIGN_PROGRESS.includes(editStatus as typeof DESIGN_PROGRESS[number]) ||
+    !['Pending', 'Approved', 'Rejected'].includes(reviewStatus)
+  ) throw new ApiError(503, 'The Graphic_Design_Tasks sheet contains an invalid task.')
+  return {
+    id: text(row['Task ID']),
+    plannedDate,
+    month,
+    sku: text(row['Product SKU']),
+    product: text(row['Product Name']),
+    platforms,
+    contentType: contentType as GraphicDesignTask['contentType'],
+    brief: text(row.Brief),
+    caption: text(row.Caption),
+    script: text(row.Script),
+    shootStatus: shootStatus as GraphicDesignTask['shootStatus'],
+    editStatus: editStatus as GraphicDesignTask['editStatus'],
+    reviewStatus: reviewStatus as GraphicDesignTask['reviewStatus'],
+    reviewNote: text(row['Review Note']),
+    createdById: text(row['Created By ID']),
+    createdBy: text(row['Created By']),
+    createdAt: text(row['Created At']),
+    reviewedBy: text(row['Reviewed By']),
+    reviewedAt: text(row['Reviewed At']),
   }
 }
 
@@ -252,7 +379,7 @@ function requireActiveSalesExecutive(data: WorkbookData, userId: string) {
 }
 
 export function getSnapshot(data: WorkbookData, user: PublicUser) {
-  if (user.role === 'E-commerce Executive') {
+  if (user.role === 'E-commerce Executive' || user.role === 'E-commerce Manager') {
     return {
       products: [],
       marketplaceListings: [],
@@ -267,6 +394,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       salesOrders: [],
       salesTargets: [],
       salesUsers: [],
+      graphicDesignTasks: [],
       workbookMeta: { loaded: true, name: data.name, sheetCount: data.sheetCount },
     }
   }
@@ -468,6 +596,9 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       if (!['Sales Executive', 'Super Admin', 'Production Supervisor'].includes(user.role)) return []
       return [{ id, name: text(row.Name), username: text(row.Username), role: 'Sales Executive' as const, active }]
     })
+  const graphicDesignTasks = optionalRecords(data, 'Graphic_Design_Tasks')
+    .filter(row => user.role === 'Super Admin' || (user.role === 'Graphic Designer' && text(row['Created By ID']) === user.id))
+    .map(graphicDesignTaskFromRecord)
   const masterBySku = new Map<string, CatalogItem>()
   const products: CatalogItem[] = masters.flatMap((row, index) => {
     const sku = text(row['Master SKU'])
@@ -526,17 +657,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
   const production: Production[] = records(data, 'Production').flatMap((row, index) => {
     const createdBy = text(row['Created By'])
     if (user.role !== 'Production Supervisor' && user.role !== 'Super Admin' && createdBy.toLowerCase() !== user.name.toLowerCase()) return []
-    return [{
-      id: text(row['Production ID']) || `PRO-${index + 1}`,
-      date: dateKey(row.Date),
-      machine: text(row['Machine ID']),
-      block: text(row['Production Block']),
-      sku: text(row['Variant SKU']) || text(row['Master SKU']),
-      product: text(row['Product Name']),
-      actual: number(row['Actual Quantity']),
-      rejected: number(row['Rejected Quantity']),
-      createdBy,
-    }]
+    return [productionFromRecord(row, index)]
   })
   const productionTargets: ProductionTarget[] = optionalRecords(data, 'Production_Targets').flatMap(row => {
     const period = text(row.Period).toLowerCase()
@@ -627,6 +748,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
     salesOrders,
     salesTargets,
     salesUsers,
+    graphicDesignTasks: user.role === 'Super Admin' || user.role === 'Graphic Designer' ? graphicDesignTasks : [],
     workbookMeta: { loaded: true, name: data.name, sheetCount: data.sheetCount },
   }
 }
@@ -929,6 +1051,11 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     product: catalog.name,
     actual,
     rejected,
+    qcStatus: 'Pending',
+    qcApproved: 0,
+    qcRejected: 0,
+    qcReviewedBy: '',
+    qcReviewedAt: '',
     createdBy: user.name,
   }
   if (user.role !== 'Super Admin' && user.role !== 'Production Supervisor') return savedRecord
@@ -952,6 +1079,136 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     } satisfies FinishedGood,
     stockMovement: stockResult.movement ? stockMovementFromRecord(stockResult.movement) : null,
   }
+}
+
+async function reviewProductionQuality(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
+  requireSupervisorOrAdmin(user)
+  const productionId = requiredText(body.productionId, 'Production batch', 120)
+  const rows = records(data, 'Production')
+  const recordIndex = rows.findIndex(row => text(row['Production ID']) === productionId)
+  if (recordIndex < 0) throw new ApiError(404, 'The production batch was not found.')
+  const currentRecord = productionFromRecord(rows[recordIndex], recordIndex)
+  if (currentRecord.qcStatus !== 'Pending') throw new ApiError(409, 'This batch is not awaiting quality review.')
+
+  const approved = Number(body.approved)
+  const rejected = Number(body.rejected)
+  if (
+    !Number.isInteger(approved) || approved < 0 ||
+    !Number.isInteger(rejected) || rejected < 0 ||
+    approved + rejected !== currentRecord.actual
+  ) {
+    throw new ApiError(400, `QC pass and reject quantities must be whole numbers that add up to ${currentRecord.actual}.`)
+  }
+
+  const result = await reviewWorkbookProductionQuality({
+    id: user.id,
+    role: user.role,
+    productionId,
+    approved,
+    rejected,
+    createdBy: user.name,
+  })
+  const updatedRecord = productionFromRecord(result.record, recordIndex)
+  const stock = result.finishedGood
+  const finishedGood: FinishedGood = {
+    sku: text(stock['Product SKU']),
+    name: text(stock['Product Name']) || text(stock['Product SKU']),
+    openingStock: number(stock['Opening Stock']),
+    productionReceived: number(stock['Production Received']),
+    qualityApproved: number(stock['Quality Approved']),
+    rejected: number(stock.Rejected),
+    reservedStock: number(stock['Reserved Stock']),
+    availableStock: number(stock['Available Stock']),
+    dispatchedStock: number(stock['Dispatched Stock']),
+    returnedStock: number(stock['Returned Stock']),
+    damagedStock: number(stock['Damaged Stock']),
+    adjustmentIn: number(stock['Adjustment In']),
+    adjustmentOut: number(stock['Adjustment Out']),
+    status: text(stock.Status) || 'Active',
+  }
+  return {
+    record: updatedRecord,
+    finishedGood,
+    stockMovement: result.movement ? stockMovementFromRecord(result.movement) : null,
+    backupName: result.backupName,
+  }
+}
+
+function validateGraphicDesignDate(date: string, month: string) {
+  const parsed = Date.parse(`${date}T00:00:00.000Z`)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed) ||
+      new Date(parsed).toISOString().slice(0, 10) !== date || date.slice(0, 7) !== month) {
+    throw new ApiError(400, 'Choose a valid posting date within the selected month.')
+  }
+}
+
+function mapGraphicDesignTask(record: Record<string, unknown>) {
+  return graphicDesignTaskFromRecord(record)
+}
+
+async function submitGraphicDesignTask(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
+  if (user.role !== 'Graphic Designer') throw new ApiError(403, 'Only a Graphic Designer can submit social content tasks.')
+  const plannedDate = requiredText(body.plannedDate, 'Planned posting date', 10)
+  const month = requiredText(body.month, 'Plan month', 7)
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new ApiError(400, 'Choose a valid plan month.')
+  validateGraphicDesignDate(plannedDate, month)
+  const sku = requiredText(body.sku, 'Product', 100)
+  const product = productionSkus(getSnapshot(data, user).products).find(item => item.sku.toLowerCase() === sku.toLowerCase())
+  if (!product) throw new ApiError(400, 'Choose an active product or variant from the catalog.')
+  if (!Array.isArray(body.platforms)) throw new ApiError(400, 'Choose at least one social platform.')
+  const platforms = [...new Set(body.platforms.map(value => text(value)))]
+  if (!platforms.length || platforms.some(platform => !SOCIAL_PLATFORMS.includes(platform as typeof SOCIAL_PLATFORMS[number]))) {
+    throw new ApiError(400, 'Choose at least one valid social platform.')
+  }
+  const contentType = text(body.contentType)
+  if (!['Post', 'Video'].includes(contentType)) throw new ApiError(400, 'Choose Post or Video content.')
+  const brief = requiredText(body.brief, 'Creative brief', 2000)
+  const caption = text(body.caption)
+  const script = text(body.script)
+  if (caption.length > 2000 || script.length > 5000) throw new ApiError(400, 'Caption or script exceeds the allowed character limit.')
+  if (contentType === 'Video' && !script) throw new ApiError(400, 'Add a video script or shot-by-shot description for video content.')
+  const saved = await submitWorkbookGraphicDesignTask({
+    id: user.id,
+    role: user.role,
+    plannedDate,
+    month,
+    sku: product.sku,
+    productName: product.name,
+    platforms,
+    contentType,
+    brief,
+    caption,
+    script,
+  })
+  return { task: mapGraphicDesignTask(saved.task), backupName: saved.backupName }
+}
+
+async function updateGraphicDesignProgress(user: PublicUser, body: Record<string, unknown>) {
+  if (user.role !== 'Graphic Designer' && user.role !== 'Super Admin') {
+    throw new ApiError(403, 'Only the task owner or Super Admin can update creative production progress.')
+  }
+  const taskId = requiredText(body.taskId, 'Creative task', 120)
+  const shootStatus = text(body.shootStatus)
+  const editStatus = text(body.editStatus)
+  if (!(DESIGN_PROGRESS as readonly string[]).includes(editStatus) ||
+      (shootStatus !== 'Not required' && !(DESIGN_PROGRESS as readonly string[]).includes(shootStatus))) {
+    throw new ApiError(400, 'Choose valid shoot and edit statuses.')
+  }
+  return updateWorkbookGraphicDesignProgress({ id: user.id, role: user.role, taskId, shootStatus, editStatus })
+    .then(saved => ({ task: mapGraphicDesignTask(saved.task), backupName: saved.backupName }))
+}
+
+async function reviewGraphicDesignTask(user: PublicUser, body: Record<string, unknown>) {
+  if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can review social content tasks.')
+  const taskId = requiredText(body.taskId, 'Creative task', 120)
+  const decision = text(body.decision)
+  if (decision !== 'Approved' && decision !== 'Rejected') throw new ApiError(400, 'Choose Approved or Rejected.')
+  const reviewNote = text(body.reviewNote)
+  if (reviewNote.length > 1000) throw new ApiError(400, 'Review notes must be 1,000 characters or fewer.')
+  const saved = await reviewWorkbookGraphicDesignTask({
+    id: user.id, role: user.role, taskId, decision, reviewNote, createdBy: user.name,
+  })
+  return { task: mapGraphicDesignTask(saved.task), backupName: saved.backupName }
 }
 
 async function addRawMaterial(user: PublicUser, body: Record<string, unknown>) {
@@ -1091,7 +1348,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const body = await readJsonBody(request)
     const action = text(body.action)
     const snapshotActions = [
-      'addProduction', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine', 'setProductionTarget',
+      'addProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine', 'setProductionTarget',
       'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder',
       'cancelSalesOrder', 'setSalesTarget',
     ]
@@ -1169,6 +1426,28 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for production validation.')
       const record = await addProduction(data, user, body)
       sendJson(response, 201, { record })
+      return
+    }
+    if (action === 'reviewProductionQuality') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for QC validation.')
+      const result = await reviewProductionQuality(data, user, body)
+      sendJson(response, 200, result)
+      return
+    }
+    if (action === 'submitGraphicDesignTask') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for creative task validation.')
+      const result = await submitGraphicDesignTask(data, user, body)
+      sendJson(response, 201, result)
+      return
+    }
+    if (action === 'updateGraphicDesignProgress') {
+      const result = await updateGraphicDesignProgress(user, body)
+      sendJson(response, 200, result)
+      return
+    }
+    if (action === 'reviewGraphicDesignTask') {
+      const result = await reviewGraphicDesignTask(user, body)
+      sendJson(response, 200, result)
       return
     }
     if (action === 'addRawMaterial') {
