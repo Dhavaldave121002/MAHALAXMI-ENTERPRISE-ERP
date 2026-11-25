@@ -229,8 +229,10 @@
 
     function doPost(event) {
       let auditEntry = null
+      let action = 'unknown'
       try {
         const request = JSON.parse(event && event.postData && event.postData.contents || '{}')
+        action = String(request && request.action || 'unknown')
         const properties = PropertiesService.getScriptProperties()
         const expectedSecret = properties.getProperty('ERP_API_SECRET')
         const spreadsheetId = properties.getProperty('ERP_SPREADSHEET_ID')
@@ -278,10 +280,15 @@
         }
         return jsonOutput_({ ok: true, data: data })
       } catch (error) {
+        const detail = String(error && error.message || 'Apps Script request failed.')
+          .replace(/([?&](?:upload_id|access_token|key)=)[^&\s]+/gi, '$1[redacted]')
+          .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
+          .slice(0, 500)
+        Logger.log('Apps Script request failed for ' + action + ': ' + detail)
         return jsonOutput_({
           ok: false,
           status: Number(error && error.statusCode) || 500,
-          error: String(error && error.message || 'Apps Script request failed.'),
+          error: detail,
         })
       }
     }
