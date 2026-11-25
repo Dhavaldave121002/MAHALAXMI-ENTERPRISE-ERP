@@ -1097,7 +1097,6 @@ export default function App() {
             <button className="primary wide" type="submit" disabled={loginBusy}>{loginBusy ? 'Signing in…' : 'Sign in'}</button>
           </form>
           {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
-          <p className="activity-audit-notice">ERP sign-ins, module visits, and business actions are logged. Optional screen video starts only after a user action and browser approval; the selected display may include other visible tabs or apps. No audio, keystrokes, or browser history is collected.</p>
           {!isAdminRoute && <div className="first-admin-setup"><span>First-time setup only: create the one-time Admin account. If it is already set up, sign in instead.</span><button type="button" onClick={() => { setSetupMode(true); setLoginError('') }}>Create first Admin</button></div>}
           {authStatus === 'ready' && <a className="login-route-link" href={isAdminRoute ? '/' : '/admin'}>{isAdminRoute ? 'Team login' : 'Admin login'}</a>}
         </section>
@@ -1185,9 +1184,6 @@ export default function App() {
         </header>
 
         <div className="content">
-          <div className="activity-audit-notice" role="note">
-            Sign-ins, sign-outs, ERP modules, and business-record actions are logged for the Super Admin. Screen recording is optional: it starts only when you choose a screen and approve the browser prompt. No audio, keystrokes, or browser history is collected.
-          </div>
           {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
           {sessionUser.role !== 'Super Admin' && <ScreenRecordingControl ref={screenRecordingRef} user={{ id: sessionUser.id, name: sessionUser.name, role: sessionUser.role }} />}
           {module === 'Dashboard' ? (
