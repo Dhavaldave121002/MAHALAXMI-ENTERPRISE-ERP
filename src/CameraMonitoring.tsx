@@ -34,7 +34,7 @@ function messageFor(error: unknown) {
 function cameraUploadErrorMessage(error: unknown) {
   const message = messageFor(error)
   if (message.includes('UrlFetchApp.fetch') || message.includes('script.external_request')) {
-    return 'Apps Script authorization is required before clips can be saved. Ask the administrator to run installEcommerceLabelCleanupTrigger in Apps Script and approve the requested permissions, then retry.'
+    return 'Apps Script authorization is required before clips can be saved. Ask the Apps Script owner to run authorizeCameraClipUploads and approve the requested permissions, then retry.'
   }
   return message
 }
@@ -314,7 +314,7 @@ type StaffCamera = {
 type CameraRecording = { id: string; userId: string; userName: string; kind?: 'camera' | 'screen'; startedAt: string; size: number }
 type CameraTileData = { id: string; name: string; role: string; track: RemoteVideoTrack }
 
-function CameraTile({ item }: { item: CameraTileData }) {
+function CameraTile({ item, screenShare = false }: { item: CameraTileData; screenShare?: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   useEffect(() => {
     const video = videoRef.current
@@ -323,9 +323,9 @@ function CameraTile({ item }: { item: CameraTileData }) {
     return () => { item.track.detach(video) }
   }, [item.track])
   return (
-    <article className="camera-live-tile">
-      <video ref={videoRef} autoPlay muted playsInline aria-label={`Live camera for ${item.name}`} />
-      <div className="camera-live-tile-caption"><span><Circle size={8} /> LIVE</span><strong>{item.name}</strong><small>{item.role}</small></div>
+    <article className={`camera-live-tile${screenShare ? ' camera-live-screen-tile' : ''}`}>
+      <video ref={videoRef} autoPlay muted playsInline aria-label={`${screenShare ? 'Live screen share' : 'Live camera'} for ${item.name}`} />
+      <div className="camera-live-tile-caption"><span><Circle size={8} /> {screenShare ? 'LIVE SCREEN' : 'LIVE'}</span><strong>{item.name}</strong><small>{item.role}</small></div>
     </article>
   )
 }
@@ -347,12 +347,15 @@ export function CameraMonitoringView() {
   const [staff, setStaff] = useState<StaffCamera[]>([])
   const [recordings, setRecordings] = useState<CameraRecording[]>([])
   const [tiles, setTiles] = useState<CameraTileData[]>([])
+  const [screenShareTiles, setScreenShareTiles] = useState<CameraTileData[]>([])
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
+  const [screenShareError, setScreenShareError] = useState('')
   const [playingUrl, setPlayingUrl] = useState('')
   const [playingName, setPlayingName] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
   const roomRef = useRef<Room | null>(null)
+  const screenRoomRef = useRef<Room | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -409,6 +412,27 @@ export function CameraMonitoringView() {
       }
       if (active) setTiles(next)
     }
+    const syncScreenShareTiles = (room: Room) => {
+      const next: CameraTileData[] = []
+      for (const participant of room.remoteParticipants.values()) {
+        for (const publication of participant.videoTrackPublications.values()) {
+          if (publication.source !== Track.Source.ScreenShare || !(publication.track instanceof RemoteVideoTrack)) continue
+          next.push({
+            id: participant.identity,
+            name: participant.name || participant.identity,
+            role: (() => {
+              try {
+                return (JSON.parse(participant.metadata || '{}') as { role?: string }).role || 'Team member'
+              } catch {
+                return 'Team member'
+              }
+            })(),
+            track: publication.track,
+          })
+        }
+      }
+      if (active) setScreenShareTiles(next)
+    }
     const connect = async () => {
       try {
         const session = await cameraApi<{ token: string; url: string }>('/api/cameras/token', { method: 'POST' })
@@ -425,9 +449,38 @@ export function CameraMonitoringView() {
         if (active) setError(messageFor(connectError))
       }
     }
+    const connectScreenShares = async () => {
+      let room: Room | null = null
+      try {
+        const session = await cameraApi<{ token: string; url: string }>('/api/cameras/token?scope=screen', { method: 'POST' })
+        if (!active) return
+        room = new Room({ adaptiveStream: true })
+        screenRoomRef.current = room
+        room.on(RoomEvent.TrackSubscribed, () => syncScreenShareTiles(room))
+        room.on(RoomEvent.TrackUnsubscribed, () => syncScreenShareTiles(room))
+        room.on(RoomEvent.ParticipantConnected, () => syncScreenShareTiles(room))
+        room.on(RoomEvent.ParticipantDisconnected, () => syncScreenShareTiles(room))
+        await room.connect(session.url, session.token)
+        if (active) syncScreenShareTiles(room)
+        if (active) setScreenShareError('')
+      } catch (connectError) {
+        let detail = messageFor(connectError)
+        if (room) {
+          if (screenRoomRef.current === room) screenRoomRef.current = null
+          try {
+            await room.disconnect()
+          } catch (disconnectError) {
+            detail = `${detail} ${messageFor(disconnectError)}`
+          }
+        }
+        if (active) setScreenShareError(detail)
+      }
+    }
     void connect()
+    void connectScreenShares()
     const timer = window.setInterval(() => {
       if (roomRef.current) syncTiles(roomRef.current)
+      if (screenRoomRef.current) syncScreenShareTiles(screenRoomRef.current)
     }, 3_000)
     return () => {
       active = false
@@ -435,6 +488,10 @@ export function CameraMonitoringView() {
       if (roomRef.current) {
         void roomRef.current.disconnect()
         roomRef.current = null
+      }
+      if (screenRoomRef.current) {
+        void screenRoomRef.current.disconnect()
+        screenRoomRef.current = null
       }
     }
   }, [])
@@ -452,11 +509,18 @@ export function CameraMonitoringView() {
   return (
     <section className="camera-monitoring-page">
       <div className="page-heading">
-        <div><p>SUPER ADMIN</p><h1>Camera &amp; screen monitoring</h1><span className="dashboard-description">Live webcam view and private, user-approved screen recordings.</span></div>
+        <div><p>SUPER ADMIN</p><h1>Camera &amp; screen monitoring</h1><span className="dashboard-description">Live webcams, user-approved screen shares, and private clips.</span></div>
         <div className="heading-actions"><button className="secondary" type="button" onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={16} /> Refresh</button></div>
       </div>
-      <div className="camera-policy-note"><Video size={18} /><span>Scheduled camera monitoring records video only. Optional screen recording is started by the team member, requires browser approval, and shows a visible recording indicator. Admin can view private 5-minute clips; clips are removed after 24 hours. Screen sharing does not capture audio.</span></div>
+      <div className="camera-policy-note"><Video size={18} /><span>Scheduled camera monitoring records video only. Optional screen sharing is started by the team member, requires browser approval, and shows a visible recording indicator. Active shares appear live below; private clips are saved every five minutes and removed after 24 hours. Screen sharing does not capture audio.</span></div>
       {error && <p className="camera-error" role="alert"><AlertTriangle size={16} />{error}</p>}
+      {screenShareError && <p className="camera-error" role="alert"><AlertTriangle size={16} />Live screen shares: {screenShareError}</p>}
+      <section className="panel camera-panel">
+        <div className="panel-heading"><div><h2>Live shared screens</h2><p>{screenShareTiles.length} live · updates instantly</p></div><span className="camera-retention-tag"><Circle size={8} /> Live view</span></div>
+        {screenShareTiles.length
+          ? <div className="camera-live-grid">{screenShareTiles.map(item => <CameraTile key={item.id} item={item} screenShare />)}</div>
+          : <div className="empty-state"><VideoOff size={24} /><strong>No team screens are being shared</strong><span>A screen appears here when a signed-in team member starts optional screen recording and approves the browser prompt.</span></div>}
+      </section>
       <section className="panel camera-panel">
         <div className="panel-heading"><div><h2>Live cameras</h2><p>{liveStaff} live · refreshes every 30 seconds</p></div><span className="camera-retention-tag"><Circle size={8} /> Live view</span></div>
         {tiles.length

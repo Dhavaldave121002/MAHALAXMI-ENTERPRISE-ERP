@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { AlertTriangle, Circle, Monitor, Square, Video } from 'lucide-react'
+import { Room, Track } from 'livekit-client'
 import { uploadPrivateClip } from './privateClipUpload'
 import './ScreenRecording.css'
 
@@ -12,8 +13,11 @@ type ScreenRecordingUser = { id: string; name: string; role: string }
 
 function messageFor(error: unknown) {
   const message = error instanceof Error ? error.message : ''
-  if (/unknown erp action|deployment is outdated/i.test(message)) {
-    return 'Screen recording is temporarily unavailable. Notify the Super Admin.'
+  if (/urlfetchapp\.fetch|script\.external_request/i.test(message)) {
+    return 'Drive uploads need Apps Script authorization. Ask the Apps Script owner to run authorizeCameraClipUploads and approve the requested external-request and Drive permissions.'
+  }
+  if (/unknown audit event|unknown erp action|deployment is outdated|google apps script returned an invalid response|incompatible response/i.test(message)) {
+    return 'Screen recording needs an Apps Script update. Ask the Super Admin to deploy the latest Code.gs as a new web-app version.'
   }
   return message || 'Screen recording could not be completed.'
 }
@@ -41,6 +45,8 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
     const [error, setError] = useState('')
     const [uploadsPending, setUploadsPending] = useState(0)
     const streamRef = useRef<MediaStream | null>(null)
+    const screenRoomRef = useRef<Room | null>(null)
+    const screenTrackRef = useRef<MediaStreamTrack | null>(null)
     const recorderRef = useRef<MediaRecorder | null>(null)
     const chunksRef = useRef<Blob[]>([])
     const clipStartedAtRef = useRef(0)
@@ -99,8 +105,12 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
 
         const recorder = recorderRef.current
         const stream = streamRef.current
+        const screenRoom = screenRoomRef.current
+        const screenTrack = screenTrackRef.current
         recorderRef.current = null
         streamRef.current = null
+        screenRoomRef.current = null
+        screenTrackRef.current = null
         if (recorder && recorder.state !== 'inactive') {
           await new Promise<void>(resolve => {
             recorder.addEventListener('stop', () => resolve(), { once: true })
@@ -115,10 +125,19 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
         } else if (recorder) {
           flushClip(recorder.mimeType || 'video/webm')
         }
+        let failure = uploadErrorRef.current
+        if (screenRoom) {
+          try {
+            if (screenTrack) await screenRoom.localParticipant.unpublishTrack(screenTrack, false)
+            await screenRoom.disconnect()
+          } catch (liveError) {
+            if (!failure) failure = `Live screen sharing could not be stopped cleanly: ${messageFor(liveError)}`
+          }
+        }
         stream?.getTracks().forEach(track => track.stop())
         await uploadQueueRef.current
 
-        let failure = uploadErrorRef.current
+        if (!failure) failure = uploadErrorRef.current
         try {
           await recordScreenAuditEvent('screen_recording_stopped')
         } catch (auditError) {
@@ -150,6 +169,8 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       setError('')
       setStatus('requesting')
       let stream: MediaStream | null = null
+      let screenRoom: Room | null = null
+      let screenTrack: MediaStreamTrack | null = null
       let sharePromptResolved = false
       let auditStarted = false
       let stopAuditAttempted = false
@@ -164,8 +185,8 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
           setStatus('idle')
           return
         }
-        const track = stream.getVideoTracks()[0]
-        if (!track || track.readyState !== 'live') throw new Error('Choose an active screen or browser tab to record.')
+        screenTrack = stream.getVideoTracks()[0] || null
+        if (!screenTrack || screenTrack.readyState !== 'live') throw new Error('Choose an active screen or browser tab to record.')
         const mimeType = ['video/webm;codecs=vp8', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type))
         if (!mimeType) throw new Error('This browser cannot create a supported screen recording.')
 
@@ -177,9 +198,47 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
           setStatus('idle')
           return
         }
-        if (track.readyState !== 'live') throw new Error('Screen sharing ended before recording could start.')
+        const liveSession = await fetch('/api/cameras/token?scope=screen', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+        })
+        const liveResult = await liveSession.json() as { token?: string; url?: string; error?: string }
+        if (!liveSession.ok || !liveResult.token || !liveResult.url) {
+          throw new Error(liveResult.error || 'Live screen sharing could not be authorized.')
+        }
+        if (cancelStartRef.current) {
+          stream.getTracks().forEach(track => track.stop())
+          await recordScreenAuditEvent('screen_recording_stopped')
+          setStatus('idle')
+          return
+        }
+        screenRoom = new Room({ adaptiveStream: true })
+        await screenRoom.connect(liveResult.url, liveResult.token)
+        if (cancelStartRef.current) {
+          await screenRoom.disconnect()
+          stream.getTracks().forEach(track => track.stop())
+          await recordScreenAuditEvent('screen_recording_stopped')
+          setStatus('idle')
+          return
+        }
+        if (screenTrack.readyState !== 'live') throw new Error('Screen sharing ended before recording could start.')
+        await screenRoom.localParticipant.publishTrack(screenTrack, {
+          source: Track.Source.ScreenShare,
+          name: 'user-screen-share',
+        })
+        if (cancelStartRef.current) {
+          await screenRoom.localParticipant.unpublishTrack(screenTrack, false)
+          await screenRoom.disconnect()
+          stream.getTracks().forEach(track => track.stop())
+          await recordScreenAuditEvent('screen_recording_stopped')
+          setStatus('idle')
+          return
+        }
 
         streamRef.current = stream
+        screenRoomRef.current = screenRoom
+        screenTrackRef.current = screenTrack
         chunksRef.current = []
         clipStartedAtRef.current = Date.now()
         uploadQueueRef.current = Promise.resolve()
@@ -198,7 +257,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
         recorder.onstop = () => flushClip(recorder.mimeType || mimeType)
         recorder.start(1000)
         flushTimerRef.current = window.setInterval(() => flushClip(mimeType), SCREEN_CLIP_DURATION_MS)
-        track.addEventListener('ended', () => { void stopRef.current() }, { once: true })
+        screenTrack.addEventListener('ended', () => { void stopRef.current() }, { once: true })
         setStatus('recording')
       } catch (startError) {
         const wasDeclined = !sharePromptResolved && screenShareWasDeclined(startError)
@@ -208,6 +267,14 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
           const stopError = await stopAndUpload()
           if (stopError) detail = stopError
         } else {
+          if (screenRoom) {
+            try {
+              if (screenTrack) await screenRoom.localParticipant.unpublishTrack(screenTrack, false)
+              await screenRoom.disconnect()
+            } catch (stopError) {
+              detail = `${detail} Live screen sharing cleanup failed: ${messageFor(stopError)}`
+            }
+          }
           stream?.getTracks().forEach(track => track.stop())
         }
         if (auditStarted && !stopAuditAttempted) {
@@ -240,6 +307,10 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       if (flushTimerRef.current !== null) window.clearInterval(flushTimerRef.current)
       recorderRef.current?.stop()
       streamRef.current?.getTracks().forEach(track => track.stop())
+      if (screenRoomRef.current) {
+        void screenRoomRef.current.disconnect()
+        screenRoomRef.current = null
+      }
     }, [])
 
     return (
@@ -250,7 +321,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
             <strong>{status === 'recording' ? 'Screen recording active' : status === 'requesting' ? 'Waiting for screen-share approval' : status === 'stopping' ? 'Saving final screen clip' : status === 'error' ? 'Screen recording issue' : 'Optional screen recording'}</strong>
             <span>
               {status === 'recording'
-                ? `Visible to the Super Admin · ${uploadsPending ? 'Saving a private clip…' : 'Clips save every 5 minutes'}`
+                ? `Live to the Super Admin · ${uploadsPending ? 'Saving a private clip…' : 'Private clips save every 5 minutes'}`
                 : 'Start after login and approve the browser prompt. Select the ERP tab to limit capture; the entire screen may include other tabs or apps.'}
             </span>
           </div>

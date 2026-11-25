@@ -61,6 +61,7 @@ main { min-width: 0; }.topbar { height: 72px; background: #fff; border-bottom: 1
 @media(max-width:1100px){.app-shell{grid-template-columns:72px 1fr}.sidebar{width:72px}.brand{padding:0 18px}.brand>div:last-child,.nav-label,.nav-item span,.sidebar-user .user-copy,.sidebar-user svg{display:none}.sidebar nav{padding-inline:10px}.nav-item{justify-content:center;padding:0}.sidebar-user{justify-content:center;padding:0}.stats-grid{grid-template-columns:repeat(2,1fr)}}
 
 .catalog-intro{display:block;margin-top:7px;color:#8b95a7;font-size:11px}
+.camera-live-screen-tile>video{object-fit:contain;background:#10131a}
 .catalog-page>.panel,.catalog-page>.form-card{margin-bottom:14px}
 .catalog-picker-body{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(0,1.8fr);align-items:center;gap:16px;padding:16px}
 .catalog-picker-body>label{display:block;color:#697386;font-size:11px;font-weight:700}

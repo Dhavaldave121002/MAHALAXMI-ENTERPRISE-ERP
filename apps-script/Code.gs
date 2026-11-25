@@ -2488,6 +2488,11 @@
       return cleanupExpiredEcommerceLabels_()
     }
 
+    function authorizeCameraClipUploads() {
+      verifyCameraDriveUploadAuthorization_()
+      return { authorized: true }
+    }
+
     function verifyCameraDriveUploadAuthorization_() {
       const response = UrlFetchApp.fetch(
         'https://www.googleapis.com/drive/v3/about?fields=kind',
@@ -2500,7 +2505,7 @@
       const status = response.getResponseCode()
       if (status !== 200) {
         Logger.log('Drive API authorization check failed with HTTP status ' + status)
-        throw apiError_(500, 'Apps Script is not authorized to upload camera clips. Enable the Drive API, run installEcommerceLabelCleanupTrigger again, and approve the requested external-request and Drive permissions.')
+        throw apiError_(500, 'Apps Script is not authorized to upload camera clips. Run authorizeCameraClipUploads in the Apps Script editor and approve the requested external-request and Drive permissions.')
       }
     }
 

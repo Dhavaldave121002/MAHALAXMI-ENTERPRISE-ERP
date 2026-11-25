@@ -128,13 +128,29 @@ async function callAppsScript<T>(action: string, payload: Record<string, unknown
   } catch {
     throw new ApiError(503, 'Google Apps Script did not return JSON. Check that the deployed web app is accessible.')
   }
-  if (!result || typeof result !== 'object' || !('ok' in result)) {
-    throw new ApiError(503, 'Google Apps Script returned an invalid response.')
+  if (result && typeof result === 'object' && 'error' in result && typeof result.error === 'string') {
+    if (result.error === 'Unknown ERP action.' || result.error === 'Unknown audit event.') {
+      throw new ApiError(503, 'The connected Google Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.')
+    }
+  }
+  if (!result || typeof result !== 'object' || Array.isArray(result) || !('ok' in result)) {
+    const responseKeys = result && typeof result === 'object' && !Array.isArray(result)
+      ? Object.keys(result).slice(0, 8)
+      : []
+    console.error('Google Apps Script returned an unexpected response envelope.', {
+      status: response.status,
+      contentType: response.headers.get('content-type') || 'unknown',
+      responseKeys,
+    })
+    throw new ApiError(
+      503,
+      'Connected Apps Script returned an incompatible response. Verify Vercel GOOGLE_APPS_SCRIPT_URL points to the current /exec deployment and deploy the latest Code.gs.',
+    )
   }
   if (result.ok !== true) {
     const status = 'status' in result && typeof result.status === 'number' ? result.status : 503
     const message = 'error' in result && typeof result.error === 'string' ? result.error : 'Google Apps Script request failed.'
-    if (message === 'Unknown ERP action.') {
+    if (message === 'Unknown ERP action.' || message === 'Unknown audit event.') {
       throw new ApiError(503, 'The connected Google Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.')
     }
     throw new ApiError(status >= 400 && status < 500 ? status : 503, message)

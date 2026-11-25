@@ -40,6 +40,10 @@ export function createCameraClients() {
   }
 }
 
+export function getScreenSharingRoomName() {
+  return 'staff-screen-shares'
+}
+
 export async function createCameraAccessToken(user: PublicUser, isAdmin: boolean) {
   const { apiKey, apiSecret } = getLiveKitConfig()
   const schedule = cameraScheduleForRole(user.role)
@@ -57,6 +61,25 @@ export async function createCameraAccessToken(user: PublicUser, isAdmin: boolean
     room: cameraRoomName(),
     canPublish: !isAdmin,
     canPublishSources: isAdmin ? [] : [TrackSource.CAMERA],
+    canSubscribe: isAdmin,
+    canPublishData: false,
+  })
+  return token.toJwt()
+}
+
+export async function createScreenSharingAccessToken(user: PublicUser, isAdmin: boolean) {
+  const { apiKey, apiSecret } = getLiveKitConfig()
+  const token = new AccessToken(apiKey, apiSecret, {
+    identity: user.id,
+    name: user.name,
+    metadata: JSON.stringify({ role: user.role }),
+    ttl: 12 * 60 * 60,
+  })
+  token.addGrant({
+    roomJoin: true,
+    room: getScreenSharingRoomName(),
+    canPublish: !isAdmin,
+    canPublishSources: isAdmin ? [] : [TrackSource.SCREEN_SHARE],
     canSubscribe: isAdmin,
     canPublishData: false,
   })
