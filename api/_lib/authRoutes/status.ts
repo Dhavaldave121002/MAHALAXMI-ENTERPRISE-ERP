@@ -1,8 +1,8 @@
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { ApiError, handleApiError, sendJson } from '../_lib/http.js'
-import { getSessionSecret, getWorkbookData, readUsers, validateWorkbookConfiguration, type PublicUser } from '../_lib/workbook.js'
-import { getSessionUser, getSignedSessionUser, hasSignedSession, refreshSessionCookie } from '../_lib/session.js'
-import { getSnapshot } from '../erp.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { ApiError, handleApiError, sendJson } from '../http.js'
+import { getSessionSecret, getWorkbookData, readUsers, validateWorkbookConfiguration, type PublicUser } from '../workbook.js'
+import { getSessionUser, getSignedSessionUser, hasSignedSession, refreshSessionCookie } from '../session.js'
+import { getSnapshot } from '../../erp.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'GET') {

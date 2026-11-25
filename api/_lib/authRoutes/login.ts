@@ -1,7 +1,7 @@
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { ApiError, handleApiError, readJsonBody, sendJson } from '../_lib/http.js'
-import { setSessionCookie } from '../_lib/session.js'
-import { getSessionSecret, listUsers, publicUser, recordWorkbookAuditEvent, verifyPassword } from '../_lib/workbook.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { ApiError, handleApiError, readJsonBody, sendJson } from '../http.js'
+import { setSessionCookie } from '../session.js'
+import { getSessionSecret, listUsers, publicUser, recordWorkbookAuditEvent, verifyPassword } from '../workbook.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'POST') {

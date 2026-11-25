@@ -1,6 +1,6 @@
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { handleApiError, sendJson } from '../_lib/http.js'
-import { getSessionUser } from '../_lib/session.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { handleApiError, sendJson } from '../http.js'
+import { getSessionUser } from '../session.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'GET') {

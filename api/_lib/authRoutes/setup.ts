@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import type { ApiRequest, ApiResponse } from '../_lib/http.js'
-import { ApiError, handleApiError, readJsonBody, sendJson } from '../_lib/http.js'
-import { createInitialAdmin, getSessionSecret, makePasswordHash, newUser, publicUser, type UserRole } from '../_lib/workbook.js'
-import { setSessionCookie } from '../_lib/session.js'
+import type { ApiRequest, ApiResponse } from '../http.js'
+import { ApiError, handleApiError, readJsonBody, sendJson } from '../http.js'
+import { createInitialAdmin, getSessionSecret, makePasswordHash, newUser, publicUser, type UserRole } from '../workbook.js'
+import { setSessionCookie } from '../session.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'POST') {
