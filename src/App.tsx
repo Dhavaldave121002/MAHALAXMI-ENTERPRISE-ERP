@@ -195,7 +195,7 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'ADMIN', items: ['Camera Monitoring', 'Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
 ]
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
-const socialPlatforms = ['Instagram', 'Facebook', 'YouTube', 'TikTok', 'LinkedIn']
+const socialPlatforms = ['Instagram', 'Facebook', 'YouTube', 'LinkedIn']
 const deliveryChannels = ['DIRECT', 'AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const ecommercePlatforms: EcommercePlatform[] = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const deliveryPartnersByChannel: Record<string, string[]> = {

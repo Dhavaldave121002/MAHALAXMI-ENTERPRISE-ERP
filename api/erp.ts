@@ -68,7 +68,7 @@ type MarketplaceListing = {
 }
 
 const MARKETPLACES = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
-const SOCIAL_PLATFORMS = ['Instagram', 'Facebook', 'YouTube', 'TikTok', 'LinkedIn'] as const
+const SOCIAL_PLATFORMS = ['Instagram', 'Facebook', 'YouTube', 'LinkedIn'] as const
 const DESIGN_PROGRESS = ['Not started', 'In progress', 'Completed'] as const
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type Production = {

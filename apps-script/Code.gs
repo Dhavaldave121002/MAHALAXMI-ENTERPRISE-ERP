@@ -1666,7 +1666,7 @@
       const platforms = Array.isArray(payload.platforms)
         ? Array.from(new Set(payload.platforms.map(function (value) { return String(value || '').trim() })))
         : []
-      const allowedPlatforms = ['Instagram', 'Facebook', 'YouTube', 'TikTok', 'LinkedIn']
+      const allowedPlatforms = ['Instagram', 'Facebook', 'YouTube', 'LinkedIn']
       if (!platforms.length || platforms.some(function (platform) { return allowedPlatforms.indexOf(platform) < 0 })) {
         throw apiError_(400, 'Choose at least one valid social platform.')
       }
