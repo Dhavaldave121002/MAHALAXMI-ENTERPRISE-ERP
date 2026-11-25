@@ -4085,7 +4085,9 @@
       if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, ERP_USER_COLUMNS.length).setValues([ERP_USER_COLUMNS])
       const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
       const missing = ERP_USER_COLUMNS.filter(function (column) { return headers.indexOf(column) < 0 })
-      const requiredMissing = missing.filter(function (column) { return column !== 'Assigned Platforms' })
+      const requiredMissing = missing.filter(function (column) {
+        return column !== 'Assigned Platforms' && column !== 'Manager ID'
+      })
       if (requiredMissing.length) throw apiError_(422, 'The Users sheet is missing required columns: ' + requiredMissing.join(', ') + '.')
       missing.forEach(function (column) {
         sheet.getRange(1, sheet.getLastColumn() + 1).setValue(column)
