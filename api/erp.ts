@@ -17,6 +17,7 @@ import {
   getWorkbookData,
   listWorkbookChatData,
   listWorkbookChatMessages,
+  listWorkbookChatTyping,
   importWorkbookSalesLeads,
   initializeWorkbookZeroFinishedStock,
   importWorkbookMarketplaceCatalog,
@@ -26,6 +27,7 @@ import {
   sendWorkbookChatMessage,
   setWorkbookSalesTarget,
   setWorkbookProductionTarget,
+  setWorkbookChatTyping,
   readUsers,
   readSheetRecords,
   type PublicUser,
@@ -1093,7 +1095,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder',
       'cancelSalesOrder', 'setSalesTarget',
     ]
-    const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'listChatData', 'listChatMessages', 'sendChatMessage', 'readChatAttachment']
+    const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment']
     const data = snapshotActions.includes(action) ? await getWorkbookData() : undefined
     const user = data
       ? await getSessionUser(request, readUsers(data.sheets.Users || []))
@@ -1109,6 +1111,17 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       const conversationId = requiredText(body.conversationId, 'Conversation', 300)
       const result = await listWorkbookChatMessages(user, conversationId)
       sendJson(response, 200, result)
+      return
+    }
+    if (action === 'listChatTyping') {
+      const conversationId = requiredText(body.conversationId, 'Conversation', 300)
+      sendJson(response, 200, await listWorkbookChatTyping(user, conversationId))
+      return
+    }
+    if (action === 'setChatTyping') {
+      const conversationId = requiredText(body.conversationId, 'Conversation', 300)
+      if (typeof body.typing !== 'boolean') throw new ApiError(400, 'Typing status must be true or false.')
+      sendJson(response, 200, await setWorkbookChatTyping(user, conversationId, body.typing))
       return
     }
     if (action === 'sendChatMessage') {

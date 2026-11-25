@@ -1,7 +1,7 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
@@ -117,7 +117,7 @@
             Logger.log('ERP action succeeded but its audit status remains Started: ' + String(auditError))
           }
         }
-        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
+        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -166,6 +166,10 @@
           return listChatData_(spreadsheet, payload)
         case 'listChatMessages':
           return listChatMessages_(payload)
+        case 'listChatTyping':
+          return listChatTyping_(payload)
+        case 'setChatTyping':
+          return setChatTyping_(payload)
         case 'sendChatMessage':
           return sendChatMessage_(spreadsheet, payload)
         case 'readChatAttachment':
@@ -285,6 +289,30 @@
       return JSON.stringify([String(firstUserId), String(secondUserId)].sort())
     }
 
+    function chatConversationParticipants_(conversationId) {
+      let participants
+      try {
+        participants = JSON.parse(conversationId)
+      } catch (error) {
+        throw apiError_(400, 'Choose a valid chat conversation.')
+      }
+      if (!Array.isArray(participants) || participants.length !== 2 ||
+          participants.some(function (id) { return typeof id !== 'string' || !id || id.length > 120 }) ||
+          participants[0] === participants[1] ||
+          conversationId !== chatConversationId_(participants[0], participants[1])) {
+        throw apiError_(400, 'Choose a valid chat conversation.')
+      }
+      return participants
+    }
+
+    function chatTypingCacheKey_(conversationId, userId) {
+      const digest = Utilities.computeDigest(
+        Utilities.DigestAlgorithm.SHA_256,
+        conversationId + '|' + userId
+      )
+      return 'ERP_CHAT_TYPING_' + Utilities.base64EncodeWebSafe(digest)
+    }
+
     function chatMessageFromRow_(row) {
       const attachmentId = String(row[10] || '')
       return {
@@ -358,18 +386,7 @@
       const actorId = String(payload.sessionUserId || '').trim()
       const isAdmin = String(payload.sessionUserRole || '') === 'Super Admin'
       const conversationId = String(payload.conversationId || '').trim()
-      let participants
-      try {
-        participants = JSON.parse(conversationId)
-      } catch (error) {
-        throw apiError_(400, 'Choose a valid chat conversation.')
-      }
-      if (!Array.isArray(participants) || participants.length !== 2 ||
-          participants.some(function (id) { return typeof id !== 'string' || !id || id.length > 120 }) ||
-          participants[0] === participants[1] ||
-          conversationId !== chatConversationId_(participants[0], participants[1])) {
-        throw apiError_(400, 'Choose a valid chat conversation.')
-      }
+      const participants = chatConversationParticipants_(conversationId)
       if (!isAdmin && participants.indexOf(actorId) < 0) throw apiError_(403, 'You can only view conversations you participate in.')
 
       const sheet = chatSheet_(false)
@@ -391,6 +408,52 @@
         }
       })
       return { messages: visibleMessages, hasOlder: hasOlder }
+    }
+
+    function listChatTyping_(payload) {
+      const actorId = String(payload.sessionUserId || '').trim()
+      const isAdmin = String(payload.sessionUserRole || '') === 'Super Admin'
+      const conversationId = String(payload.conversationId || '').trim()
+      const participants = chatConversationParticipants_(conversationId)
+      if (!isAdmin && participants.indexOf(actorId) < 0) {
+        throw apiError_(403, 'You can only view typing status for conversations you participate in.')
+      }
+      const cache = CacheService.getScriptCache()
+      const typingUsers = []
+      participants.forEach(function (userId) {
+        if (userId === actorId) return
+        const cached = cache.get(chatTypingCacheKey_(conversationId, userId))
+        if (!cached) return
+        let status
+        try {
+          status = JSON.parse(cached)
+        } catch (error) {
+          throw apiError_(500, 'Chat typing status could not be read.')
+        }
+        if (status && typeof status.name === 'string' && status.name) {
+          typingUsers.push({ userId: userId, name: status.name })
+        }
+      })
+      return { typingUsers: typingUsers }
+    }
+
+    function setChatTyping_(payload) {
+      const actorId = String(payload.sessionUserId || '').trim()
+      const conversationId = String(payload.conversationId || '').trim()
+      const participants = chatConversationParticipants_(conversationId)
+      if (participants.indexOf(actorId) < 0) {
+        throw apiError_(403, 'You can only set typing status in conversations you participate in.')
+      }
+      const key = chatTypingCacheKey_(conversationId, actorId)
+      const cache = CacheService.getScriptCache()
+      if (payload.typing !== true) {
+        cache.remove(key)
+        return { typing: false }
+      }
+      const name = String(payload.createdBy || '').trim()
+      if (!name) throw apiError_(401, 'Sign in again before sending typing status.')
+      cache.put(key, JSON.stringify({ name: name }), 10)
+      return { typing: true }
     }
 
     function validChatAttachment_(attachment) {

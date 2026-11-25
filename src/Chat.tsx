@@ -25,6 +25,7 @@ type ChatMessage = {
   attachment: { name: string; mimeType: string; size: number } | null
 }
 type ChatData = { contacts: ChatContact[]; threads: ChatThread[]; retentionHours: number }
+type ChatTypingUser = { userId: string; name: string }
 type AttachmentPreview = { url: string; name: string; mimeType: string }
 
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024
@@ -82,11 +83,16 @@ export function ChatView({ user }: { user: ChatUser }) {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<AttachmentPreview | null>(null)
   const [error, setError] = useState('')
+  const [typingUsers, setTypingUsers] = useState<ChatTypingUser[]>([])
+  const [typingError, setTypingError] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [openingAttachment, setOpeningAttachment] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const objectUrlsRef = useRef<string[]>([])
+  const typingConversationRef = useRef('')
+  const typingSentAtRef = useRef(0)
+  const typingIdleTimerRef = useRef<number | null>(null)
 
   const reload = useCallback(async (conversationId = selectedConversationId) => {
     const [data, messageData] = await Promise.all([
@@ -126,12 +132,85 @@ export function ChatView({ user }: { user: ChatUser }) {
   }, [reload])
 
   useEffect(() => {
+    let active = true
+    let timer: number | null = null
+    if (!selectedConversationId) return undefined
+
+    const pollTyping = async () => {
+      try {
+        const result = await postChat<{ typingUsers: ChatTypingUser[] }>({
+          action: 'listChatTyping',
+          conversationId: selectedConversationId,
+        })
+        if (active) {
+          setTypingUsers(result.typingUsers)
+          setTypingError('')
+        }
+      } catch (requestError) {
+        if (active) {
+          setTypingUsers([])
+          setTypingError(requestError instanceof Error ? requestError.message : 'Typing status is unavailable.')
+        }
+      } finally {
+        if (active) timer = window.setTimeout(() => { void pollTyping() }, 1500)
+      }
+    }
+
+    void pollTyping()
+    return () => {
+      active = false
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [selectedConversationId])
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, selectedConversationId])
 
   useEffect(() => () => {
     objectUrlsRef.current.forEach(url => URL.revokeObjectURL(url))
   }, [])
+
+  const stopTyping = useCallback((conversationId = typingConversationRef.current) => {
+    if (typingIdleTimerRef.current !== null) {
+      window.clearTimeout(typingIdleTimerRef.current)
+      typingIdleTimerRef.current = null
+    }
+    typingConversationRef.current = ''
+    typingSentAtRef.current = 0
+    if (!conversationId) return
+    void postChat<{ typing: boolean }>({
+      action: 'setChatTyping',
+      conversationId,
+      typing: false,
+    }).catch(requestError => {
+      setTypingError(requestError instanceof Error ? requestError.message : 'Typing status could not be cleared.')
+    })
+  }, [])
+
+  const updateText = (value: string) => {
+    setText(value)
+    const conversationId = selectedConversationId
+    const previousConversationId = typingConversationRef.current
+    if (previousConversationId && previousConversationId !== conversationId) stopTyping(previousConversationId)
+    if (!recipientId || !value.trim()) {
+      stopTyping(conversationId)
+      return
+    }
+    if (typingIdleTimerRef.current !== null) window.clearTimeout(typingIdleTimerRef.current)
+    typingConversationRef.current = conversationId
+    if (Date.now() - typingSentAtRef.current >= 2500) {
+      typingSentAtRef.current = Date.now()
+      void postChat<{ typing: boolean }>({
+        action: 'setChatTyping',
+        conversationId,
+        typing: true,
+      }).catch(requestError => {
+        setTypingError(requestError instanceof Error ? requestError.message : 'Typing status could not be sent.')
+      })
+    }
+    typingIdleTimerRef.current = window.setTimeout(() => stopTyping(conversationId), 3500)
+  }
 
   const selectedThread = threads.find(thread => thread.conversationId === selectedConversationId)
   const selectedContact = contacts.find(contact => contact.id === selectedRecipientId)
@@ -157,8 +236,11 @@ export function ChatView({ user }: { user: ChatUser }) {
   [contacts, normalizedSearch, user.id])
 
   const startConversation = (contact: ChatContact) => {
+    stopTyping()
     setSelectedConversationId(conversationIdFor(user.id, contact.id))
     setSelectedRecipientId(contact.id)
+    setTypingUsers([])
+    setTypingError('')
     setText('')
     setFile(null)
     setMessages([])
@@ -166,7 +248,10 @@ export function ChatView({ user }: { user: ChatUser }) {
   }
 
   const selectThread = (thread: ChatThread) => {
+    stopTyping()
     setSelectedConversationId(thread.conversationId)
+    setTypingUsers([])
+    setTypingError('')
     setSelectedRecipientId(thread.participant1Id === user.id
       ? thread.participant2Id
       : thread.participant2Id === user.id ? thread.participant1Id : '')
@@ -223,6 +308,7 @@ export function ChatView({ user }: { user: ChatUser }) {
         return
       }
     }
+    stopTyping()
     setSending(true)
     setError('')
     try {
@@ -365,6 +451,17 @@ export function ChatView({ user }: { user: ChatUser }) {
                     )}
                   </article>
                 )) : <div className="chat-empty-conversation">{loading ? 'Loading messages…' : 'No messages yet. Start the conversation.'}</div>}
+                {typingUsers.length > 0 && (
+                  <div className="chat-typing-indicator" role="status" aria-live="polite">
+                    <span className="chat-typing-dots" aria-hidden="true"><i /><i /><i /></span>
+                    <span>
+                      {typingUsers.length === 1
+                        ? `${typingUsers[0].name} is typing…`
+                        : `${typingUsers.map(typingUser => typingUser.name).join(', ')} are typing…`}
+                    </span>
+                  </div>
+                )}
+                {typingError && <div className="chat-typing-error" role="status">{typingError}</div>}
                 <div ref={messagesEndRef} />
               </div>
               <form className="chat-composer" onSubmit={sendMessage}>
@@ -377,7 +474,8 @@ export function ChatView({ user }: { user: ChatUser }) {
                   </label>
                   <textarea
                     value={text}
-                    onChange={event => setText(event.target.value)}
+                    onChange={event => updateText(event.target.value)}
+                    onBlur={() => stopTyping()}
                     onKeyDown={event => {
                       if (event.key === 'Enter' && !event.shiftKey) {
                         event.preventDefault()

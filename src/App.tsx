@@ -106,6 +106,17 @@ type WorkbookSnapshot = {
 }
 type AuthStatus = 'checking' | 'ready' | 'unavailable'
 
+function auditFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : ''
+  if (/unknown erp action|deployment is outdated/i.test(message)) {
+    return 'The connected Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.'
+  }
+  if (/permission|authorization|not authorized|external_request/i.test(message)) {
+    return 'Apps Script needs authorization. Run installEcommerceLabelCleanupTrigger in the script editor and approve the requested permissions.'
+  }
+  return 'ERP activity logging is temporarily unavailable. Please notify the administrator.'
+}
+
 const navSections: { label: string; items: Module[] }[] = [
   { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Quality Control'] as Module[] },
   { label: 'COMMUNICATION', items: ['Chat'] },
@@ -491,13 +502,17 @@ export default function App() {
     const visit = `${sessionUser.id}:${module}`
     if (lastAuditedModule.current === visit) return
     lastAuditedModule.current = visit
+    let active = true
     void apiFetch('/api/erp?resource=audit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ eventType: 'module_view', module }),
-    }).catch(() => {
-      setActivityAuditWarning('ERP activity logging is temporarily unavailable. Please notify the administrator.')
+    }).then(() => {
+      if (active) setActivityAuditWarning('')
+    }).catch(error => {
+      if (active) setActivityAuditWarning(auditFailureMessage(error))
     })
+    return () => { active = false }
   }, [module, sessionUser])
   useEffect(() => {
     if (!mobileMenuOpen) return

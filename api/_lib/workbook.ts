@@ -50,6 +50,8 @@ const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'recordAuditEvent',
   'listChatData',
   'listChatMessages',
+  'listChatTyping',
+  'setChatTyping',
   'sendChatMessage',
   'readChatAttachment',
   'listEcommerceLabels',
@@ -132,6 +134,9 @@ async function callAppsScript<T>(action: string, payload: Record<string, unknown
   if (result.ok !== true) {
     const status = 'status' in result && typeof result.status === 'number' ? result.status : 503
     const message = 'error' in result && typeof result.error === 'string' ? result.error : 'Google Apps Script request failed.'
+    if (message === 'Unknown ERP action.') {
+      throw new ApiError(503, 'The connected Google Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.')
+    }
     throw new ApiError(status >= 400 && status < 500 ? status : 503, message)
   }
   if (!('data' in result)) throw new ApiError(503, 'Google Apps Script response is missing its data.')
@@ -489,6 +494,7 @@ export type ChatMessage = {
   attachment: { name: string; mimeType: string; size: number } | null
 }
 export type ChatAttachment = { name: string; mimeType: string; size: number; base64: string }
+export type ChatTypingUser = { userId: string; name: string }
 
 export async function listWorkbookChatData(user: SessionBoundInput) {
   return callAppsScript<{ contacts: ChatContact[]; threads: ChatThread[]; retentionHours: number }>(
@@ -501,6 +507,20 @@ export async function listWorkbookChatMessages(user: SessionBoundInput, conversa
   return callAppsScript<{ messages: ChatMessage[]; hasOlder: boolean }>(
     'listChatMessages',
     { ...sessionBoundPayload(user), conversationId },
+  )
+}
+
+export async function listWorkbookChatTyping(user: SessionBoundInput, conversationId: string) {
+  return callAppsScript<{ typingUsers: ChatTypingUser[] }>(
+    'listChatTyping',
+    { ...sessionBoundPayload(user), conversationId },
+  )
+}
+
+export async function setWorkbookChatTyping(user: SessionBoundInput, conversationId: string, typing: boolean) {
+  return callAppsScript<{ typing: boolean }>(
+    'setChatTyping',
+    { ...sessionBoundPayload(user), conversationId, typing },
   )
 }
 
