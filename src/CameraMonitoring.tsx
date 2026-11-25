@@ -91,6 +91,14 @@ function messageFor(error: unknown) {
   return error instanceof Error ? error.message : 'Camera monitoring could not be started.'
 }
 
+function cameraUploadErrorMessage(error: unknown) {
+  const message = messageFor(error)
+  if (message.includes('UrlFetchApp.fetch') || message.includes('script.external_request')) {
+    return 'Apps Script authorization is required before clips can be saved. Ask the administrator to run installEcommerceLabelCleanupTrigger in Apps Script and approve the requested permissions, then retry.'
+  }
+  return message
+}
+
 export function CameraPublisher({ user }: { user: CameraUser }) {
   const [now, setNow] = useState(() => new Date())
   const [status, setStatus] = useState<'idle' | 'connecting' | 'recording' | 'error' | 'paused'>('idle')
@@ -208,7 +216,7 @@ export function CameraPublisher({ user }: { user: CameraUser }) {
       () => pendingUploadsRef.current.delete(segment.done),
       error => {
         pendingUploadsRef.current.delete(segment.done)
-        const failureDetail = `A camera clip could not be saved to Drive: ${messageFor(error)}`
+        const failureDetail = `A camera clip could not be saved to Drive: ${cameraUploadErrorMessage(error)}`
         uploadErrorRef.current = failureDetail
         if (recordingEnabledRef.current && attempt === attemptRef.current) {
           recordingEnabledRef.current = false
