@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
+import auditHandler from './_lib/auditHandler.js'
 import { getSessionClaims, getSessionUser, refreshSessionCookie, requireAdmin, requireSupervisorOrAdmin } from './_lib/session.js'
 import {
   addWorkbookMarketplaceListing,
@@ -14,11 +15,15 @@ import {
   createWorkbookSalesOrder,
   deleteUnusedWorkbookStockItem,
   getWorkbookData,
+  listWorkbookChatData,
+  listWorkbookChatMessages,
   importWorkbookSalesLeads,
   initializeWorkbookZeroFinishedStock,
   importWorkbookMarketplaceCatalog,
   recordWorkbookProduction,
+  readWorkbookChatAttachment,
   recordWorkbookSalesActivity,
+  sendWorkbookChatMessage,
   setWorkbookSalesTarget,
   setWorkbookProductionTarget,
   readUsers,
@@ -1061,6 +1066,11 @@ async function deleteUnusedStockItem(user: PublicUser, body: Record<string, unkn
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
+  const resource = new URL(request.url || '/', 'http://localhost').searchParams.get('resource')
+  if (resource === 'audit') {
+    await auditHandler(request, response)
+    return
+  }
   if (request.method !== 'GET' && request.method !== 'POST') {
     response.setHeader('Allow', 'GET, POST')
     sendJson(response, 405, { error: 'Method not allowed' })
@@ -1083,13 +1093,61 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder',
       'cancelSalesOrder', 'setSalesTarget',
     ]
-    const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook']
+    const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'listChatData', 'listChatMessages', 'sendChatMessage', 'readChatAttachment']
     const data = snapshotActions.includes(action) ? await getWorkbookData() : undefined
     const user = data
       ? await getSessionUser(request, readUsers(data.sheets.Users || []))
       : sessionBoundActions.includes(action)
         ? getSessionClaims(request) || await getSessionUser(request)
         : await getSessionUser(request)
+
+    if (action === 'listChatData') {
+      sendJson(response, 200, await listWorkbookChatData(user))
+      return
+    }
+    if (action === 'listChatMessages') {
+      const conversationId = requiredText(body.conversationId, 'Conversation', 300)
+      const result = await listWorkbookChatMessages(user, conversationId)
+      sendJson(response, 200, result)
+      return
+    }
+    if (action === 'sendChatMessage') {
+      const recipientId = requiredText(body.recipientId, 'Recipient', 120)
+      const message = typeof body.text === 'string' ? body.text.trim() : ''
+      if (message.length > 4000) throw new ApiError(400, 'Messages must be 4,000 characters or fewer.')
+      let attachment: { name: string; mimeType: string; base64: string } | undefined
+      if (body.attachment !== undefined) {
+        if (!body.attachment || typeof body.attachment !== 'object' || Array.isArray(body.attachment)) {
+          throw new ApiError(400, 'Choose a valid image or PDF attachment.')
+        }
+        const file = body.attachment as Record<string, unknown>
+        const name = typeof file.name === 'string' ? file.name.trim() : ''
+        const mimeType = typeof file.mimeType === 'string' ? file.mimeType : ''
+        const base64 = typeof file.base64 === 'string' ? file.base64 : ''
+        if (!name || name.length > 180 || !['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'].includes(mimeType)) {
+          throw new ApiError(400, 'Only JPEG, PNG, GIF, WebP images and PDF files are supported.')
+        }
+        if (!base64 || base64.length > 4_194_304 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+          throw new ApiError(413, 'Attachments must be 3 MB or smaller.')
+        }
+        attachment = { name, mimeType, base64 }
+      }
+      if (!message && !attachment) throw new ApiError(400, 'Enter a message or attach an image/PDF.')
+      const result = await sendWorkbookChatMessage({
+        id: user.id,
+        role: user.role,
+        recipientId,
+        text: message,
+        attachment,
+      })
+      sendJson(response, 201, result)
+      return
+    }
+    if (action === 'readChatAttachment') {
+      const messageId = requiredText(body.messageId, 'Message', 120)
+      sendJson(response, 200, await readWorkbookChatAttachment(user, messageId))
+      return
+    }
 
     if (action === 'addProduction') {
       if (!['Super Admin', 'Production Supervisor', 'Machine Operator'].includes(user.role)) {

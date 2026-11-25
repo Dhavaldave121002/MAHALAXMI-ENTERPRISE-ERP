@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Archive, ArrowUpRight, BarChart3,
-  Boxes, Building2, CircleDollarSign, ClipboardCheck,
+  Boxes, Building2, CircleDollarSign, ClipboardCheck, MessageCircle,
   Factory, FileSpreadsheet, Gauge, LayoutDashboard, Menu, Package,
   RotateCcw, Search, Settings, ShoppingCart, Target, Truck, UserCog, Users,
   Plus, Download, Upload, Bell, CheckCircle2, LogOut, LockKeyhole, Video,
@@ -11,6 +11,7 @@ import * as XLSX from 'xlsx'
 import { SalesDailyReportView, SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
 const CameraPublisher = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraPublisher })))
 const CameraMonitoringView = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraMonitoringView })))
+const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.ChatView })))
 import type { SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
 
@@ -18,7 +19,7 @@ type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
-  'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring'
+  'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring' | 'Chat'
 
 type AuditEvent = {
   id: string
@@ -107,6 +108,7 @@ type AuthStatus = 'checking' | 'ready' | 'unavailable'
 
 const navSections: { label: string; items: Module[] }[] = [
   { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Quality Control'] as Module[] },
+  { label: 'COMMUNICATION', items: ['Chat'] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
   { label: 'SALES', items: ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
@@ -149,6 +151,7 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   'User Management': UserCog, Settings, 'Audit Logs': Archive, 'E-commerce Workspace': ShoppingCart,
   'E-commerce Stock': Boxes, 'E-commerce Orders': Truck, 'Shipping Labels': FileSpreadsheet,
   'Daily Work Report': ClipboardCheck, 'Camera Monitoring': Video,
+  Chat: MessageCircle,
   Factory: Factory,
 } as Record<Module, typeof LayoutDashboard>
 
@@ -488,7 +491,7 @@ export default function App() {
     const visit = `${sessionUser.id}:${module}`
     if (lastAuditedModule.current === visit) return
     lastAuditedModule.current = visit
-    void apiFetch('/api/audit', {
+    void apiFetch('/api/erp?resource=audit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ eventType: 'module_view', module }),
@@ -1098,10 +1101,10 @@ export default function App() {
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
-    'Machine Operator': ['Dashboard', 'Production', 'Production Targets'],
-    'Store Manager': ['Dashboard'],
-    'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report'],
-    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders'],
+    'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat'],
+    'Store Manager': ['Dashboard', 'Chat'],
+    'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat'],
+    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Chat'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -1243,7 +1246,7 @@ function ModuleView(props: {
     let loaded = false
     const refresh = async () => {
       try {
-        const result = await apiFetch<{ events: AuditEvent[]; retentionDays: number }>('/api/audit')
+        const result = await apiFetch<{ events: AuditEvent[]; retentionDays: number }>('/api/erp?resource=audit')
         if (!active) return
         setAuditEvents(result.events)
         setAuditRetentionDays(result.retentionDays)
@@ -1403,6 +1406,7 @@ function ModuleView(props: {
     return <EcommerceWorkspace user={sessionUser} module={module} setModule={setModule} />
   }
   if (module === 'Camera Monitoring') return <Suspense fallback={<div className="panel empty-state">Loading camera monitoring…</div>}><CameraMonitoringView /></Suspense>
+  if (module === 'Chat') return <Suspense fallback={<div className="panel empty-state">Loading chat…</div>}><ChatView user={sessionUser} /></Suspense>
 
   const salesRole = sessionUser.role === 'Sales Executive' || sessionUser.role === 'Production Supervisor'
     ? sessionUser.role

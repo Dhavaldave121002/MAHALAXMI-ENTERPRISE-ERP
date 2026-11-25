@@ -1,7 +1,7 @@
-import type { ApiRequest, ApiResponse } from './_lib/http.js'
-import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
-import { getSessionUser, requireAdmin } from './_lib/session.js'
-import { listWorkbookAuditEvents, recordWorkbookAuditEvent, type UserRole } from './_lib/workbook.js'
+import type { ApiRequest, ApiResponse } from './http.js'
+import { ApiError, handleApiError, readJsonBody, sendJson } from './http.js'
+import { getSessionUser, requireAdmin } from './session.js'
+import { listWorkbookAuditEvents, recordWorkbookAuditEvent, type UserRole } from './workbook.js'
 
 const ERP_MODULES = new Set([
   'Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Factory', 'Production',
@@ -9,7 +9,7 @@ const ERP_MODULES = new Set([
   'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO',
   'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels',
   'Daily Work Report', 'Machines', 'Quality Control', 'Employees', 'Suppliers', 'Accounts',
-  'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring',
+  'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat',
 ])
 
 const ADMIN_ONLY_MODULES = new Set([
@@ -20,13 +20,13 @@ const ADMIN_ONLY_MODULES = new Set([
 const ROLE_MODULES: Record<UserRole, Set<string>> = {
   'Super Admin': new Set([...ERP_MODULES].filter(module => module !== 'Daily Work Report')),
   'Production Supervisor': new Set([...ERP_MODULES].filter(module => module !== 'Daily Work Report' && !ADMIN_ONLY_MODULES.has(module))),
-  'Machine Operator': new Set(['Dashboard', 'Production', 'Production Targets']),
-  'Store Manager': new Set(['Dashboard']),
-  'E-commerce Executive': new Set(['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report']),
-  'Sales Executive': new Set(['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders']),
+  'Machine Operator': new Set(['Dashboard', 'Production', 'Production Targets', 'Chat']),
+  'Store Manager': new Set(['Dashboard', 'Chat']),
+  'E-commerce Executive': new Set(['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat']),
+  'Sales Executive': new Set(['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Chat']),
 }
 
-export default async function handler(request: ApiRequest, response: ApiResponse) {
+export default async function auditHandler(request: ApiRequest, response: ApiResponse) {
   if (!['GET', 'POST'].includes(request.method || '')) {
     response.setHeader('Allow', 'GET, POST')
     sendJson(response, 405, { error: 'Method not allowed' })

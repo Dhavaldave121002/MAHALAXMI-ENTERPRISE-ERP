@@ -48,6 +48,10 @@ const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'getUsers',
   'listAuditEvents',
   'recordAuditEvent',
+  'listChatData',
+  'listChatMessages',
+  'sendChatMessage',
+  'readChatAttachment',
   'listEcommerceLabels',
   'downloadEcommerceLabel',
   'startCameraClipUpload',
@@ -461,6 +465,61 @@ export async function recordWorkbookAuditEvent(input: {
 
 export async function listWorkbookAuditEvents() {
   return callAppsScript<{ events: AuditEvent[]; retentionDays: number }>('listAuditEvents')
+}
+
+export type ChatContact = { id: string; name: string; role: UserRole }
+export type ChatThread = {
+  conversationId: string
+  participant1Id: string
+  participant1Name: string
+  participant2Id: string
+  participant2Name: string
+  lastMessage: string
+  sentAt: string
+  lastSenderId: string
+}
+export type ChatMessage = {
+  id: string
+  conversationId: string
+  senderId: string
+  senderName: string
+  senderRole: UserRole
+  sentAt: string
+  text: string
+  attachment: { name: string; mimeType: string; size: number } | null
+}
+export type ChatAttachment = { name: string; mimeType: string; size: number; base64: string }
+
+export async function listWorkbookChatData(user: SessionBoundInput) {
+  return callAppsScript<{ contacts: ChatContact[]; threads: ChatThread[]; retentionHours: number }>(
+    'listChatData',
+    sessionBoundPayload(user),
+  )
+}
+
+export async function listWorkbookChatMessages(user: SessionBoundInput, conversationId: string) {
+  return callAppsScript<{ messages: ChatMessage[]; hasOlder: boolean }>(
+    'listChatMessages',
+    { ...sessionBoundPayload(user), conversationId },
+  )
+}
+
+export async function sendWorkbookChatMessage(input: SessionBoundInput & {
+  recipientId: string
+  text: string
+  attachment?: { name: string; mimeType: string; base64: string }
+}) {
+  return callAppsScript<{ message: ChatMessage }>(
+    'sendChatMessage',
+    { ...sessionBoundPayload(input), recipientId: input.recipientId, text: input.text, attachment: input.attachment },
+  )
+}
+
+export async function readWorkbookChatAttachment(user: SessionBoundInput, messageId: string) {
+  return callAppsScript<ChatAttachment>(
+    'readChatAttachment',
+    { ...sessionBoundPayload(user), messageId },
+  )
 }
 
 export async function setWorkbookProductionTarget(input: SessionBoundInput & {

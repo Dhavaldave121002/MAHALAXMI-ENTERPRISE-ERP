@@ -1,7 +1,7 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
@@ -11,6 +11,12 @@
     const ERP_ECOMMERCE_LABEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
     const ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER = 'cleanupExpiredEcommerceLabels_'
     const ERP_AUDIT_CLEANUP_HANDLER = 'cleanupExpiredAuditEventsScheduled_'
+    const ERP_CHAT_CLEANUP_HANDLER = 'cleanupExpiredChatMessagesScheduled_'
+    const ERP_CHAT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_CHAT_SPREADSHEET_ID'
+    const ERP_CHAT_ATTACHMENT_FOLDER_PROPERTY = 'ERP_PRIVATE_CHAT_ATTACHMENT_FOLDER_ID'
+    const ERP_CHAT_RETENTION_MS = 48 * 60 * 60 * 1000
+    const ERP_CHAT_MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024
+    const ERP_CHAT_HEADERS = ['Message ID', 'Conversation ID', 'Sender ID', 'Sender Name', 'Sender Role', 'Recipient ID', 'Recipient Name', 'Recipient Role', 'Sent At', 'Message', 'Attachment ID', 'Attachment Name', 'Attachment MIME Type', 'Attachment Size']
     const ERP_CAMERA_RECORDING_FOLDER_PROPERTY = 'ERP_CAMERA_RECORDING_FOLDER_ID'
     const ERP_CAMERA_RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000
     const ERP_CAMERA_RECORDING_KIND = 'mahalaxmi-erp-camera-recording'
@@ -111,7 +117,7 @@
             Logger.log('ERP action succeeded but its audit status remains Started: ' + String(auditError))
           }
         }
-        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
+        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -156,6 +162,14 @@
           return listAuditEvents_()
         case 'recordAuditEvent':
           return recordAuditEvent_(payload)
+        case 'listChatData':
+          return listChatData_(spreadsheet, payload)
+        case 'listChatMessages':
+          return listChatMessages_(payload)
+        case 'sendChatMessage':
+          return sendChatMessage_(spreadsheet, payload)
+        case 'readChatAttachment':
+          return readChatAttachment_(payload)
         case 'createInitialAdmin':
           return createInitialAdmin_(spreadsheet, payload.user)
         case 'appendUser':
@@ -229,6 +243,328 @@
           return recordProduction_(spreadsheet, payload)
         default:
           throw apiError_(400, 'Unknown ERP action.')
+      }
+    }
+
+    function chatSheet_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      let id = properties.getProperty(ERP_CHAT_SPREADSHEET_PROPERTY)
+      if (!id && !createIfMissing) return null
+      if (!id) {
+        const chatSpreadsheet = SpreadsheetApp.create('Mahalaxmi ERP Private Chats')
+        DriveApp.getFileById(chatSpreadsheet.getId()).setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        const sheet = chatSpreadsheet.getSheets()[0]
+        sheet.setName('Messages')
+        sheet.getRange(1, 1, 1, ERP_CHAT_HEADERS.length).setValues([ERP_CHAT_HEADERS])
+        properties.setProperty(ERP_CHAT_SPREADSHEET_PROPERTY, chatSpreadsheet.getId())
+        return sheet
+      }
+
+      const spreadsheet = SpreadsheetApp.openById(id)
+      const sheet = spreadsheet.getSheetByName('Messages')
+      if (!sheet) throw new Error('The private chat spreadsheet is missing its Messages sheet.')
+      const headers = sheet.getRange(1, 1, 1, ERP_CHAT_HEADERS.length).getValues()[0]
+      if (ERP_CHAT_HEADERS.some(function (header, index) { return String(headers[index] || '') !== header })) {
+        throw new Error('The private chat spreadsheet has an unrecognized header format.')
+      }
+      return sheet
+    }
+
+    function chatAttachmentFolder_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(ERP_CHAT_ATTACHMENT_FOLDER_PROPERTY)
+      if (folderId) return DriveApp.getFolderById(folderId)
+      if (!createIfMissing) return null
+      const folder = DriveApp.createFolder('Mahalaxmi ERP Private Chat Attachments')
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      properties.setProperty(ERP_CHAT_ATTACHMENT_FOLDER_PROPERTY, folder.getId())
+      return folder
+    }
+
+    function chatConversationId_(firstUserId, secondUserId) {
+      return JSON.stringify([String(firstUserId), String(secondUserId)].sort())
+    }
+
+    function chatMessageFromRow_(row) {
+      const attachmentId = String(row[10] || '')
+      return {
+        id: String(row[0] || ''),
+        conversationId: String(row[1] || ''),
+        senderId: String(row[2] || ''),
+        senderName: String(row[3] || ''),
+        senderRole: String(row[4] || ''),
+        recipientId: String(row[5] || ''),
+        recipientName: String(row[6] || ''),
+        recipientRole: String(row[7] || ''),
+        sentAt: String(row[8] || ''),
+        text: String(row[9] || ''),
+        attachmentId: attachmentId,
+        attachment: attachmentId ? {
+          name: String(row[11] || ''),
+          mimeType: String(row[12] || ''),
+          size: Number(row[13]) || 0,
+        } : null,
+      }
+    }
+
+    function chatRows_(sheet) {
+      if (!sheet || sheet.getLastRow() < 2) return []
+      return sheet.getRange(2, 1, sheet.getLastRow() - 1, ERP_CHAT_HEADERS.length)
+        .getValues()
+        .map(chatMessageFromRow_)
+    }
+
+    function chatContact_(row) {
+      const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+      if (!active) return null
+      const id = String(row['User ID'] || '').trim()
+      const name = String(row.Name || '').trim()
+      const role = String(row.Role || '').trim()
+      if (!id || !name || !role) return null
+      return { id: id, name: name, role: role }
+    }
+
+    function listChatData_(spreadsheet, payload) {
+      const actorId = String(payload.sessionUserId || '').trim()
+      const isAdmin = String(payload.sessionUserRole || '') === 'Super Admin'
+      const contacts = readSheetRecords_(spreadsheet, 'Users').map(chatContact_).filter(function (contact) {
+        return contact && contact.id !== actorId
+      })
+      const sheet = chatSheet_(false)
+      const rows = chatRows_(sheet)
+      const threadsById = {}
+      rows.forEach(function (message) {
+        if (!isAdmin && message.senderId !== actorId && message.recipientId !== actorId) return
+        const existing = threadsById[message.conversationId]
+        if (!existing || Date.parse(message.sentAt) > Date.parse(existing.sentAt)) {
+          threadsById[message.conversationId] = {
+            conversationId: message.conversationId,
+            participant1Id: message.senderId < message.recipientId ? message.senderId : message.recipientId,
+            participant1Name: message.senderId < message.recipientId ? message.senderName : message.recipientName,
+            participant2Id: message.senderId < message.recipientId ? message.recipientId : message.senderId,
+            participant2Name: message.senderId < message.recipientId ? message.recipientName : message.senderName,
+            lastMessage: message.text || (message.attachment ? 'Attachment: ' + message.attachment.name : ''),
+            sentAt: message.sentAt,
+            lastSenderId: message.senderId,
+          }
+        }
+      })
+      const threads = Object.keys(threadsById).map(function (key) { return threadsById[key] })
+        .sort(function (left, right) { return Date.parse(right.sentAt) - Date.parse(left.sentAt) })
+      return { contacts: contacts, threads: threads, retentionHours: 48 }
+    }
+
+    function listChatMessages_(payload) {
+      const actorId = String(payload.sessionUserId || '').trim()
+      const isAdmin = String(payload.sessionUserRole || '') === 'Super Admin'
+      const conversationId = String(payload.conversationId || '').trim()
+      let participants
+      try {
+        participants = JSON.parse(conversationId)
+      } catch (error) {
+        throw apiError_(400, 'Choose a valid chat conversation.')
+      }
+      if (!Array.isArray(participants) || participants.length !== 2 ||
+          participants.some(function (id) { return typeof id !== 'string' || !id || id.length > 120 }) ||
+          participants[0] === participants[1] ||
+          conversationId !== chatConversationId_(participants[0], participants[1])) {
+        throw apiError_(400, 'Choose a valid chat conversation.')
+      }
+      if (!isAdmin && participants.indexOf(actorId) < 0) throw apiError_(403, 'You can only view conversations you participate in.')
+
+      const sheet = chatSheet_(false)
+      const cutoff = Date.now() - ERP_CHAT_RETENTION_MS
+      const messages = chatRows_(sheet).filter(function (message) {
+        return message.conversationId === conversationId && Date.parse(message.sentAt) > cutoff
+      })
+      const hasOlder = messages.length > 200
+      const visibleMessages = messages.slice(-200).map(function (message) {
+        return {
+          id: message.id,
+          conversationId: message.conversationId,
+          senderId: message.senderId,
+          senderName: message.senderName,
+          senderRole: message.senderRole,
+          sentAt: message.sentAt,
+          text: message.text,
+          attachment: message.attachment,
+        }
+      })
+      return { messages: visibleMessages, hasOlder: hasOlder }
+    }
+
+    function validChatAttachment_(attachment) {
+      if (!attachment || typeof attachment !== 'object') throw apiError_(400, 'Choose a valid image or PDF attachment.')
+      const name = String(attachment.name || '').trim()
+      const mimeType = String(attachment.mimeType || '').trim().toLowerCase()
+      const base64 = String(attachment.base64 || '')
+      if (!name || name.length > 180 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64) ||
+          base64.length > 4194304 || ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'].indexOf(mimeType) < 0) {
+        throw apiError_(400, 'Only valid JPEG, PNG, GIF, WebP images or PDF files up to 3 MB are supported.')
+      }
+      const bytes = Utilities.base64Decode(base64)
+      if (!bytes.length || bytes.length > ERP_CHAT_MAX_ATTACHMENT_BYTES) {
+        throw apiError_(413, 'Chat attachments must be 3 MB or smaller.')
+      }
+      const byteAt = function (index) { return bytes[index] & 255 }
+      const isPdf = mimeType === 'application/pdf' && bytes.length >= 5 &&
+        byteAt(0) === 37 && byteAt(1) === 80 && byteAt(2) === 68 && byteAt(3) === 70 && byteAt(4) === 45
+      const isJpeg = mimeType === 'image/jpeg' && bytes.length >= 3 &&
+        byteAt(0) === 255 && byteAt(1) === 216 && byteAt(2) === 255
+      const isPng = mimeType === 'image/png' && bytes.length >= 8 &&
+        byteAt(0) === 137 && byteAt(1) === 80 && byteAt(2) === 78 && byteAt(3) === 71 &&
+        byteAt(4) === 13 && byteAt(5) === 10 && byteAt(6) === 26 && byteAt(7) === 10
+      const isGif = mimeType === 'image/gif' && bytes.length >= 6 &&
+        String.fromCharCode.apply(null, bytes.slice(0, 6)) === 'GIF89a' ||
+        mimeType === 'image/gif' && bytes.length >= 6 &&
+        String.fromCharCode.apply(null, bytes.slice(0, 6)) === 'GIF87a'
+      const isWebp = mimeType === 'image/webp' && bytes.length >= 12 &&
+        String.fromCharCode.apply(null, bytes.slice(0, 4)) === 'RIFF' &&
+        String.fromCharCode.apply(null, bytes.slice(8, 12)) === 'WEBP'
+      if (!isPdf && !isJpeg && !isPng && !isGif && !isWebp) {
+        throw apiError_(400, 'The attachment content does not match a supported image or PDF type.')
+      }
+      const safeName = name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 140)
+      const extensionMatches = mimeType === 'image/jpeg' ? /\.(jpe?g)$/i.test(safeName)
+        : mimeType === 'image/png' ? /\.png$/i.test(safeName)
+          : mimeType === 'image/gif' ? /\.gif$/i.test(safeName)
+            : mimeType === 'image/webp' ? /\.webp$/i.test(safeName)
+              : /\.pdf$/i.test(safeName)
+      if (!extensionMatches) throw apiError_(400, 'Use a file name that matches the selected image or PDF type.')
+      return { name: safeName, mimeType: mimeType, bytes: bytes }
+    }
+
+    function sendChatMessage_(spreadsheet, payload) {
+      const senderId = String(payload.sessionUserId || '').trim()
+      const senderName = String(payload.createdBy || '').trim()
+      const senderRole = String(payload.sessionUserRole || '').trim()
+      const recipientId = String(payload.recipientId || '').trim()
+      const messageText = String(payload.text || '').trim()
+      if (!recipientId || recipientId === senderId) throw apiError_(400, 'Choose another active user to chat with.')
+      if (messageText.length > 4000) throw apiError_(400, 'Messages must be 4,000 characters or fewer.')
+      const recipient = readSheetRecords_(spreadsheet, 'Users').map(chatContact_).find(function (contact) {
+        return contact && contact.id === recipientId
+      })
+      if (!recipient) throw apiError_(404, 'That user is inactive or no longer exists.')
+      const attachment = payload.attachment ? validChatAttachment_(payload.attachment) : null
+      if (!messageText && !attachment) throw apiError_(400, 'Enter a message or attach an image/PDF.')
+
+      return withWriteLock_(function () {
+        const id = Utilities.getUuid()
+        const conversationId = chatConversationId_(senderId, recipient.id)
+        let file = null
+        if (attachment) {
+          file = chatAttachmentFolder_(true).createFile(
+            Utilities.newBlob(attachment.bytes, attachment.mimeType, attachment.name),
+          )
+          file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+          file.setDescription(JSON.stringify({
+            kind: 'mahalaxmi-erp-chat-attachment',
+            messageId: id,
+            conversationId: conversationId,
+            sentAt: new Date().toISOString(),
+          }))
+        }
+        try {
+          const sheet = chatSheet_(true)
+          const sentAt = new Date().toISOString()
+          sheet.appendRow([
+            id, conversationId, senderId, senderName, senderRole,
+            recipient.id, recipient.name, recipient.role, sentAt, messageText,
+            file ? file.getId() : '',
+            attachment ? attachment.name : '',
+            attachment ? attachment.mimeType : '',
+            attachment ? attachment.bytes.length : '',
+          ].map(safeCellValue_))
+          return {
+            message: {
+              id: id,
+              conversationId: conversationId,
+              senderId: senderId,
+              senderName: senderName,
+              senderRole: senderRole,
+              sentAt: sentAt,
+              text: messageText,
+              attachment: attachment ? {
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+                size: attachment.bytes.length,
+              } : null,
+            },
+          }
+        } catch (error) {
+          if (file) {
+            try {
+              file.setTrashed(true)
+            } catch (cleanupError) {
+              Logger.log('A chat attachment orphaned by a failed message write could not be trashed: ' + file.getId())
+            }
+          }
+          throw error
+        }
+      })
+    }
+
+    function permanentlyDeleteChatAttachment_(fileId) {
+      if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) throw new Error('A chat attachment has an invalid Drive ID.')
+      const response = UrlFetchApp.fetch(
+        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId),
+        {
+          method: 'delete',
+          headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+          muteHttpExceptions: true,
+        }
+      )
+      const status = response.getResponseCode()
+      if (status !== 200 && status !== 204 && status !== 404) {
+        Logger.log('Drive API could not permanently delete expired chat attachment ' + fileId + '; HTTP status ' + status)
+        throw apiError_(500, 'Expired chat attachments could not be deleted. Please retry cleanup.')
+      }
+    }
+
+    function cleanupExpiredChatMessages_() {
+      const sheet = chatSheet_(false)
+      if (!sheet || sheet.getLastRow() < 2) return 0
+      const cutoff = Date.now() - ERP_CHAT_RETENTION_MS
+      const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ERP_CHAT_HEADERS.length).getValues()
+      const expiredRows = []
+      for (let index = 0; index < rows.length; index += 1) {
+        const sentAt = Date.parse(String(rows[index][8] || ''))
+        if (!Number.isFinite(sentAt) || sentAt <= cutoff) {
+          const attachmentId = String(rows[index][10] || '')
+          if (attachmentId) permanentlyDeleteChatAttachment_(attachmentId)
+          expiredRows.push(index + 2)
+        }
+      }
+      expiredRows.reverse().forEach(function (row) { sheet.deleteRow(row) })
+      return expiredRows.length
+    }
+
+    function cleanupExpiredChatMessagesScheduled_() {
+      return withWriteLock_(function () { return cleanupExpiredChatMessages_() })
+    }
+
+    function readChatAttachment_(payload) {
+      const messageId = String(payload.messageId || '').trim()
+      const actorId = String(payload.sessionUserId || '').trim()
+      const isAdmin = String(payload.sessionUserRole || '') === 'Super Admin'
+      if (!messageId) throw apiError_(400, 'Choose a chat attachment.')
+      const sheet = chatSheet_(false)
+      const message = chatRows_(sheet).find(function (item) { return item.id === messageId })
+      if (!message || !message.attachmentId || Date.parse(message.sentAt) <= Date.now() - ERP_CHAT_RETENTION_MS) {
+        throw apiError_(404, 'This chat attachment has expired or was not found.')
+      }
+      if (!isAdmin && message.senderId !== actorId && message.recipientId !== actorId) {
+        throw apiError_(403, 'You cannot access an attachment from another conversation.')
+      }
+      const file = DriveApp.getFileById(message.attachmentId)
+      const blob = file.getBlob()
+      const bytes = blob.getBytes()
+      return {
+        name: message.attachment.name,
+        mimeType: message.attachment.mimeType,
+        size: bytes.length,
+        base64: Utilities.base64Encode(bytes),
       }
     }
 
@@ -366,7 +702,7 @@
       if (!user.id || !user.name || roles.indexOf(user.role) < 0) throw apiError_(400, 'Audit actor details are invalid.')
       let target = ''
       if (eventType === 'module_view') {
-        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Machines', 'Quality Control', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring']
+        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Machines', 'Quality Control', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat']
         target = String(payload.module || '')
         if (modules.indexOf(target) < 0) throw apiError_(400, 'ERP module is invalid.')
       }
@@ -2064,6 +2400,12 @@
           })
           if (!exists) ScriptApp.newTrigger(handler).timeBased().everyHours(1).create()
         })
+        const chatCleanupExists = ScriptApp.getProjectTriggers().some(function (trigger) {
+          return trigger.getHandlerFunction() === ERP_CHAT_CLEANUP_HANDLER
+        })
+        if (!chatCleanupExists) {
+          ScriptApp.newTrigger(ERP_CHAT_CLEANUP_HANDLER).timeBased().everyMinutes(15).create()
+        }
       })
     }
 
