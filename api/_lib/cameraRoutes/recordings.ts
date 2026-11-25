@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse } from '../http.js'
 import { ApiError, handleApiError, sendJson } from '../http.js'
 import { getSessionUser, requireAdmin } from '../session.js'
-import { listCameraClips, readCameraClipRange } from '../workbook.js'
+import { listCameraClips, readCameraClipRange, type UserRole } from '../workbook.js'
 
 const RETENTION_MS = 24 * 60 * 60 * 1000
 const MAX_PLAYBACK_RANGE_BYTES = 2 * 1024 * 1024
@@ -24,10 +24,10 @@ function parseRange(value: string | undefined) {
   }
 }
 
-async function streamClip(request: ApiRequest, response: ApiResponse, fileId: string) {
+async function streamClip(request: ApiRequest, response: ApiResponse, fileId: string, user: { id: string; role: UserRole }) {
   if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) throw new ApiError(404, 'Camera clip was not found.')
   const range = parseRange(request.headers.range)
-  const clip = await readCameraClipRange({ fileId, ...range })
+  const clip = await readCameraClipRange({ ...user, fileId, ...range })
   if (
     clip.startByte !== range.startByte ||
     clip.endByte < clip.startByte ||
@@ -61,11 +61,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const url = new URL(request.url || '/', 'http://localhost')
     const fileId = url.searchParams.get('fileId')
     if (fileId) {
-      await streamClip(request, response, fileId)
+      await streamClip(request, response, fileId, currentUser)
       return
     }
 
-    const result = await listCameraClips()
+    const result = await listCameraClips(currentUser)
     const cutoff = Date.now() - RETENTION_MS
     const clips = result.clips.filter(clip => {
       const startedAt = Date.parse(clip.startedAt)

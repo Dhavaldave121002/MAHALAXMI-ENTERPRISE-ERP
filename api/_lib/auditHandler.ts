@@ -43,18 +43,19 @@ export default async function auditHandler(request: ApiRequest, response: ApiRes
 
     const body = await readJsonBody(request)
     const module = typeof body.module === 'string' ? body.module : ''
-    if (body.eventType !== 'module_view' || !ERP_MODULES.has(module)) {
-      throw new ApiError(400, 'A valid ERP module activity event is required.')
-    }
-    if (!ROLE_MODULES[user.role].has(module)) {
-      throw new ApiError(403, 'This account cannot open that ERP module.')
+    const eventType = body.eventType
+    if (eventType === 'module_view') {
+      if (!ERP_MODULES.has(module)) throw new ApiError(400, 'A valid ERP module activity event is required.')
+      if (!ROLE_MODULES[user.role].has(module)) throw new ApiError(403, 'This account cannot open that ERP module.')
+    } else if (eventType !== 'screen_recording_started' && eventType !== 'screen_recording_stopped') {
+      throw new ApiError(400, 'A valid ERP activity event is required.')
     }
     await recordWorkbookAuditEvent({
       userId: user.id,
       userName: user.name,
       role: user.role,
-      eventType: 'module_view',
-      module,
+      eventType,
+      ...(eventType === 'module_view' ? { module } : {}),
     })
     sendJson(response, 200, { ok: true })
   } catch (error) {

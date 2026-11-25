@@ -15,10 +15,12 @@ const UPLOAD_TOKEN_LIFETIME_MS = 4 * 60 * 60 * 1000
 
 type UploadGrant = {
   userId: string
+  kind: 'camera' | 'screen'
   uploadUrl: string
   totalBytes: number
   expiresAt: number
 }
+type DecodedUploadGrant = Omit<UploadGrant, 'kind'> & { kind?: UploadGrant['kind'] }
 
 function isGoogleDriveUploadUrl(value: string) {
   try {
@@ -50,14 +52,16 @@ function verifyUploadGrant(token: unknown, userId: string): UploadGrant {
     throw new ApiError(401, 'Camera clip upload session is invalid. Retry the clip.')
   }
 
-  let grant: UploadGrant
+  let decodedGrant: DecodedUploadGrant
   try {
-    grant = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as UploadGrant
+    decodedGrant = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as DecodedUploadGrant
   } catch {
     throw new ApiError(401, 'Camera clip upload session is invalid. Retry the clip.')
   }
+  const grant: UploadGrant = { ...decodedGrant, kind: decodedGrant.kind || 'camera' }
   if (
     grant.userId !== userId ||
+    !['camera', 'screen'].includes(grant.kind) ||
     !Number.isSafeInteger(grant.totalBytes) ||
     grant.totalBytes < 1 ||
     grant.totalBytes > MAX_CLIP_BYTES ||
@@ -81,6 +85,10 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const action = body.action
 
     if (action === 'createUpload') {
+      const kind = body.kind === undefined ? 'camera' : body.kind
+      if (kind !== 'camera' && kind !== 'screen') {
+        throw new ApiError(400, 'Choose a valid recording type.')
+      }
       const totalBytes = Number(body.totalBytes)
       const startedAt = Number(body.startedAt)
       if (!Number.isSafeInteger(totalBytes) || totalBytes < 1 || totalBytes > MAX_CLIP_BYTES) {
@@ -91,15 +99,16 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         String(startedAt).length !== 13 ||
         startedAt < Date.now() - 10 * 60 * 1000 ||
         startedAt > Date.now() + 60_000 ||
-        cameraScheduleForRole(user.role, new Date(startedAt)).state !== 'active'
+        (kind === 'camera' && cameraScheduleForRole(user.role, new Date(startedAt)).state !== 'active')
       ) {
-        throw new ApiError(400, 'A valid camera clip start time is required.')
+        throw new ApiError(400, 'A valid recording clip start time is required.')
       }
 
-      const fileName = `camera-${user.id}-${startedAt}.webm`
+      const fileName = `${kind}-${user.id}-${startedAt}.webm`
       const upload = await startCameraClipUpload({
         id: user.id,
         role: user.role,
+        kind,
         fileName,
         startedAt,
         totalBytes,
@@ -109,6 +118,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       }
       const uploadToken = signUploadGrant({
         userId: user.id,
+        kind,
         uploadUrl: upload.uploadUrl,
         totalBytes,
         expiresAt: Date.now() + UPLOAD_TOKEN_LIFETIME_MS,

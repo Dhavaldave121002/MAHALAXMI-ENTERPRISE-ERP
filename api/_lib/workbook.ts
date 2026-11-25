@@ -280,6 +280,7 @@ export async function uploadWorkbookEcommerceLabel(input: SessionBoundInput & {
 }
 
 export async function startCameraClipUpload(input: SessionBoundInput & {
+  kind: 'camera' | 'screen'
   fileName: string
   startedAt: number
   totalBytes: number
@@ -303,21 +304,22 @@ export async function uploadCameraClipChunk(input: SessionBoundInput & {
   })
 }
 
-export async function listCameraClips() {
+export async function listCameraClips(user: SessionBoundInput) {
   return callAppsScript<{
     clips: {
       id: string
       userId: string
       userName: string
+      kind: 'camera' | 'screen'
       startedAt: string
       uploadedAt: string
       size: number
       mimeType: string
     }[]
-  }>('listCameraClips')
+  }>('listCameraClips', sessionBoundPayload(user))
 }
 
-export async function readCameraClipRange(input: {
+export async function readCameraClipRange(input: SessionBoundInput & {
   fileId: string
   startByte: number
   endByte: number
@@ -328,7 +330,7 @@ export async function readCameraClipRange(input: {
     endByte: number
     totalBytes: number
     mimeType: string
-  }>('readCameraClipRange', input)
+  }>('readCameraClipRange', { ...input, ...sessionBoundPayload(input) })
 }
 
 export async function cleanupCameraClips() {
@@ -462,7 +464,7 @@ export async function recordWorkbookAuditEvent(input: {
   userId: string
   userName: string
   role: UserRole
-  eventType: 'login' | 'logout' | 'module_view'
+  eventType: 'login' | 'logout' | 'module_view' | 'screen_recording_started' | 'screen_recording_stopped'
   module?: string
 }) {
   return callAppsScript<{ recorded: boolean }>('recordAuditEvent', input)

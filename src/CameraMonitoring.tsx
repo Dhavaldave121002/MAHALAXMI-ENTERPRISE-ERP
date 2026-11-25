@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, Circle, Play, RefreshCw, Video, VideoOff, X } from 'lucide-react'
 import { RemoteVideoTrack, Room, RoomEvent, Track } from 'livekit-client'
 import { cameraScheduleForRole } from '../shared/cameraSchedule'
+import { uploadPrivateClip } from './privateClipUpload'
 
 type CameraUser = { id: string; name: string; role: string }
 type ApiResult = { error?: string }
@@ -14,7 +15,6 @@ type CameraRecorderSegment = {
 }
 
 const CAMERA_CLIP_DURATION_MS = 5 * 60 * 1000
-const CAMERA_UPLOAD_RETRY_LIMIT = 3
 
 async function cameraApi<T>(url: string, options: RequestInit = {}) {
   const response = await fetch(url, {
@@ -25,66 +25,6 @@ async function cameraApi<T>(url: string, options: RequestInit = {}) {
   const result = await response.json() as T & ApiResult
   if (!response.ok) throw new Error(result.error || 'Camera request failed.')
   return result
-}
-
-function bytesToBase64(bytes: Uint8Array) {
-  let binary = ''
-  const stride = 0x8000
-  for (let offset = 0; offset < bytes.length; offset += stride) {
-    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + stride, bytes.length)))
-  }
-  return btoa(binary)
-}
-
-async function uploadCameraClip(blob: Blob, startedAt: number) {
-  const upload = await cameraApi<{ uploadToken: string; chunkSize: number }>('/api/cameras/recording', {
-    method: 'POST',
-    body: JSON.stringify({ action: 'createUpload', startedAt, totalBytes: blob.size }),
-  })
-  if (!upload.uploadToken || !Number.isSafeInteger(upload.chunkSize) || upload.chunkSize < 256 * 1024) {
-    throw new Error('The server returned an invalid Google Drive upload session.')
-  }
-
-  let offset = 0
-  while (offset < blob.size) {
-    const chunk = blob.slice(offset, Math.min(offset + upload.chunkSize, blob.size))
-    const bytes = new Uint8Array(await chunk.arrayBuffer())
-    const base64 = bytesToBase64(bytes)
-    let response: { complete: boolean; nextOffset?: number } | null = null
-    let lastError: unknown
-    for (let attempt = 0; attempt < CAMERA_UPLOAD_RETRY_LIMIT; attempt += 1) {
-      try {
-        response = await cameraApi<{ complete: boolean; nextOffset?: number }>('/api/cameras/recording', {
-          method: 'POST',
-          body: JSON.stringify({
-            action: 'uploadChunk',
-            uploadToken: upload.uploadToken,
-            startByte: offset,
-            endByte: offset + bytes.length - 1,
-            base64,
-          }),
-        })
-        break
-      } catch (error) {
-        lastError = error
-        if (attempt + 1 < CAMERA_UPLOAD_RETRY_LIMIT) {
-          await new Promise(resolve => window.setTimeout(resolve, 750 * (attempt + 1)))
-        }
-      }
-    }
-    if (!response) throw lastError instanceof Error ? lastError : new Error('The camera clip could not be uploaded.')
-    if (response.complete) {
-      if (offset + bytes.length !== blob.size) throw new Error('Google Drive completed the camera clip before all bytes were sent.')
-      return
-    }
-    if (
-      typeof response.nextOffset !== 'number' ||
-      !Number.isSafeInteger(response.nextOffset) ||
-      response.nextOffset <= offset ||
-      response.nextOffset > blob.size
-    ) throw new Error('Google Drive returned an invalid camera clip upload offset.')
-    offset = response.nextOffset
-  }
 }
 
 function messageFor(error: unknown) {
@@ -206,7 +146,7 @@ export function CameraPublisher({ user }: { user: CameraUser }) {
         resolveDone()
         return
       }
-      const upload = uploadQueueRef.current.catch(() => undefined).then(() => uploadCameraClip(clip, segment.startedAt))
+      const upload = uploadQueueRef.current.catch(() => undefined).then(() => uploadPrivateClip(clip, segment.startedAt, 'camera'))
       uploadQueueRef.current = upload
       void upload.then(resolveDone, rejectDone)
     }
@@ -371,7 +311,7 @@ type StaffCamera = {
   cameraPublished: boolean
   cameraMuted: boolean
 }
-type CameraRecording = { id: string; userId: string; userName: string; startedAt: string; size: number }
+type CameraRecording = { id: string; userId: string; userName: string; kind?: 'camera' | 'screen'; startedAt: string; size: number }
 type CameraTileData = { id: string; name: string; role: string; track: RemoteVideoTrack }
 
 function CameraTile({ item }: { item: CameraTileData }) {
@@ -501,19 +441,21 @@ export function CameraMonitoringView() {
 
   const playRecording = async (recording: CameraRecording) => {
     setPlayingUrl(`/api/cameras/recordings?fileId=${encodeURIComponent(recording.id)}`)
-    setPlayingName(`${recording.userName} · ${formatRecordingDate(recording.startedAt)}`)
+    setPlayingName(`${recording.kind === 'screen' ? 'Screen' : 'Camera'} · ${recording.userName} · ${formatRecordingDate(recording.startedAt)}`)
     setError('')
   }
 
   const liveStaff = staff.filter(item => item.connected && item.cameraPublished && !item.cameraMuted).length
+  const screenRecordings = recordings.filter(recording => recording.kind === 'screen')
+  const cameraRecordings = recordings.filter(recording => recording.kind !== 'screen')
 
   return (
     <section className="camera-monitoring-page">
       <div className="page-heading">
-        <div><p>SUPER ADMIN</p><h1>Camera monitoring</h1><span className="dashboard-description">Live webcam view and private video recordings for scheduled team hours.</span></div>
+        <div><p>SUPER ADMIN</p><h1>Camera &amp; screen monitoring</h1><span className="dashboard-description">Live webcam view and private, user-approved screen recordings.</span></div>
         <div className="heading-actions"><button className="secondary" type="button" onClick={() => setRefreshKey(value => value + 1)}><RefreshCw size={16} /> Refresh</button></div>
       </div>
-      <div className="camera-policy-note"><Video size={18} /><span>Scheduled Monday–Saturday in India time; the 1:30–2:00 PM break is excluded. Production Supervisor: 9:30 AM–7:30 PM; Sales Executive: 10:00 AM–6:00 PM; other team roles: 10:00 AM–7:00 PM. Video only; microphone access is disabled. Recordings are private and removed after 24 hours.</span></div>
+      <div className="camera-policy-note"><Video size={18} /><span>Scheduled camera monitoring records video only. Optional screen recording is started by the team member, requires browser approval, and shows a visible recording indicator. Admin can view private 5-minute clips; clips are removed after 24 hours. Screen sharing does not capture audio.</span></div>
       {error && <p className="camera-error" role="alert"><AlertTriangle size={16} />{error}</p>}
       <section className="panel camera-panel">
         <div className="panel-heading"><div><h2>Live cameras</h2><p>{liveStaff} live · refreshes every 30 seconds</p></div><span className="camera-retention-tag"><Circle size={8} /> Live view</span></div>
@@ -531,10 +473,16 @@ export function CameraMonitoringView() {
           : <div className="empty-state"><strong>No active team accounts</strong><span>Team accounts will appear here when available.</span></div>}
       </section>
       <section className="panel camera-panel">
-        <div className="panel-heading"><div><h2>Recent recordings</h2><p>Private 5-minute clips from the last 24 hours</p></div><span className="camera-retention-tag">24-hour retention</span></div>
-        {recordings.length
-          ? <div className="dashboard-table"><table><thead><tr><th>Team member</th><th>Clip started (IST)</th><th>Size</th><th>Action</th></tr></thead><tbody>{recordings.map(recording => <tr key={recording.id}><td>{recording.userName}</td><td>{formatRecordingDate(recording.startedAt)}</td><td>{formatRecordingSize(recording.size)}</td><td><button className="secondary camera-play-button" type="button" onClick={() => playRecording(recording)}><Play size={14} /> Play</button></td></tr>)}</tbody></table></div>
-          : <div className="empty-state"><Video size={24} /><strong>No recent recordings</strong><span>Completed scheduled sessions will appear here.</span></div>}
+        <div className="panel-heading"><div><h2>Screen recordings</h2><p>Clips from screen shares started by team members · last 24 hours</p></div><span className="camera-retention-tag">24-hour retention</span></div>
+        {screenRecordings.length
+          ? <div className="dashboard-table"><table><thead><tr><th>Team member</th><th>Clip started (IST)</th><th>Size</th><th>Action</th></tr></thead><tbody>{screenRecordings.map(recording => <tr key={recording.id}><td>{recording.userName}</td><td>{formatRecordingDate(recording.startedAt)}</td><td>{formatRecordingSize(recording.size)}</td><td><button className="secondary camera-play-button" type="button" onClick={() => playRecording(recording)}><Play size={14} /> Play</button></td></tr>)}</tbody></table></div>
+          : <div className="empty-state"><VideoOff size={24} /><strong>No screen recordings yet</strong><span>Completed, user-approved screen clips will appear here.</span></div>}
+      </section>
+      <section className="panel camera-panel">
+        <div className="panel-heading"><div><h2>Camera recordings</h2><p>Scheduled camera clips from the last 24 hours</p></div><span className="camera-retention-tag">24-hour retention</span></div>
+        {cameraRecordings.length
+          ? <div className="dashboard-table"><table><thead><tr><th>Team member</th><th>Clip started (IST)</th><th>Size</th><th>Action</th></tr></thead><tbody>{cameraRecordings.map(recording => <tr key={recording.id}><td>{recording.userName}</td><td>{formatRecordingDate(recording.startedAt)}</td><td>{formatRecordingSize(recording.size)}</td><td><button className="secondary camera-play-button" type="button" onClick={() => playRecording(recording)}><Play size={14} /> Play</button></td></tr>)}</tbody></table></div>
+          : <div className="empty-state"><Video size={24} /><strong>No recent camera recordings</strong><span>Completed scheduled sessions will appear here.</span></div>}
       </section>
       {playingUrl && <div className="camera-player-backdrop" role="presentation" onClick={() => setPlayingUrl('')}>
         <section className="camera-player-dialog" role="dialog" aria-modal="true" aria-label="Camera recording playback" onClick={event => event.stopPropagation()}>

@@ -20,6 +20,7 @@
     const ERP_CAMERA_RECORDING_FOLDER_PROPERTY = 'ERP_CAMERA_RECORDING_FOLDER_ID'
     const ERP_CAMERA_RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000
     const ERP_CAMERA_RECORDING_KIND = 'mahalaxmi-erp-camera-recording'
+    const ERP_SCREEN_RECORDING_KIND = 'mahalaxmi-erp-screen-recording'
     const ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES = 2 * 1024 * 1024
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
     const ERP_SALES_REPORT_FOLDER_PROPERTY = 'ERP_SALES_REPORT_FOLDER_ID'
@@ -754,6 +755,8 @@
         login: 'Signed in',
         logout: 'Signed out',
         module_view: 'Opened ERP module',
+        screen_recording_started: 'Started screen recording',
+        screen_recording_stopped: 'Stopped screen recording',
       }
       if (!Object.prototype.hasOwnProperty.call(actionByType, eventType)) throw apiError_(400, 'Unknown audit event.')
       const user = {
@@ -2170,19 +2173,21 @@
     function startCameraClipUpload_(payload) {
       const userId = String(payload.sessionUserId || '').trim()
       const userName = String(payload.createdBy || '').trim()
+      const recordingType = String(payload.kind || 'camera')
       const startedAt = Number(payload.startedAt)
       const totalBytes = Number(payload.totalBytes)
       const fileName = String(payload.fileName || '').trim()
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(userId)) throw apiError_(400, 'A valid camera user is required.')
       if (!userName || userName.length > 180) throw apiError_(400, 'A valid camera user name is required.')
+      if (recordingType !== 'camera' && recordingType !== 'screen') throw apiError_(400, 'A valid recording type is required.')
       if (!Number.isSafeInteger(startedAt) || String(startedAt).length !== 13 || startedAt > Date.now() + 60000) {
         throw apiError_(400, 'A valid camera clip start time is required.')
       }
       if (!Number.isSafeInteger(totalBytes) || totalBytes < 1 || totalBytes > 100 * 1024 * 1024) {
         throw apiError_(413, 'Camera clips must be 100 MB or smaller.')
       }
-      const expectedName = 'camera-' + userId + '-' + startedAt + '.webm'
-      if (fileName !== expectedName) throw apiError_(400, 'The camera clip name is invalid.')
+      const expectedName = recordingType + '-' + userId + '-' + startedAt + '.webm'
+      if (fileName !== expectedName) throw apiError_(400, 'The recording clip name is invalid.')
 
       const folder = getCameraUserRecordingFolder_(userId, userName, true)
       const uploadedAt = new Date().toISOString()
@@ -2191,7 +2196,8 @@
         mimeType: 'video/webm',
         parents: [folder.getId()],
         description: JSON.stringify({
-          kind: ERP_CAMERA_RECORDING_KIND,
+          kind: recordingType === 'screen' ? ERP_SCREEN_RECORDING_KIND : ERP_CAMERA_RECORDING_KIND,
+          recordingType: recordingType,
           userId: userId,
           userName: userName,
           startedAt: startedAt,
@@ -2292,10 +2298,13 @@
         return null
       }
       if (
-        metadata.kind !== ERP_CAMERA_RECORDING_KIND ||
+        (metadata.kind !== ERP_CAMERA_RECORDING_KIND && metadata.kind !== ERP_SCREEN_RECORDING_KIND) ||
         !/^[A-Za-z0-9_-]{1,128}$/.test(String(metadata.userId || '')) ||
         !Number.isSafeInteger(Number(metadata.startedAt))
       ) return null
+      if (metadata.recordingType !== 'camera' && metadata.recordingType !== 'screen') {
+        metadata.recordingType = metadata.kind === ERP_SCREEN_RECORDING_KIND ? 'screen' : 'camera'
+      }
       return metadata
     }
 
@@ -2316,6 +2325,7 @@
             id: file.getId(),
             userId: String(metadata.userId),
             userName: String(metadata.userName || 'Team member'),
+            kind: String(metadata.recordingType),
             startedAt: new Date(startedAt).toISOString(),
             uploadedAt: String(metadata.uploadedAt || ''),
             size: file.getSize(),

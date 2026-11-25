@@ -9,6 +9,7 @@ import {
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import * as XLSX from 'xlsx'
 import { SalesDailyReportView, SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
+import { ScreenRecordingControl, type ScreenRecordingController } from './ScreenRecording'
 const CameraPublisher = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraPublisher })))
 const CameraMonitoringView = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraMonitoringView })))
 const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.ChatView })))
@@ -109,7 +110,7 @@ type AuthStatus = 'checking' | 'ready' | 'unavailable'
 function auditFailureMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
   if (/unknown erp action|deployment is outdated/i.test(message)) {
-    return 'The connected Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.'
+    return 'ERP activity logging is temporarily unavailable. The current session can continue; notify the Super Admin.'
   }
   if (/permission|authorization|not authorized|external_request/i.test(message)) {
     return 'Apps Script needs authorization. Run installEcommerceLabelCleanupTrigger in the script editor and approve the requested permissions.'
@@ -445,6 +446,7 @@ export default function App() {
   const [salesAccounts, setSalesAccounts] = useState<SalesAccount[]>([])
   const [activityAuditWarning, setActivityAuditWarning] = useState('')
   const [toast, setToast] = useState('')
+  const screenRecordingRef = useRef<ScreenRecordingController>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [zeroStockInitializationBusy, setZeroStockInitializationBusy] = useState(false)
   const workbookRefreshInFlight = useRef<Promise<void> | null>(null)
@@ -998,9 +1000,16 @@ export default function App() {
   }
 
   const logout = async () => {
+    let screenRecordingWarning = ''
+    try {
+      screenRecordingWarning = await screenRecordingRef.current?.stopAndUpload() || ''
+    } catch (error) {
+      screenRecordingWarning = error instanceof Error ? error.message : 'The final screen clip could not be saved.'
+    }
     try {
       const result = await apiFetch<{ ok: boolean; auditWarning?: string }>('/api/auth/logout', { method: 'POST' })
       setActivityAuditWarning(result.auditWarning || '')
+      setLoginError(screenRecordingWarning)
       setSessionUser(null)
       setUsers([])
       setModule('Dashboard')
@@ -1088,7 +1097,7 @@ export default function App() {
             <button className="primary wide" type="submit" disabled={loginBusy}>{loginBusy ? 'Signing in…' : 'Sign in'}</button>
           </form>
           {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
-          <p className="activity-audit-notice">Successful ERP sign-ins/sign-outs, module visits, and business-record actions are logged for accountability. Screens, keystrokes, browser/Google history, and activity outside this ERP are not collected.</p>
+          <p className="activity-audit-notice">ERP sign-ins, module visits, and business actions are logged. Optional screen video starts only after a user action and browser approval; the selected display may include other visible tabs or apps. No audio, keystrokes, or browser history is collected.</p>
           {!isAdminRoute && <div className="first-admin-setup"><span>First-time setup only: create the one-time Admin account. If it is already set up, sign in instead.</span><button type="button" onClick={() => { setSetupMode(true); setLoginError('') }}>Create first Admin</button></div>}
           {authStatus === 'ready' && <a className="login-route-link" href={isAdminRoute ? '/' : '/admin'}>{isAdminRoute ? 'Team login' : 'Admin login'}</a>}
         </section>
@@ -1177,9 +1186,10 @@ export default function App() {
 
         <div className="content">
           <div className="activity-audit-notice" role="note">
-            ERP activity logging is enabled: successful sign-ins/sign-outs, module visits, and business-record actions are visible to the Super Admin. Screens, keystrokes, browser/Google history, and activity outside this ERP are not collected.
+            Sign-ins, sign-outs, ERP modules, and business-record actions are logged for the Super Admin. Screen recording is optional: it starts only when you choose a screen and approve the browser prompt. No audio, keystrokes, or browser history is collected.
           </div>
           {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
+          {sessionUser.role !== 'Super Admin' && <ScreenRecordingControl ref={screenRecordingRef} user={{ id: sessionUser.id, name: sessionUser.name, role: sessionUser.role }} />}
           {module === 'Dashboard' ? (
             <DashboardView
               role={sessionUser.role}
@@ -1268,7 +1278,7 @@ function ModuleView(props: {
         setAuditError('')
       } catch (error) {
         if (!active) return
-        setAuditError(error instanceof Error ? error.message : 'Could not load the audit log.')
+        setAuditError(auditFailureMessage(error))
       } finally {
         if (active && !loaded) {
           loaded = true
@@ -2557,7 +2567,7 @@ function ModuleView(props: {
       <section><div className="page-heading"><div><p>SECURITY</p><h1>Audit Logs</h1></div></div>
         <div className="panel audit-card">
           <div className="panel-heading"><div><h2>ERP activity</h2><p>Auto-refreshes every 30 seconds · events retained for {auditRetentionDays} days</p></div></div>
-          <p className="audit-scope-note">This log records successful sign-ins/sign-outs, ERP module visits, and business-record actions. It does not collect screenshots, keystrokes, browser or Google history, or activity outside this ERP.</p>
+          <p className="audit-scope-note">This log records sign-ins/sign-outs, ERP module visits, business-record actions, and screen-recording start/stop events. Screen video is optional and user-started; the browser shows a sharing prompt. The selected display may include other visible tabs or apps. No audio, keystrokes, or browser history is collected.</p>
           {auditError && <p className="audit-warning" role="alert">{auditError}</p>}
           {auditLoading && <div className="empty-state" role="status">Loading audit events…</div>}
           {!auditLoading && !auditError && auditEvents.length === 0 && <div className="empty-state"><Archive size={24} /><strong>No activity recorded yet</strong><span>ERP events will appear here as users sign in and work.</span></div>}

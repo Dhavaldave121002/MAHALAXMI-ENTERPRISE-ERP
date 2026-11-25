@@ -72,6 +72,11 @@ function formatFileSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function isUnsupportedTypingAction(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : ''
+  return /unknown erp action|deployment is outdated/i.test(message)
+}
+
 export function ChatView({ user }: { user: ChatUser }) {
   const [contacts, setContacts] = useState<ChatContact[]>([])
   const [threads, setThreads] = useState<ChatThread[]>([])
@@ -85,6 +90,7 @@ export function ChatView({ user }: { user: ChatUser }) {
   const [error, setError] = useState('')
   const [typingUsers, setTypingUsers] = useState<ChatTypingUser[]>([])
   const [typingError, setTypingError] = useState('')
+  const [typingUnavailable, setTypingUnavailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [openingAttachment, setOpeningAttachment] = useState('')
@@ -93,6 +99,17 @@ export function ChatView({ user }: { user: ChatUser }) {
   const typingConversationRef = useRef('')
   const typingSentAtRef = useRef(0)
   const typingIdleTimerRef = useRef<number | null>(null)
+
+  const handleTypingFailure = useCallback((requestError: unknown) => {
+    if (isUnsupportedTypingAction(requestError)) {
+      setTypingUnavailable(true)
+      setTypingUsers([])
+      setTypingError('')
+      return true
+    }
+    setTypingError('Typing indicators are temporarily unavailable.')
+    return false
+  }, [])
 
   const reload = useCallback(async (conversationId = selectedConversationId) => {
     const [data, messageData] = await Promise.all([
@@ -134,9 +151,10 @@ export function ChatView({ user }: { user: ChatUser }) {
   useEffect(() => {
     let active = true
     let timer: number | null = null
-    if (!selectedConversationId) return undefined
+    if (!selectedConversationId || typingUnavailable) return undefined
 
     const pollTyping = async () => {
+      let retry = true
       try {
         const result = await postChat<{ typingUsers: ChatTypingUser[] }>({
           action: 'listChatTyping',
@@ -149,10 +167,10 @@ export function ChatView({ user }: { user: ChatUser }) {
       } catch (requestError) {
         if (active) {
           setTypingUsers([])
-          setTypingError(requestError instanceof Error ? requestError.message : 'Typing status is unavailable.')
+          retry = !handleTypingFailure(requestError)
         }
       } finally {
-        if (active) timer = window.setTimeout(() => { void pollTyping() }, 1500)
+        if (active && retry) timer = window.setTimeout(() => { void pollTyping() }, 1500)
       }
     }
 
@@ -161,7 +179,7 @@ export function ChatView({ user }: { user: ChatUser }) {
       active = false
       if (timer !== null) window.clearTimeout(timer)
     }
-  }, [selectedConversationId])
+  }, [handleTypingFailure, selectedConversationId, typingUnavailable])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -178,21 +196,20 @@ export function ChatView({ user }: { user: ChatUser }) {
     }
     typingConversationRef.current = ''
     typingSentAtRef.current = 0
-    if (!conversationId) return
+    if (!conversationId || typingUnavailable) return
     void postChat<{ typing: boolean }>({
       action: 'setChatTyping',
       conversationId,
       typing: false,
-    }).catch(requestError => {
-      setTypingError(requestError instanceof Error ? requestError.message : 'Typing status could not be cleared.')
-    })
-  }, [])
+    }).catch(handleTypingFailure)
+  }, [handleTypingFailure, typingUnavailable])
 
   const updateText = (value: string) => {
     setText(value)
     const conversationId = selectedConversationId
     const previousConversationId = typingConversationRef.current
     if (previousConversationId && previousConversationId !== conversationId) stopTyping(previousConversationId)
+    if (typingUnavailable) return
     if (!recipientId || !value.trim()) {
       stopTyping(conversationId)
       return
@@ -205,9 +222,7 @@ export function ChatView({ user }: { user: ChatUser }) {
         action: 'setChatTyping',
         conversationId,
         typing: true,
-      }).catch(requestError => {
-        setTypingError(requestError instanceof Error ? requestError.message : 'Typing status could not be sent.')
-      })
+      }).catch(handleTypingFailure)
     }
     typingIdleTimerRef.current = window.setTimeout(() => stopTyping(conversationId), 3500)
   }
