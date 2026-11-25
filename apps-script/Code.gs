@@ -2149,8 +2149,22 @@
       const properties = PropertiesService.getScriptProperties()
       const folderId = properties.getProperty(ERP_CAMERA_RECORDING_FOLDER_PROPERTY)
       if (folderId) return DriveApp.getFolderById(folderId)
+      const folderName = 'Mahalaxmi ERP Private Camera Recordings'
+      const existingFolders = DriveApp.getFoldersByName(folderName)
+      let existingFolder = null
+      if (existingFolders.hasNext()) {
+        existingFolder = existingFolders.next()
+        if (existingFolders.hasNext()) throw apiError_(409, 'Multiple private camera recording folders were found. Contact the administrator.')
+      }
+      if (existingFolder) {
+        if (existingFolder.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+          throw apiError_(403, 'The private camera recording folder has unexpected sharing permissions.')
+        }
+        properties.setProperty(ERP_CAMERA_RECORDING_FOLDER_PROPERTY, existingFolder.getId())
+        return existingFolder
+      }
       if (!createIfMissing) return null
-      const folder = DriveApp.createFolder('Mahalaxmi ERP Private Camera Recordings')
+      const folder = DriveApp.createFolder(folderName)
       folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
       properties.setProperty(ERP_CAMERA_RECORDING_FOLDER_PROPERTY, folder.getId())
       return folder
@@ -2161,10 +2175,25 @@
       const properties = PropertiesService.getScriptProperties()
       const folderId = properties.getProperty(propertyName)
       if (folderId) return DriveApp.getFolderById(folderId)
-      if (!createIfMissing) return null
-      const root = getCameraRecordingFolder_(true)
+      const root = getCameraRecordingFolder_(createIfMissing)
+      if (!root) return null
       const safeName = String(userName || 'Team member').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80) || 'Team member'
-      const folder = root.createFolder(safeName + ' (' + userId + ')')
+      const folderName = safeName + ' (' + userId + ')'
+      const existingFolders = root.getFoldersByName(folderName)
+      let existingFolder = null
+      if (existingFolders.hasNext()) {
+        existingFolder = existingFolders.next()
+        if (existingFolders.hasNext()) throw apiError_(409, 'Multiple recording folders exist for this team member. Contact the administrator.')
+      }
+      if (existingFolder) {
+        if (existingFolder.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+          throw apiError_(403, 'The team member recording folder has unexpected sharing permissions.')
+        }
+        properties.setProperty(propertyName, existingFolder.getId())
+        return existingFolder
+      }
+      if (!createIfMissing) return null
+      const folder = root.createFolder(folderName)
       folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
       properties.setProperty(propertyName, folder.getId())
       return folder
@@ -2308,31 +2337,34 @@
       return metadata
     }
 
+    function appendCameraClipsFromFolder_(folder, cutoff, clips) {
+      const files = folder.getFiles()
+      while (files.hasNext()) {
+        const file = files.next()
+        const metadata = parseCameraRecordingMetadata_(file)
+        const startedAt = metadata ? Number(metadata.startedAt) : 0
+        if (!metadata || startedAt < cutoff || startedAt > Date.now() + 60000 || file.getSize() < 1) continue
+        clips.push({
+          id: file.getId(),
+          userId: String(metadata.userId),
+          userName: String(metadata.userName || 'Team member'),
+          kind: String(metadata.recordingType),
+          startedAt: new Date(startedAt).toISOString(),
+          uploadedAt: String(metadata.uploadedAt || ''),
+          size: file.getSize(),
+          mimeType: file.getMimeType(),
+        })
+      }
+    }
+
     function listCameraClips_() {
       const root = getCameraRecordingFolder_(false)
       if (!root) return { clips: [] }
       const cutoff = Date.now() - ERP_CAMERA_RECORDING_RETENTION_MS
       const clips = []
+      appendCameraClipsFromFolder_(root, cutoff, clips)
       const folders = root.getFolders()
-      while (folders.hasNext()) {
-        const files = folders.next().getFiles()
-        while (files.hasNext()) {
-          const file = files.next()
-          const metadata = parseCameraRecordingMetadata_(file)
-          const startedAt = metadata ? Number(metadata.startedAt) : 0
-          if (!metadata || startedAt < cutoff || startedAt > Date.now() + 60000 || file.getSize() < 1) continue
-          clips.push({
-            id: file.getId(),
-            userId: String(metadata.userId),
-            userName: String(metadata.userName || 'Team member'),
-            kind: String(metadata.recordingType),
-            startedAt: new Date(startedAt).toISOString(),
-            uploadedAt: String(metadata.uploadedAt || ''),
-            size: file.getSize(),
-            mimeType: file.getMimeType(),
-          })
-        }
-      }
+      while (folders.hasNext()) appendCameraClipsFromFolder_(folders.next(), cutoff, clips)
       clips.sort(function (left, right) { return String(right.startedAt).localeCompare(String(left.startedAt)) })
       return { clips: clips }
     }
@@ -2357,15 +2389,19 @@
       }
       const metadata = parseCameraRecordingMetadata_(file)
       const parents = file.getParents()
+      const root = getCameraRecordingFolder_(false)
       const userFolder = metadata
         ? getCameraUserRecordingFolder_(String(metadata.userId), String(metadata.userName || ''), false)
         : null
+      const parent = parents.hasNext() ? parents.next() : null
+      const parentIsValid = Boolean(parent && root && (
+        parent.getId() === root.getId() ||
+        (userFolder && parent.getId() === userFolder.getId())
+      ))
       if (
         !metadata ||
         Number(metadata.startedAt) < Date.now() - ERP_CAMERA_RECORDING_RETENTION_MS ||
-        !userFolder ||
-        !parents.hasNext() ||
-        parents.next().getId() !== userFolder.getId()
+        !parentIsValid
       ) {
         throw apiError_(404, 'Camera clip was not found.')
       }
