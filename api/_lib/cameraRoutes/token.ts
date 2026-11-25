@@ -1,14 +1,7 @@
 import type { ApiRequest, ApiResponse } from '../http.js'
 import { ApiError, handleApiError, sendJson } from '../http.js'
-import {
-  createCameraAccessToken,
-  createScreenSharingAccessToken,
-  getCameraBrowserUrl,
-  getScreenSharingRoomName,
-  isScheduledCameraUser,
-} from '../camera.js'
+import { createScreenSharingAccessToken, getCameraBrowserUrl, getScreenSharingRoomName } from '../camera.js'
 import { getSessionUser } from '../session.js'
-import { cameraRoomName } from '../../../shared/cameraSchedule.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'POST') {
@@ -20,22 +13,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const user = await getSessionUser(request)
     const isAdmin = user.role === 'Super Admin'
     const scope = new URL(request.url || '/', 'http://localhost').searchParams.get('scope')
-    if (scope && scope !== 'screen') throw new ApiError(400, 'Camera token scope is invalid.')
-    if (scope === 'screen') {
-      const token = await createScreenSharingAccessToken(user, isAdmin)
-      sendJson(response, 200, {
-        token,
-        url: getCameraBrowserUrl(),
-        roomName: getScreenSharingRoomName(),
-      })
-      return
-    }
-    if (!isAdmin) isScheduledCameraUser(user)
-    const token = await createCameraAccessToken(user, isAdmin)
+    if (scope !== 'screen') throw new ApiError(403, 'Webcam capture is disabled. Use approved screen sharing instead.')
+    const token = await createScreenSharingAccessToken(user, isAdmin)
     sendJson(response, 200, {
       token,
       url: getCameraBrowserUrl(),
-      roomName: cameraRoomName(),
+      roomName: getScreenSharingRoomName(),
     })
   } catch (error) {
     if (error instanceof ApiError) {

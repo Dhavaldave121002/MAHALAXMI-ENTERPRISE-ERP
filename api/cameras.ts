@@ -1,14 +1,12 @@
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { sendJson } from './_lib/http.js'
 import cleanup from './_lib/cameraRoutes/cleanup.js'
-import overview from './_lib/cameraRoutes/overview.js'
 import recording from './_lib/cameraRoutes/recording.js'
 import recordings from './_lib/cameraRoutes/recordings.js'
 import token from './_lib/cameraRoutes/token.js'
 
 const cameraRoutes: Record<string, (request: ApiRequest, response: ApiResponse) => Promise<void>> = {
   cleanup,
-  overview,
   recording,
   recordings,
   token,

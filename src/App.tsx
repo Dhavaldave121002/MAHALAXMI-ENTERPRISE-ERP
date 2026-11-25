@@ -10,8 +10,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import * as XLSX from 'xlsx'
 import { SalesDailyReportView, SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
 import { ScreenRecordingControl, type ScreenRecordingController } from './ScreenRecording'
-const CameraPublisher = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraPublisher })))
-const CameraMonitoringView = lazy(() => import('./CameraMonitoring').then(module => ({ default: module.CameraMonitoringView })))
+const CameraMonitoringView = lazy(() => import('./ScreenMonitoring').then(module => ({ default: module.ScreenMonitoringView })))
 const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.ChatView })))
 import type { SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
@@ -1215,7 +1214,6 @@ export default function App() {
           )}
         </div>
       </main>
-      {sessionUser.role !== 'Super Admin' && <Suspense fallback={<aside className="camera-status-card" role="status">Loading scheduled camera controls…</aside>}><CameraPublisher user={{ id: sessionUser.id, name: sessionUser.name, role: sessionUser.role }} /></Suspense>}
       {toast && <div className="toast"><CheckCircle2 size={18} />{toast}</div>}
     </div>
   )

@@ -2208,7 +2208,7 @@
       const fileName = String(payload.fileName || '').trim()
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(userId)) throw apiError_(400, 'A valid camera user is required.')
       if (!userName || userName.length > 180) throw apiError_(400, 'A valid camera user name is required.')
-      if (recordingType !== 'camera' && recordingType !== 'screen') throw apiError_(400, 'A valid recording type is required.')
+      if (recordingType !== 'screen') throw apiError_(403, 'Webcam recording is disabled. Only screen clips can be uploaded.')
       if (!Number.isSafeInteger(startedAt) || String(startedAt).length !== 13 || startedAt > Date.now() + 60000) {
         throw apiError_(400, 'A valid camera clip start time is required.')
       }

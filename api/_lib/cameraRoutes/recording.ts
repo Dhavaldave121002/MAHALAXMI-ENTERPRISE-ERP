@@ -1,7 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from '../http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from '../http.js'
-import { cameraScheduleForRole } from '../../../shared/cameraSchedule.js'
 import { getSessionUser } from '../session.js'
 import {
   getSessionSecret,
@@ -15,12 +14,12 @@ const UPLOAD_TOKEN_LIFETIME_MS = 4 * 60 * 60 * 1000
 
 type UploadGrant = {
   userId: string
-  kind: 'camera' | 'screen'
+  kind: 'screen'
   uploadUrl: string
   totalBytes: number
   expiresAt: number
 }
-type DecodedUploadGrant = Omit<UploadGrant, 'kind'> & { kind?: UploadGrant['kind'] }
+type DecodedUploadGrant = Omit<UploadGrant, 'kind'> & { kind?: string }
 
 function isGoogleDriveUploadUrl(value: string) {
   try {
@@ -58,18 +57,25 @@ function verifyUploadGrant(token: unknown, userId: string): UploadGrant {
   } catch {
     throw new ApiError(401, 'Camera clip upload session is invalid. Retry the clip.')
   }
-  const grant: UploadGrant = { ...decodedGrant, kind: decodedGrant.kind || 'camera' }
+  if (decodedGrant.kind !== 'screen') {
+    throw new ApiError(403, 'Webcam recording is disabled. Only screen clips can be uploaded.')
+  }
   if (
-    grant.userId !== userId ||
-    !['camera', 'screen'].includes(grant.kind) ||
-    !Number.isSafeInteger(grant.totalBytes) ||
-    grant.totalBytes < 1 ||
-    grant.totalBytes > MAX_CLIP_BYTES ||
-    typeof grant.expiresAt !== 'number' ||
-    grant.expiresAt <= Date.now() ||
-    !isGoogleDriveUploadUrl(grant.uploadUrl)
+    decodedGrant.userId !== userId ||
+    !Number.isSafeInteger(decodedGrant.totalBytes) ||
+    decodedGrant.totalBytes < 1 ||
+    decodedGrant.totalBytes > MAX_CLIP_BYTES ||
+    typeof decodedGrant.expiresAt !== 'number' ||
+    decodedGrant.expiresAt <= Date.now() ||
+    !isGoogleDriveUploadUrl(decodedGrant.uploadUrl)
   ) throw new ApiError(401, 'Camera clip upload session has expired. Retry the clip.')
-  return grant
+  return {
+    userId: decodedGrant.userId,
+    kind: 'screen',
+    uploadUrl: decodedGrant.uploadUrl,
+    totalBytes: decodedGrant.totalBytes,
+    expiresAt: decodedGrant.expiresAt,
+  }
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -85,10 +91,10 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const action = body.action
 
     if (action === 'createUpload') {
-      const kind = body.kind === undefined ? 'camera' : body.kind
-      if (kind !== 'camera' && kind !== 'screen') {
-        throw new ApiError(400, 'Choose a valid recording type.')
+      if (body.kind !== 'screen') {
+        throw new ApiError(403, 'Webcam recording is disabled. Only screen clips can be uploaded.')
       }
+      const kind = 'screen'
       const totalBytes = Number(body.totalBytes)
       const startedAt = Number(body.startedAt)
       if (!Number.isSafeInteger(totalBytes) || totalBytes < 1 || totalBytes > MAX_CLIP_BYTES) {
@@ -98,8 +104,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         !Number.isSafeInteger(startedAt) ||
         String(startedAt).length !== 13 ||
         startedAt < Date.now() - 10 * 60 * 1000 ||
-        startedAt > Date.now() + 60_000 ||
-        (kind === 'camera' && cameraScheduleForRole(user.role, new Date(startedAt)).state !== 'active')
+        startedAt > Date.now() + 60_000
       ) {
         throw new ApiError(400, 'A valid recording clip start time is required.')
       }

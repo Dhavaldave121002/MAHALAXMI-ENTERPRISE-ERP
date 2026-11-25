@@ -5,7 +5,6 @@ import {
 } from 'livekit-server-sdk'
 import { ApiError } from './http.js'
 import type { PublicUser } from './workbook.js'
-import { cameraRoomName, cameraScheduleForRole } from '../../shared/cameraSchedule.js'
 
 function requiredEnv(name: string) {
   const value = process.env[name]?.trim()
@@ -44,29 +43,6 @@ export function getScreenSharingRoomName() {
   return 'staff-screen-shares'
 }
 
-export async function createCameraAccessToken(user: PublicUser, isAdmin: boolean) {
-  const { apiKey, apiSecret } = getLiveKitConfig()
-  const schedule = cameraScheduleForRole(user.role)
-  const ttl = isAdmin
-    ? 12 * 60 * 60
-    : Math.max(60, schedule.minutesUntilShiftEnd * 60 - 60)
-  const token = new AccessToken(apiKey, apiSecret, {
-    identity: user.id,
-    name: user.name,
-    metadata: JSON.stringify({ role: user.role }),
-    ttl,
-  })
-  token.addGrant({
-    roomJoin: true,
-    room: cameraRoomName(),
-    canPublish: !isAdmin,
-    canPublishSources: isAdmin ? [] : [TrackSource.CAMERA],
-    canSubscribe: isAdmin,
-    canPublishData: false,
-  })
-  return token.toJwt()
-}
-
 export async function createScreenSharingAccessToken(user: PublicUser, isAdmin: boolean) {
   const { apiKey, apiSecret } = getLiveKitConfig()
   const token = new AccessToken(apiKey, apiSecret, {
@@ -88,12 +64,4 @@ export async function createScreenSharingAccessToken(user: PublicUser, isAdmin: 
 
 export function getCameraBrowserUrl() {
   return getLiveKitConfig().browserUrl
-}
-
-export function isScheduledCameraUser(user: PublicUser) {
-  const schedule = cameraScheduleForRole(user.role)
-  if (schedule.state !== 'active') {
-    throw new ApiError(403, schedule.message)
-  }
-  return schedule
 }
