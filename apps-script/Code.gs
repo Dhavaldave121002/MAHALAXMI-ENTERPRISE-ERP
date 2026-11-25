@@ -41,6 +41,16 @@
     const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes']
     const ERP_SALES_TARGET_HEADERS = ['Target ID', 'Sales User ID', 'Sales User Name', 'Period', 'Period Key', 'Target Amount', 'Updated At', 'Updated By']
     const ERP_GRAPHIC_DESIGN_HEADERS = ['Task ID', 'Planned Date', 'Month', 'Product SKU', 'Product Name', 'Platforms', 'Content Type', 'Brief', 'Caption', 'Script', 'Shoot Status', 'Edit Status', 'Review Status', 'Review Note', 'Created By ID', 'Created By', 'Created At', 'Reviewed By', 'Reviewed At']
+    const ERP_STORAGE_ROOT_PROPERTY = 'ERP_STORAGE_ROOT_FOLDER_ID'
+    const ERP_STORAGE_CATEGORIES = {
+      spreadsheet: '01 Main ERP Spreadsheet',
+      chat: '02 Chat',
+      audit: '03 Audit Logs',
+      camera: '04 Screen Recordings',
+      graphicDesign: '05 Graphic Design',
+      ecommerce: '06 E-commerce',
+      sales: '07 Sales',
+    }
 
     function onOpen(event) {
       if (!event || !event.source) {
@@ -50,6 +60,7 @@
       SpreadsheetApp.getUi()
         .createMenu('Mahalaxmi ERP')
         .addItem('Configure API access', 'configureMahalaxmiErp')
+        .addItem('Organize ERP Drive', 'organizeMahalaxmiErpDrive')
         .addToUi()
     }
 
@@ -72,6 +83,140 @@
         ERP_API_SECRET: secret,
       }, false)
       ui.alert('ERP API access configured for this spreadsheet.')
+    }
+
+    function findUniqueDriveFolder_(name) {
+      const folders = DriveApp.getFoldersByName(name)
+      if (!folders.hasNext()) return null
+      const folder = folders.next()
+      if (folders.hasNext()) throw apiError_(409, 'Multiple Drive folders named "' + name + '" were found. Organize or rename duplicates, then retry.')
+      return folder
+    }
+
+    function findUniqueDriveFile_(name) {
+      const files = DriveApp.getFilesByName(name)
+      if (!files.hasNext()) return null
+      const file = files.next()
+      if (files.hasNext()) throw apiError_(409, 'Multiple Drive files named "' + name + '" were found. Organize or rename duplicates, then retry.')
+      return file
+    }
+
+    function getErpStorageRootFolder_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(ERP_STORAGE_ROOT_PROPERTY)
+      let folder = folderId ? DriveApp.getFolderById(folderId) : findUniqueDriveFolder_('Mahalaxmi ERP')
+      if (!folder && !createIfMissing) return null
+      if (!folder) {
+        folder = DriveApp.createFolder('Mahalaxmi ERP')
+        folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      } else if (folder.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+        throw apiError_(403, 'The Mahalaxmi ERP Drive folder must be private. Review its sharing settings before continuing.')
+      }
+      properties.setProperty(ERP_STORAGE_ROOT_PROPERTY, folder.getId())
+      return folder
+    }
+
+    function getErpStorageCategoryFolder_(category, createIfMissing) {
+      if (!Object.prototype.hasOwnProperty.call(ERP_STORAGE_CATEGORIES, category)) {
+        throw new Error('Unknown ERP Drive storage category.')
+      }
+      const root = getErpStorageRootFolder_(createIfMissing)
+      if (!root) return null
+      const name = ERP_STORAGE_CATEGORIES[category]
+      const folders = root.getFoldersByName(name)
+      if (folders.hasNext()) {
+        const folder = folders.next()
+        if (folders.hasNext()) throw apiError_(409, 'Multiple ERP storage folders named "' + name + '" were found.')
+        if (folder.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+          throw apiError_(403, 'The ERP storage folder "' + name + '" must be private.')
+        }
+        return folder
+      }
+      if (!createIfMissing) return null
+      const folder = root.createFolder(name)
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      return folder
+    }
+
+    function configuredDriveFolder_(propertyName, folderName) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(propertyName)
+      const folder = folderId ? DriveApp.getFolderById(folderId) : findUniqueDriveFolder_(folderName)
+      if (folder) properties.setProperty(propertyName, folder.getId())
+      return folder
+    }
+
+    function configuredDriveFile_(propertyName, fileName) {
+      const properties = PropertiesService.getScriptProperties()
+      const fileId = properties.getProperty(propertyName)
+      const file = fileId ? DriveApp.getFileById(fileId) : findUniqueDriveFile_(fileName)
+      if (file) properties.setProperty(propertyName, file.getId())
+      return file
+    }
+
+    function organizeMahalaxmiErpDrive() {
+      const properties = PropertiesService.getScriptProperties()
+      const spreadsheetId = properties.getProperty('ERP_SPREADSHEET_ID')
+      if (!spreadsheetId) throw new Error('Configure ERP API access from the master spreadsheet before organizing Drive.')
+
+      const root = getErpStorageRootFolder_(true)
+      const destinations = {}
+      Object.keys(ERP_STORAGE_CATEGORIES).forEach(function (category) {
+        destinations[category] = getErpStorageCategoryFolder_(category, true)
+      })
+      const movePlan = []
+      const plannedFileIds = {}
+      const plannedFolderIds = {}
+      const addFile = function (file, category) {
+        if (!file || plannedFileIds[file.getId()]) return
+        plannedFileIds[file.getId()] = true
+        movePlan.push({ type: 'file', item: file, destination: destinations[category] })
+      }
+      const addFolder = function (folder, category) {
+        if (!folder || plannedFolderIds[folder.getId()]) return
+        plannedFolderIds[folder.getId()] = true
+        movePlan.push({ type: 'folder', item: folder, destination: destinations[category] })
+      }
+
+      const masterFile = DriveApp.getFileById(spreadsheetId)
+      addFile(masterFile, 'spreadsheet')
+      const backupPrefix = masterFile.getName() + '-Backup-'
+      const masterParents = masterFile.getParents()
+      while (masterParents.hasNext()) {
+        const siblings = masterParents.next().getFiles()
+        while (siblings.hasNext()) {
+          const sibling = siblings.next()
+          if (sibling.getName().indexOf(backupPrefix) === 0) addFile(sibling, 'spreadsheet')
+        }
+      }
+
+      addFile(configuredDriveFile_(ERP_CHAT_SPREADSHEET_PROPERTY, 'Mahalaxmi ERP Private Chats'), 'chat')
+      addFile(configuredDriveFile_(ERP_AUDIT_SPREADSHEET_PROPERTY, 'Mahalaxmi ERP Private Audit Log'), 'audit')
+      addFolder(configuredDriveFolder_(ERP_CHAT_ATTACHMENT_FOLDER_PROPERTY, 'Mahalaxmi ERP Private Chat Attachments'), 'chat')
+      addFolder(configuredDriveFolder_(ERP_CAMERA_RECORDING_FOLDER_PROPERTY, 'Mahalaxmi ERP Private Camera Recordings'), 'camera')
+      addFolder(configuredDriveFolder_(ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY, 'Mahalaxmi ERP Private Graphic Design Daily Reports'), 'graphicDesign')
+      addFolder(configuredDriveFolder_(ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY, 'Mahalaxmi ERP Private E-commerce Labels'), 'ecommerce')
+      addFolder(configuredDriveFolder_(ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY, 'Mahalaxmi ERP Private E-commerce Daily Reports'), 'ecommerce')
+      addFolder(configuredDriveFolder_(ERP_SALES_REPORT_FOLDER_PROPERTY, 'Mahalaxmi ERP Private Sales Daily Reports'), 'sales')
+
+      let moved = 0
+      movePlan.forEach(function (entry) {
+        const parents = entry.item.getParents()
+        let alreadyInDestination = false
+        while (parents.hasNext()) {
+          if (parents.next().getId() === entry.destination.getId()) alreadyInDestination = true
+        }
+        if (alreadyInDestination) return
+        if (entry.type === 'file') entry.item.moveTo(entry.destination)
+        else {
+          if (entry.item.getId() === entry.destination.getId()) {
+            throw apiError_(409, 'An ERP storage folder cannot be moved inside itself.')
+          }
+          entry.item.moveTo(entry.destination)
+        }
+        moved += 1
+      })
+      return { folderName: root.getName(), folderId: root.getId(), moved: moved, categories: Object.keys(ERP_STORAGE_CATEGORIES).length }
     }
 
     function doGet() {
@@ -286,7 +431,9 @@
       if (!id && !createIfMissing) return null
       if (!id) {
         const chatSpreadsheet = SpreadsheetApp.create('Mahalaxmi ERP Private Chats')
-        DriveApp.getFileById(chatSpreadsheet.getId()).setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        const chatFile = DriveApp.getFileById(chatSpreadsheet.getId())
+        chatFile.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        chatFile.moveTo(getErpStorageCategoryFolder_('chat', true))
         const sheet = chatSpreadsheet.getSheets()[0]
         sheet.setName('Messages')
         sheet.getRange(1, 1, 1, ERP_CHAT_HEADERS.length).setValues([ERP_CHAT_HEADERS])
@@ -309,7 +456,7 @@
       const folderId = properties.getProperty(ERP_CHAT_ATTACHMENT_FOLDER_PROPERTY)
       if (folderId) return DriveApp.getFolderById(folderId)
       if (!createIfMissing) return null
-      const folder = DriveApp.createFolder('Mahalaxmi ERP Private Chat Attachments')
+      const folder = getErpStorageCategoryFolder_('chat', true).createFolder('Mahalaxmi ERP Private Chat Attachments')
       folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
       properties.setProperty(ERP_CHAT_ATTACHMENT_FOLDER_PROPERTY, folder.getId())
       return folder
@@ -667,7 +814,9 @@
       if (!id && !createIfMissing) return null
       if (!id) {
         const auditSpreadsheet = SpreadsheetApp.create('Mahalaxmi ERP Private Audit Log')
-        DriveApp.getFileById(auditSpreadsheet.getId()).setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        const auditFile = DriveApp.getFileById(auditSpreadsheet.getId())
+        auditFile.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        auditFile.moveTo(getErpStorageCategoryFolder_('audit', true))
         const sheet = auditSpreadsheet.getSheets()[0]
         sheet.setName('Audit Events')
         sheet.getRange(1, 1, 1, ERP_AUDIT_HEADERS.length).setValues([ERP_AUDIT_HEADERS])
@@ -1783,7 +1932,7 @@
       const folderId = properties.getProperty(ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY)
       if (folderId) return DriveApp.getFolderById(folderId)
       if (!createIfMissing) return null
-      const folder = DriveApp.createFolder('Mahalaxmi ERP Private Graphic Design Daily Reports')
+      const folder = getErpStorageCategoryFolder_('graphicDesign', true).createFolder('Mahalaxmi ERP Private Graphic Design Daily Reports')
       folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
       properties.setProperty(ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY, folder.getId())
       return folder
@@ -2552,7 +2701,7 @@
         return existingFolder
       }
       if (!createIfMissing) return null
-      const folder = DriveApp.createFolder(folderName)
+      const folder = getErpStorageCategoryFolder_('camera', true).createFolder(folderName)
       folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
       properties.setProperty(ERP_CAMERA_RECORDING_FOLDER_PROPERTY, folder.getId())
       return folder
@@ -2703,7 +2852,9 @@
       } catch (error) {
         throw apiError_(502, 'Google Drive returned an invalid camera clip response.')
       }
-      if (!result.id) throw apiError_(502, 'Google Drive did not confirm the saved camera clip.')
+      if (!result.id || Number(result.size) !== totalBytes) {
+        throw apiError_(502, 'Google Drive did not confirm the complete camera clip. Retry the upload.')
+      }
       return { complete: true, fileId: String(result.id) }
     }
 
@@ -2862,7 +3013,7 @@
       const folderId = properties.getProperty(ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY)
       if (folderId) return DriveApp.getFolderById(folderId)
       if (!createIfMissing) return null
-      const folder = DriveApp.createFolder('Mahalaxmi ERP Private E-commerce Labels')
+      const folder = getErpStorageCategoryFolder_('ecommerce', true).createFolder('Mahalaxmi ERP Private E-commerce Labels')
       folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
       properties.setProperty(ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY, folder.getId())
       return folder
@@ -3091,7 +3242,7 @@
       const folderId = properties.getProperty(ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY)
       if (folderId) return DriveApp.getFolderById(folderId)
       if (!createIfMissing) return null
-      const folder = DriveApp.createFolder('Mahalaxmi ERP Private E-commerce Daily Reports')
+      const folder = getErpStorageCategoryFolder_('ecommerce', true).createFolder('Mahalaxmi ERP Private E-commerce Daily Reports')
       folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
       properties.setProperty(ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY, folder.getId())
       return folder
@@ -3395,7 +3546,7 @@
       const folderId = properties.getProperty(ERP_SALES_REPORT_FOLDER_PROPERTY)
       if (folderId) return DriveApp.getFolderById(folderId)
       if (!createIfMissing) return null
-      const folder = DriveApp.createFolder('Mahalaxmi ERP Private Sales Daily Reports')
+      const folder = getErpStorageCategoryFolder_('sales', true).createFolder('Mahalaxmi ERP Private Sales Daily Reports')
       folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
       properties.setProperty(ERP_SALES_REPORT_FOLDER_PROPERTY, folder.getId())
       return folder

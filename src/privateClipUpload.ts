@@ -24,7 +24,7 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary)
 }
 
-export async function uploadPrivateClip(blob: Blob, startedAt: number, kind: PrivateClipKind) {
+export async function uploadPrivateClip(blob: Blob, startedAt: number, kind: PrivateClipKind): Promise<string> {
   const upload = await recordingApi<{ uploadToken: string; chunkSize: number }>('/api/cameras/recording', {
     method: 'POST',
     body: JSON.stringify({ action: 'createUpload', kind, startedAt, totalBytes: blob.size }),
@@ -38,11 +38,11 @@ export async function uploadPrivateClip(blob: Blob, startedAt: number, kind: Pri
     const chunk = blob.slice(offset, Math.min(offset + upload.chunkSize, blob.size))
     const bytes = new Uint8Array(await chunk.arrayBuffer())
     const base64 = bytesToBase64(bytes)
-    let response: { complete: boolean; nextOffset?: number } | null = null
+    let response: { complete: boolean; fileId?: string; nextOffset?: number } | null = null
     let lastError: unknown
     for (let attempt = 0; attempt < MAX_UPLOAD_RETRIES; attempt += 1) {
       try {
-        response = await recordingApi<{ complete: boolean; nextOffset?: number }>('/api/cameras/recording', {
+        response = await recordingApi<{ complete: boolean; fileId?: string; nextOffset?: number }>('/api/cameras/recording', {
           method: 'POST',
           body: JSON.stringify({
             action: 'uploadChunk',
@@ -62,8 +62,10 @@ export async function uploadPrivateClip(blob: Blob, startedAt: number, kind: Pri
     }
     if (!response) throw lastError instanceof Error ? lastError : new Error('The recording clip could not be uploaded.')
     if (response.complete) {
-      if (offset + bytes.length !== blob.size) throw new Error('Google Drive completed the clip before all bytes were sent.')
-      return
+      if (offset + bytes.length !== blob.size || !response.fileId) {
+        throw new Error('Google Drive did not confirm the complete recording clip.')
+      }
+      return response.fileId
     }
     if (
       typeof response.nextOffset !== 'number' ||
@@ -73,4 +75,5 @@ export async function uploadPrivateClip(blob: Blob, startedAt: number, kind: Pri
     ) throw new Error('Google Drive returned an invalid recording upload offset.')
     offset = response.nextOffset
   }
+  throw new Error('Google Drive did not complete the recording clip upload.')
 }

@@ -70,12 +70,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       const upload = uploadQueueRef.current
         .catch(() => undefined)
         .then(() => uploadPrivateClip(new Blob([blob], { type: mimeType }), startedAt, 'screen'))
-      const handledUpload = upload.then(() => {
-        if (uploadErrorRef.current) {
-          uploadErrorRef.current = ''
-          setError('')
-        }
-      }).catch(uploadError => {
+      const handledUpload = upload.then(() => undefined).catch(uploadError => {
         const detail = `A screen clip could not be saved to Drive: ${messageFor(uploadError)}`
         uploadErrorRef.current = detail
         setError(detail)
@@ -94,6 +89,56 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       const clip = new Blob(chunks, { type: mimeType })
       if (clip.size) queueClip(clip, startedAt, mimeType)
     }, [queueClip])
+
+    const createClipRecorder = useCallback((stream: MediaStream, mimeType: string) => {
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 500_000 })
+      recorder.ondataavailable = event => {
+        if (event.data.size) chunksRef.current.push(event.data)
+      }
+      recorder.onerror = () => {
+        uploadErrorRef.current = 'The browser screen recorder encountered an error.'
+        setError(uploadErrorRef.current)
+        void stopRef.current()
+      }
+      recorder.onstop = () => flushClip(recorder.mimeType || mimeType)
+      return recorder
+    }, [flushClip])
+
+    const rotateClipRecorder = useCallback(async (mimeType: string) => {
+      const recorder = recorderRef.current
+      const stream = streamRef.current
+      if (!activeRef.current || !recorder || !stream || recorder.state === 'inactive') return
+
+      let stopFailed = false
+      await new Promise<void>(resolve => {
+        recorder.addEventListener('stop', () => resolve(), { once: true })
+        try {
+          recorder.stop()
+        } catch (stopError) {
+          stopFailed = true
+          uploadErrorRef.current = `The screen clip could not be finalized: ${messageFor(stopError)}`
+          setError(uploadErrorRef.current)
+          flushClip(recorder.mimeType || mimeType)
+          resolve()
+        }
+      })
+
+      if (stopFailed) {
+        void stopRef.current()
+        return
+      }
+      if (!activeRef.current || streamRef.current !== stream) return
+      try {
+        const nextRecorder = createClipRecorder(stream, mimeType)
+        recorderRef.current = nextRecorder
+        clipStartedAtRef.current = Date.now()
+        nextRecorder.start(1000)
+      } catch (startError) {
+        uploadErrorRef.current = `The next screen clip could not be started: ${messageFor(startError)}`
+        setError(uploadErrorRef.current)
+        void stopRef.current()
+      }
+    }, [createClipRecorder, flushClip])
 
     const stopAndUpload = useCallback(() => {
       if (stopPromiseRef.current) return stopPromiseRef.current
@@ -248,19 +293,11 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
         uploadQueueRef.current = Promise.resolve()
         uploadErrorRef.current = ''
         activeRef.current = true
-        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 500_000 })
+        const recorder = createClipRecorder(stream, mimeType)
         recorderRef.current = recorder
-        recorder.ondataavailable = event => {
-          if (event.data.size) chunksRef.current.push(event.data)
-        }
-        recorder.onerror = () => {
-          uploadErrorRef.current = 'The browser screen recorder encountered an error.'
-          setError(uploadErrorRef.current)
-          void stopRef.current()
-        }
-        recorder.onstop = () => flushClip(recorder.mimeType || mimeType)
+        clipStartedAtRef.current = Date.now()
         recorder.start(1000)
-        flushTimerRef.current = window.setInterval(() => flushClip(mimeType), SCREEN_CLIP_DURATION_MS)
+        flushTimerRef.current = window.setInterval(() => { void rotateClipRecorder(mimeType) }, SCREEN_CLIP_DURATION_MS)
         screenTrack.addEventListener('ended', () => { void stopRef.current() }, { once: true })
         setStatus('recording')
       } catch (startError) {

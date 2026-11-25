@@ -163,6 +163,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         base64,
       })
       if (result.complete) {
+        if (typeof result.fileId !== 'string' || !/^[A-Za-z0-9_-]{10,200}$/.test(result.fileId)) {
+          throw new ApiError(502, 'Google Drive did not confirm the saved camera clip.')
+        }
         sendJson(response, 200, { complete: true, fileId: result.fileId })
         return
       }
