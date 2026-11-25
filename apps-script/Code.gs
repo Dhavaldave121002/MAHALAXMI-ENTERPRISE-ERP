@@ -2540,8 +2540,26 @@
       )
       const status = response.getResponseCode()
       if (status !== 200) {
-        Logger.log('Drive API authorization check failed with HTTP status ' + status)
-        throw apiError_(500, 'Apps Script is not authorized to upload camera clips. Run authorizeCameraClipUploads in the Apps Script editor and approve the requested external-request and Drive permissions.')
+        let failureDetails = ''
+        try {
+          const responseBody = JSON.parse(response.getContentText() || '{}')
+          const driveError = responseBody && responseBody.error
+          const reasons = driveError && Array.isArray(driveError.errors)
+            ? driveError.errors.map(function (item) { return String(item.reason || '') }).join(' ')
+            : ''
+          failureDetails = [
+            reasons,
+            driveError && driveError.status,
+            driveError && driveError.message,
+          ].filter(Boolean).join(': ')
+        } catch (error) {
+          failureDetails = ''
+        }
+        Logger.log('Drive API authorization check failed with HTTP status ' + status + (failureDetails ? ': ' + failureDetails.slice(0, 500) : ''))
+        if (/accessNotConfigured|SERVICE_DISABLED|serviceDisabled|has not been used|is disabled|not enabled/i.test(failureDetails)) {
+          throw apiError_(500, 'Enable the Google Drive API in the Google Cloud project linked to this Apps Script project, then run authorizeCameraClipUploads again.')
+        }
+        throw apiError_(500, 'Google Drive authorization check failed with HTTP status ' + status + '. Run authorizeCameraClipUploads in the Apps Script editor and approve the requested Drive and external-request permissions.')
       }
     }
 
