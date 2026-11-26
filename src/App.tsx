@@ -1676,8 +1676,8 @@ function ModuleView(props: {
   const [graphicDesignReportsLoading, setGraphicDesignReportsLoading] = useState(false)
   const [graphicDesignReportMessage, setGraphicDesignReportMessage] = useState('')
   const [graphicDesignReportSaving, setGraphicDesignReportSaving] = useState(false)
+  const [catalogPlatformFilter, setCatalogPlatformFilter] = useState('')
   const [catalogListingFilter, setCatalogListingFilter] = useState('')
-  const [catalogProductSearch, setCatalogProductSearch] = useState('')
   const [catalogPlatformSearch, setCatalogPlatformSearch] = useState('')
   const [catalogPlatform, setCatalogPlatform] = useState('')
   const [deliveryChannel, setDeliveryChannel] = useState('')
@@ -2899,12 +2899,6 @@ function ModuleView(props: {
 
   if (module === 'Product Catalog') {
     const masterProducts = products.filter(product => !product.isVariant)
-    const catalogSearch = catalogProductSearch.trim().toLowerCase()
-    const filteredCatalogProducts = catalogSearch
-      ? masterProducts.filter(product =>
-        `${product.name} ${product.sku} ${product.category}`.toLowerCase().includes(catalogSearch)
-      )
-      : masterProducts
     const platformSearch = catalogPlatformSearch.trim().toLowerCase()
     const filteredPlatforms = marketplaces.filter(platform => platform.toLowerCase().includes(platformSearch))
     const selectedProduct = masterProducts.find(product => product.sku === selectedCatalogMasterSku)
@@ -2913,6 +2907,24 @@ function ModuleView(props: {
       : []
     const selectedSkuProducts = selectedProduct ? [selectedProduct, ...selectedVariants] : []
     const selectedSkuKeys = new Set(selectedSkuProducts.map(product => product.sku.toLowerCase()))
+    const platformListings = catalogPlatformFilter
+      ? marketplaceListings.filter(listing => listing.platform.toLowerCase() === catalogPlatformFilter.toLowerCase())
+      : []
+    const visiblePlatformListings = platformListings.filter(listing =>
+      `${listing.platform} ${listing.platformSku} ${listing.productName} ${listing.productSku} ${listing.masterSku}`.toLowerCase().includes(search.toLowerCase())
+    )
+    const platformProductRows = visiblePlatformListings.map(listing => <tr key={listing.id}>
+      <td><code>{listing.platformSku}</code></td>
+      <td><button type="button" className="catalog-product-link" onClick={() => {
+        setSelectedCatalogMasterSku(listing.masterSku)
+        setCatalogFormOpen(null)
+        setCatalogListingFilter('')
+      }}>{listing.productName || listing.productSku}</button></td>
+      <td><code>{listing.productSku}</code></td>
+      <td>₹{listing.mrp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td>₹{listing.sellingPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td><span className="status active">{listing.status}</span></td>
+    </tr>)
     const selectedListings = selectedProduct
       ? marketplaceListings.filter(listing =>
         listing.masterSku.toLowerCase() === selectedProduct.sku.toLowerCase() ||
@@ -2944,9 +2956,14 @@ function ModuleView(props: {
     return (
       <section className="catalog-page">
         <div className="page-heading">
-          <div><p>CATALOG</p><h1>Product Catalog</h1><span className="catalog-intro">Select a product to see its master SKU, variants, and marketplace SKUs together.</span></div>
+          <div><p>CATALOG</p><h1>Product Catalog</h1><span className="catalog-intro">Select a platform to view its products and marketplace SKUs.</span></div>
           <div className="heading-actions">
             <button className="secondary" disabled={marketplaceImportBusy} onClick={() => marketplaceImportFileRef.current?.click()}><Upload size={17} /> Import workbook</button>
+            <button className="secondary" onClick={() => {
+              setCatalogPlatform('')
+              setCatalogPlatformSearch('')
+              setCatalogFormOpen(open => open === 'listing' ? null : 'listing')
+            }}><Plus size={16} /> Add marketplace SKU</button>
             <button className="primary" onClick={() => setCatalogFormOpen(open => open === 'product' ? null : 'product')}><Plus size={17} /> Add product</button>
           </div>
         </div>
@@ -2962,39 +2979,38 @@ function ModuleView(props: {
           }}
         />
         <div className="panel catalog-product-picker">
-          <div className="panel-heading"><div><h2>1. Select product</h2><p>Its saved SKUs and marketplace listings will appear below.</p></div></div>
+          <div className="panel-heading"><div><h2>1. Select platform</h2><p>Choose a marketplace to view all of its saved products below.</p></div></div>
           <div className="catalog-picker-body">
-            <div className="catalog-product-controls">
-              <label>Search product
-                <div className="catalog-product-search">
-                  <Search size={15} />
-                  <input
-                    value={catalogProductSearch}
-                    onChange={event => setCatalogProductSearch(event.target.value)}
-                    placeholder="Search product name or SKU"
-                    disabled={masterProducts.length === 0}
-                  />
-                  {catalogProductSearch && <button type="button" aria-label="Clear product search" onClick={() => setCatalogProductSearch('')}>×</button>}
-                </div>
-              </label>
-              <label>Product<select aria-label="Select catalog product" value={selectedCatalogMasterSku} onChange={event => {
-                setSelectedCatalogMasterSku(event.target.value)
+            <label>Platform<select aria-label="Select marketplace platform" value={catalogPlatformFilter} onChange={event => {
+                setCatalogPlatformFilter(event.target.value)
+                setSelectedCatalogMasterSku('')
                 setCatalogFormOpen(null)
                 setCatalogListingFilter('')
-              }} disabled={filteredCatalogProducts.length === 0}>
-                <option value="">{masterProducts.length ? (filteredCatalogProducts.length ? 'Select a product' : 'No matching products') : 'No products yet'}</option>
-                {filteredCatalogProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{product.status === 'Draft' ? ' · Draft' : ''}</option>)}
-              </select></label>
-              {catalogSearch && <span className="catalog-search-count">{filteredCatalogProducts.length} matching product{filteredCatalogProducts.length === 1 ? '' : 's'}</span>}
-            </div>
-            {selectedProduct
-              ? <div className="catalog-product-summary">
-                <div><span>Master SKU</span><strong><code>{selectedProduct.sku}</code></strong></div>
-                <div><span>Category</span><strong>{selectedProduct.category || '—'}</strong></div>
-                <div><span>Variants</span><strong>{selectedVariants.length}</strong></div>
-                <div><span>Marketplace SKUs</span><strong>{selectedListings.length}</strong></div>
+              }}>
+              <option value="">Select a platform</option>
+              {marketplaces.map(platform => <option key={platform} value={platform}>{platform} ({marketplaceListings.filter(listing => listing.platform.toLowerCase() === platform.toLowerCase()).length})</option>)}
+            </select></label>
+            {catalogPlatformFilter
+              ? <div className="catalog-platform-summary">
+                <strong>{new Set(platformListings.map(listing => listing.masterSku.toLowerCase())).size}</strong><span>products</span>
+                <strong>{platformListings.length}</strong><span>marketplace SKUs</span>
               </div>
-              : <p className="marketplace-selection-note">{masterProducts.length ? 'Choose a product to view its SKUs.' : 'Add a product to start; the saved product will be selected automatically.'}</p>}
+              : <p className="marketplace-selection-note">Select a platform to see its products and marketplace SKUs.</p>}
+          </div>
+        </div>
+        <div className="panel catalog-section">
+          <div className="panel-heading">
+            <div><h2>2. Products on {catalogPlatformFilter || 'selected platform'}</h2><p>{catalogPlatformFilter ? `${platformListings.length} marketplace SKU(s) · ${new Set(platformListings.map(listing => listing.masterSku.toLowerCase())).size} product(s)` : 'Choose a platform above to load its products.'}</p></div>
+          </div>
+          <div className="table-card">
+            <PaginatedTable label={`${catalogPlatformFilter || 'Marketplace'} products`} resetKey={`${catalogPlatformFilter}:${search}`} header={<thead><tr><th>Marketplace SKU</th><th>Product</th><th>Internal SKU</th><th>MRP</th><th>Selling price</th><th>Status</th></tr></thead>} rows={platformProductRows} />
+            {!catalogPlatformFilter
+              ? <div className="empty-state"><Boxes size={24} /><strong>Select a platform</strong><span>Choose a marketplace above to view all products assigned to it.</span></div>
+              : platformListings.length === 0
+                ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>No products are assigned to {catalogPlatformFilter} yet.</span></div>
+                : visiblePlatformListings.length === 0
+                  ? <div className="empty-state"><Search size={24} /><strong>No matching products</strong><span>Try a different product name or SKU.</span></div>
+                  : null}
           </div>
         </div>
         {catalogFormOpen === 'product' && <form className="panel form-card" onSubmit={submitCatalogProduct}>
@@ -3021,8 +3037,8 @@ function ModuleView(props: {
           </div>
           <button className="primary wide" type="submit" disabled={selectedProduct.status !== 'Active'}><Plus size={17} /> Save SKU to Excel</button>
         </form>}
-        {catalogFormOpen === 'listing' && selectedProduct && <form className="panel form-card" onSubmit={submitMarketplaceListing}>
-          <div className="panel-heading"><div><h2>Add marketplace SKU</h2><p>Link a marketplace SKU to this product or one of its variants.</p></div></div>
+        {catalogFormOpen === 'listing' && <form className="panel form-card" onSubmit={submitMarketplaceListing}>
+          <div className="panel-heading"><div><h2>Add marketplace SKU</h2><p>{selectedProduct ? `Link a marketplace SKU to ${selectedProduct.name} or one of its variants.` : 'Choose a saved product or variant and link its marketplace SKU.'}</p></div></div>
           <div className="field-grid">
             <div className="catalog-platform-picker">
               <label>Search platform
@@ -3051,12 +3067,12 @@ function ModuleView(props: {
               </div>
               {!filteredPlatforms.length && <span className="catalog-search-count">No matching platforms</span>}
             </div>
-            <label>Product SKU<select name="productSku" required defaultValue=""><option value="" disabled>Select internal SKU</option>{selectedSkuProducts.map(product => <option key={product.sku} value={product.sku}>{product.isVariant ? 'Variant' : 'Master'} · {product.name} · {product.sku}</option>)}</select></label>
+            <label>Product SKU<select name="productSku" required defaultValue={selectedProduct?.sku || ''}><option value="" disabled>Select internal SKU</option>{products.filter(product => product.status === 'Active').map(product => <option key={product.sku} value={product.sku}>{product.isVariant ? 'Variant' : 'Master'} · {product.name} · {product.sku}</option>)}</select></label>
             <label>Marketplace SKU<input name="platformSku" required maxLength={100} autoComplete="off" placeholder="Enter SKU used on this marketplace" /></label>
             <label>MRP<input name="mrp" type="number" min="0" step="0.01" required placeholder="0.00" /></label>
             <label>Selling price<input name="sellingPrice" type="number" min="0" step="0.01" required placeholder="0.00" /></label>
           </div>
-          <button className="primary wide" type="submit" disabled={selectedProduct.status !== 'Active'}><Plus size={17} /> Save marketplace SKU</button>
+          <button className="primary wide" type="submit" disabled={!catalogPlatform || !products.some(product => product.status === 'Active')}><Plus size={17} /> Save marketplace SKU</button>
         </form>}
         {marketplaceImportError && <p className="marketplace-import-error" role="alert">{marketplaceImportError}</p>}
         {marketplaceImportPreview && <div className="panel marketplace-import-panel">
@@ -3101,10 +3117,10 @@ function ModuleView(props: {
           </p>
           {marketplaceImportResult.backupName && <p className="marketplace-selection-note">Backup created in Drive: <code>{marketplaceImportResult.backupName}</code></p>}
         </div>}
-        {selectedProduct ? <>
+        {selectedProduct && <>
         <div className="panel catalog-section">
           <div className="panel-heading">
-            <div><h2>2. Product SKUs</h2><p>Master SKU and all variants for {selectedProduct.name}.</p></div>
+            <div><h2>Product details: {selectedProduct.name}</h2><p>Master SKU and all variants for this product.</p></div>
             <div className="heading-actions catalog-actions">
               <button className="secondary" onClick={() => setCatalogFormOpen(open => open === 'variant' ? null : 'variant')} disabled={selectedProduct.status !== 'Active'}><Plus size={16} /> Add SKU variant</button>
               <button className="primary" onClick={() => {
@@ -3121,7 +3137,7 @@ function ModuleView(props: {
         </div>
         <div className="panel catalog-section">
           <div className="panel-heading">
-            <div><h2>3. Marketplace listings</h2><p>{selectedListings.length} marketplace SKU(s) linked to this product.</p></div>
+            <div><h2>Marketplace listings for this product</h2><p>{selectedListings.length} marketplace SKU(s) linked to this product.</p></div>
             <label className="marketplace-filter">Platform
               <select aria-label="Filter marketplace listings by platform" value={catalogListingFilter} onChange={event => setCatalogListingFilter(event.target.value)}>
               <option value="">All platforms ({selectedListings.length})</option>
@@ -3134,7 +3150,7 @@ function ModuleView(props: {
             {visibleListings.length === 0 && <div className="empty-state"><ShoppingCart size={28} /><strong>{selectedListings.length ? 'No matching listings' : 'No marketplace SKUs yet'}</strong><span>{selectedListings.length ? 'Try another platform or search term.' : 'Add a marketplace SKU to link this product to a sales channel.'}</span></div>}
           </div>
         </div>
-        </> : <div className="panel catalog-empty-state"><Package size={28} /><strong>Select a product to continue</strong><span>Choose an existing master product above, or add one to create its SKUs and marketplace listings.</span></div>}
+        </>}
         <div className="toolbar catalog-export-toolbar">
           <div className="table-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search catalog" /></div>
           <button className="secondary" onClick={exportExcel}><Download size={16} /> Export</button>
