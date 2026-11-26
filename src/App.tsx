@@ -508,7 +508,6 @@ export default function App() {
   const [serverMessage, setServerMessage] = useState('')
   const [loginError, setLoginError] = useState('')
   const [loginBusy, setLoginBusy] = useState(false)
-  const [setupMode, setSetupMode] = useState(false)
   const [users, setUsers] = useState<UserAccount[]>([])
   const [machines, setMachines] = useState<Machine[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -1209,60 +1208,6 @@ export default function App() {
   }
 
   if (!sessionUser) {
-    const createOwner = async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      const form = new FormData(event.currentTarget)
-      const name = String(form.get('name')).trim()
-      const username = String(form.get('username')).trim().toLowerCase()
-      const password = String(form.get('password'))
-      const confirmPassword = String(form.get('confirmPassword'))
-      if (password.length < 10) {
-        setLoginError('Password must be at least 10 characters')
-        return
-      }
-      if (password !== confirmPassword) {
-        setLoginError('Passwords do not match')
-        return
-      }
-      if (!name || !username) {
-        setLoginError('Name and username are required')
-        return
-      }
-      setLoginError('')
-      try {
-        const result = await apiFetch<{ user: UserAccount }>('/api/auth/setup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, username, password }),
-        })
-        setSessionUser(result.user)
-        setSetupMode(false)
-        setModule('Dashboard')
-      } catch (error) {
-        setLoginError(error instanceof Error ? error.message : 'Admin account could not be created')
-      }
-    }
-
-    if (!isAdminRoute && setupMode) {
-      return (
-        <main className="login-page">
-          <section className="login-card">
-            <div className="login-brand"><img className="brand-mark brand-logo" src="/mahalaxmi-enterprise-logo.jpg" alt="" /><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div>
-            <div className="login-heading"><p>FIRST-TIME SETUP</p><h1>Create Admin ID &amp; Password</h1><span className="login-description">This creates the single Super Admin account in the connected workbook.</span></div>
-            <form onSubmit={createOwner}>
-              <label>Full name<input name="name" required placeholder="Owner name" /></label>
-              <label>Admin login ID<input name="username" required autoComplete="username" placeholder="Choose your login ID" /></label>
-              <label>Set password<input name="password" type="password" required minLength={10} autoComplete="new-password" placeholder="Minimum 10 characters" /></label>
-              <label>Confirm password<input name="confirmPassword" type="password" required minLength={10} autoComplete="new-password" placeholder="Enter password again" /></label>
-              {loginError && <div className="login-error">{loginError}</div>}
-              <button className="primary wide" type="submit">Create Admin Login</button>
-            </form>
-            <button className="setup-back" type="button" onClick={() => { setSetupMode(false); setLoginError('') }}>Back to login</button>
-          </section>
-        </main>
-      )
-    }
-
     return (
       <main className="login-page">
         <section className="login-card">
@@ -1276,8 +1221,6 @@ export default function App() {
             <button className="primary wide" type="submit" disabled={loginBusy}>{loginBusy ? 'Signing in…' : 'Sign in'}</button>
           </form>
           {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
-          {!isAdminRoute && <div className="first-admin-setup"><span>First-time setup only: create the one-time Admin account. If it is already set up, sign in instead.</span><button type="button" onClick={() => { setSetupMode(true); setLoginError('') }}>Create first Admin</button></div>}
-          {authStatus === 'ready' && <a className="login-route-link" href={isAdminRoute ? '/' : '/admin'}>{isAdminRoute ? 'Team login' : 'Admin login'}</a>}
         </section>
       </main>
     )
