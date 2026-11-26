@@ -1810,6 +1810,7 @@ function ModuleView(props: {
   const [marketplaceImportError, setMarketplaceImportError] = useState('')
   const [marketplaceImportBusy, setMarketplaceImportBusy] = useState(false)
   const [marketplaceImportResult, setMarketplaceImportResult] = useState<MarketplaceImportResult | null>(null)
+  const [selectedImportPlatforms, setSelectedImportPlatforms] = useState<string[]>([])
   const marketplaceImportFileRef = useRef<HTMLInputElement>(null)
   const loadMarketplaceImport = async (file: File) => {
     try {
@@ -1867,6 +1868,7 @@ function ModuleView(props: {
       }
       setMarketplaceImportFileName(file.name)
       setMarketplaceImportPreview({ products, variants, listings, finishedGoods, issues })
+      setSelectedImportPlatforms([...new Set(listings.map(row => String(row.Platform || '').trim()).filter(Boolean))])
       setMarketplaceImportResult(null)
       setMarketplaceImportError('')
     } catch (error) {
@@ -1882,7 +1884,7 @@ function ModuleView(props: {
       const result = await importMarketplaceWorkbook({
         products: marketplaceImportPreview.products,
         variants: marketplaceImportPreview.variants,
-        listings: marketplaceImportPreview.listings,
+        listings: marketplaceImportPreview.listings.filter(row => selectedImportPlatforms.includes(String(row.Platform || '').trim())),
         finishedGoods: marketplaceImportPreview.finishedGoods,
       })
       setMarketplaceImportResult(result)
@@ -1910,6 +1912,9 @@ function ModuleView(props: {
     counts[platform] = (counts[platform] || 0) + 1
     return counts
   }, {})
+  const selectedMarketplaceImportListings = marketplaceImportPreview?.listings.filter(row =>
+    selectedImportPlatforms.includes(String(row.Platform || '').trim())
+  ) || []
   if (!allowedModules.includes(module)) {
     return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Your account role cannot open this section.</span></div></section>
   }
@@ -3087,13 +3092,38 @@ function ModuleView(props: {
           <div className="marketplace-import-summary">
             <div><strong>{marketplaceImportPreview.products.length}</strong><span>Product masters</span></div>
             <div><strong>{marketplaceImportPreview.variants.length}</strong><span>SKU variants</span></div>
-            <div><strong>{marketplaceImportPreview.listings.length}</strong><span>Marketplace listings</span></div>
+            <div><strong>{selectedMarketplaceImportListings.length}</strong><span>Selected listings</span></div>
             <div><strong>{marketplaceImportPreview.finishedGoods.length}</strong><span>ERP opening-stock rows</span></div>
           </div>
           <p className="marketplace-selection-note">
-            Platforms: {Object.entries(importPlatformCounts || {}).map(([platform, count]) => `${platform} ${count}`).join(' · ')}.
+            Workbook platforms: {Object.entries(importPlatformCounts || {}).map(([platform, count]) => `${platform} ${count}`).join(' · ')}.
             {' '}Workbook issues flagged: {marketplaceImportPreview.issues.length}.
           </p>
+          <fieldset className="marketplace-import-platforms" disabled={marketplaceImportBusy}>
+            <legend>Select platform listings to import</legend>
+            <div className="marketplace-import-platform-actions">
+              <button type="button" className="text-button" onClick={() => setSelectedImportPlatforms(Object.keys(importPlatformCounts || {}))}>Select all</button>
+              <button type="button" className="text-button" onClick={() => setSelectedImportPlatforms([])}>Clear selection</button>
+            </div>
+            <div className="marketplace-import-platform-options">
+              {Object.entries(importPlatformCounts || {}).map(([platform, count]) => (
+                <label key={platform}>
+                  <input
+                    type="checkbox"
+                    checked={selectedImportPlatforms.includes(platform)}
+                    onChange={event => setSelectedImportPlatforms(current =>
+                      event.target.checked
+                        ? [...current, platform]
+                        : current.filter(item => item !== platform)
+                    )}
+                  />
+                  <span>{platform}</span>
+                  <small>{count} listings</small>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <p className="local-storage-note">Only checked-platform listings are imported now. Product masters, variants, and shared opening-stock rows stay in the batch so imports can be done in stages without breaking shared SKU links or stock. You can import the remaining platforms later from this same workbook.</p>
           <p className="local-storage-note">Matching products, variants, and listings are updated only when imported values differ; blank cells never erase saved values. Optional opening-stock rows are added only for SKUs without an existing stock record or ledger history, and create an opening movement. A product SKU change matches by product ID, then by a unique exact title, and updates linked current records while leaving historical stock and production logs unchanged. Unchanged rows are preserved, and nothing is deleted. A Drive backup is created before changes.</p>
           {marketplaceImportPreview.issues.length > 0 && <details className="marketplace-import-issues">
             <summary>Review {marketplaceImportPreview.issues.length} source issues</summary>
@@ -3104,8 +3134,10 @@ function ModuleView(props: {
             ))}</ul>
             {marketplaceImportPreview.issues.length > 20 && <span>Only the first 20 issues are shown.</span>}
           </details>}
-          <button className="primary wide" type="button" disabled={marketplaceImportBusy} onClick={() => void applyMarketplaceImport()}>
-            {marketplaceImportBusy ? 'Importing…' : `Back up and import ${marketplaceImportPreview.listings.length} listings and ${marketplaceImportPreview.finishedGoods.length} opening-stock rows`}
+          <button className="primary wide" type="button" disabled={marketplaceImportBusy || selectedMarketplaceImportListings.length === 0} onClick={() => void applyMarketplaceImport()}>
+            {marketplaceImportBusy ? 'Importing…' : selectedMarketplaceImportListings.length
+              ? `Back up and import ${selectedMarketplaceImportListings.length} selected listings and ${marketplaceImportPreview.finishedGoods.length} opening-stock rows`
+              : 'Select at least one platform to import'}
           </button>
         </div>}
         {marketplaceImportResult && <div className="panel marketplace-import-panel">
