@@ -1,8 +1,8 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms', 'Manager ID']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets', 'Graphic_Design_Tasks']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
-    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
     const ERP_AUDIT_HEADERS = ['Event ID', 'Timestamp', 'User ID', 'User Name', 'Role', 'Action', 'Target', 'Outcome']
@@ -26,6 +26,15 @@
     const ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY = 'ERP_GRAPHIC_DESIGN_REPORT_FOLDER_ID'
     const ERP_GRAPHIC_DESIGN_REPORT_KIND = 'mahalaxmi-erp-graphic-design-daily-report'
     const ERP_SALES_REPORT_FOLDER_PROPERTY = 'ERP_SALES_REPORT_FOLDER_ID'
+    const ERP_CAMERA_USER_FOLDER_PREFIX = 'ERP_CAMERA_RECORDING_USER_FOLDER_'
+    const ERP_RESETTABLE_STORAGE_FOLDERS = [
+      { property: ERP_CHAT_ATTACHMENT_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private Chat Attachments', category: 'chat' },
+      { property: ERP_CAMERA_RECORDING_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private Camera Recordings', category: 'camera' },
+      { property: ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private Graphic Design Daily Reports', category: 'graphicDesign' },
+      { property: ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private E-commerce Labels', category: 'ecommerce' },
+      { property: ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private E-commerce Daily Reports', category: 'ecommerce' },
+      { property: ERP_SALES_REPORT_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private Sales Daily Reports', category: 'sales' },
+    ]
     const ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_DAILY_TARGET_'
     const ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_'
     const ERP_ECOMMERCE_MANAGER_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_DAILY_TARGET_'
@@ -320,6 +329,8 @@
           return { users: readCachedSheetRecords_(spreadsheet, 'Users') }
         case 'listAuditEvents':
           return listAuditEvents_()
+        case 'resetErpData':
+          return resetErpData_(spreadsheet, payload)
         case 'recordAuditEvent':
           return recordAuditEvent_(payload)
         case 'listChatData':
@@ -874,6 +885,7 @@
         archiveStockItem: 'Archived stock item',
         deleteUnusedStockItem: 'Deleted unused stock item',
         importMarketplaceWorkbook: 'Imported marketplace catalog',
+        resetErpData: 'Reset ERP business data',
         updateMarketplaceSku: 'Updated marketplace SKU',
         updateMarketplaceListing: 'Updated marketplace listing',
         uploadEcommerceLabel: 'Uploaded shipping label',
@@ -3787,6 +3799,172 @@
         properties[monthlyPrefix + targetId] = String(monthlyTarget)
         PropertiesService.getScriptProperties().setProperties(properties, false)
         return { targetType: targetType, targetId: targetId, dailyTarget: dailyTarget, monthlyTarget: monthlyTarget }
+      })
+    }
+
+    function resetErpData_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can reset ERP data.')
+      }
+      if (String(payload.confirmation || '') !== 'RESET ERP') {
+        throw apiError_(400, 'Type RESET ERP to confirm the data reset.')
+      }
+
+      const usersSheet = spreadsheet.getSheetByName('Users')
+      if (!usersSheet || usersSheet.getLastRow() < 2 || usersSheet.getLastColumn() < 1) {
+        throw apiError_(422, 'The Users sheet must contain the active Super Admin account before reset.')
+      }
+      const userHeaders = usersSheet.getRange(1, 1, 1, usersSheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+      const userIdColumn = userHeaders.indexOf('User ID')
+      const userRoleColumn = userHeaders.indexOf('Role')
+      const userActiveColumn = userHeaders.indexOf('Active')
+      if (userIdColumn < 0 || userRoleColumn < 0 || userActiveColumn < 0) {
+        throw apiError_(422, 'The Users sheet is missing the columns required to preserve the Super Admin.')
+      }
+      const activeUserId = String(payload.sessionUserId || '').trim()
+      const userRows = usersSheet.getRange(2, 1, usersSheet.getLastRow() - 1, usersSheet.getLastColumn()).getValues()
+      const adminRowIndex = userRows.findIndex(function (row) {
+        const active = row[userActiveColumn] === true || ['true', '1', 'yes'].indexOf(String(row[userActiveColumn] || '').toLowerCase()) >= 0
+        return String(row[userIdColumn] || '').trim() === activeUserId &&
+          String(row[userRoleColumn] || '').trim() === 'Super Admin' && active
+      })
+      if (adminRowIndex < 0) throw apiError_(401, 'The active Super Admin account could not be verified for reset.')
+
+      return withWriteLock_(function () {
+        const timestamp = Utilities.formatDate(new Date(), spreadsheet.getSpreadsheetTimeZone(), 'yyyy-MM-dd-HH-mm-ss')
+        const root = getErpStorageRootFolder_(true)
+        const archiveFolder = root.createFolder('Reset Backup ' + timestamp)
+        archiveFolder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        const backupFiles = []
+        const masterFile = DriveApp.getFileById(spreadsheet.getId())
+        backupFiles.push(copyFileToResetArchive_(masterFile, archiveFolder, timestamp))
+
+        const chatFile = configuredDriveFile_(ERP_CHAT_SPREADSHEET_PROPERTY, 'Mahalaxmi ERP Private Chats')
+        let chatSpreadsheet = null
+        if (chatFile) {
+          backupFiles.push(copyFileToResetArchive_(chatFile, archiveFolder, timestamp))
+          chatSpreadsheet = SpreadsheetApp.openById(chatFile.getId())
+        }
+
+        const archivedFolders = archiveResetStorageFolders_(archiveFolder)
+        const workbookReset = clearSpreadsheetForReset_(spreadsheet, {
+          sheetName: 'Users',
+          rowNumber: adminRowIndex + 2,
+        })
+        let chatReset = { clearedSheets: [], clearedRecords: 0 }
+        if (chatSpreadsheet) chatReset = clearSpreadsheetForReset_(chatSpreadsheet, null)
+        clearResetScriptProperties_()
+        SpreadsheetApp.flush()
+
+        return {
+          backupFolderName: archiveFolder.getName(),
+          backupFiles: backupFiles,
+          clearedSheets: workbookReset.clearedSheets.concat(chatReset.clearedSheets),
+          clearedRecords: workbookReset.clearedRecords + chatReset.clearedRecords,
+          archivedFolders: archivedFolders,
+        }
+      })
+    }
+
+    function copyFileToResetArchive_(file, archiveFolder, timestamp) {
+      const backup = file.makeCopy(file.getName() + '-Reset-Backup-' + timestamp, archiveFolder)
+      backup.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      return backup.getName()
+    }
+
+    function archiveResetStorageFolders_(archiveFolder) {
+      const properties = PropertiesService.getScriptProperties()
+      const plan = ERP_RESETTABLE_STORAGE_FOLDERS.map(function (config) {
+        const originalPropertyValue = properties.getProperty(config.property)
+        const folder = originalPropertyValue ? DriveApp.getFolderById(originalPropertyValue) : findUniqueDriveFolder_(config.name)
+        if (!folder) return null
+        if (folder.getId() === archiveFolder.getId()) throw apiError_(409, 'A reset archive cannot be used as an active ERP storage folder.')
+        if (folder.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+          throw apiError_(403, 'The Drive folder "' + config.name + '" must be private before it can be archived.')
+        }
+        return {
+          config: config,
+          folder: folder,
+          destination: getErpStorageCategoryFolder_(config.category, true),
+          originalPropertyValue: originalPropertyValue,
+          originalParent: (function () {
+            const parents = folder.getParents()
+            return parents.hasNext() ? parents.next() : null
+          })(),
+        }
+      }).filter(Boolean)
+
+      const completed = []
+      try {
+        plan.forEach(function (entry) {
+          completed.push(entry)
+          entry.replacement = entry.destination.createFolder(entry.config.name)
+          entry.replacement.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+          entry.folder.moveTo(archiveFolder)
+          entry.moved = true
+          properties.setProperty(entry.config.property, entry.replacement.getId())
+        })
+      } catch (error) {
+        const rollbackErrors = []
+        completed.reverse().forEach(function (entry) {
+          try {
+            if (entry.moved && entry.originalParent) entry.folder.moveTo(entry.originalParent)
+            if (entry.replacement) entry.replacement.setTrashed(true)
+            if (entry.originalPropertyValue) properties.setProperty(entry.config.property, entry.originalPropertyValue)
+            else properties.deleteProperty(entry.config.property)
+          } catch (rollbackError) {
+            rollbackErrors.push(String(rollbackError))
+          }
+        })
+        if (rollbackErrors.length) {
+          throw apiError_(500, 'Drive archiving failed and rollback was incomplete. Preserve the reset backup "' + archiveFolder.getName() + '" and review the ERP Drive folders. ' + rollbackErrors.join('; '))
+        }
+        throw error
+      }
+      return plan.map(function (entry) { return entry.config.name })
+    }
+
+    function clearSpreadsheetForReset_(spreadsheet, preservedRow) {
+      const clearedSheets = []
+      let clearedRecords = 0
+      spreadsheet.getSheets().forEach(function (sheet) {
+        const lastRow = sheet.getLastRow()
+        const lastColumn = sheet.getLastColumn()
+        if (lastRow < 2 || lastColumn < 1) return
+        const rows = sheet.getRange(2, 1, lastRow - 1, lastColumn).getValues()
+        let keepRow = null
+        let removed = 0
+        rows.forEach(function (row, index) {
+          const isPreservedRow = preservedRow && sheet.getName() === preservedRow.sheetName && index + 2 === preservedRow.rowNumber
+          if (isPreservedRow) {
+            keepRow = row
+            return
+          }
+          if (row.some(function (value) { return value !== '' && value !== null })) removed += 1
+        })
+        sheet.getRange(2, 1, lastRow - 1, lastColumn).clearContent()
+        if (keepRow) sheet.getRange(2, 1, 1, lastColumn).setValues([keepRow])
+        if (removed > 0) clearedSheets.push(sheet.getName())
+        clearedRecords += removed
+      })
+      if (preservedRow && !spreadsheet.getSheetByName(preservedRow.sheetName)) {
+        throw apiError_(422, 'The Users sheet disappeared during reset.')
+      }
+      return { clearedSheets: clearedSheets, clearedRecords: clearedRecords }
+    }
+
+    function clearResetScriptProperties_() {
+      const properties = PropertiesService.getScriptProperties()
+      const keys = Object.keys(properties.getProperties())
+      const prefixes = [
+        ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX,
+        ERP_ECOMMERCE_EXEC_MONTHLY_TARGET_PREFIX,
+        ERP_ECOMMERCE_MANAGER_DAILY_TARGET_PREFIX,
+        ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_PREFIX,
+        ERP_CAMERA_USER_FOLDER_PREFIX,
+      ]
+      keys.forEach(function (key) {
+        if (prefixes.some(function (prefix) { return key.indexOf(prefix) === 0 })) properties.deleteProperty(key)
       })
     }
 

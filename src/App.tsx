@@ -54,6 +54,13 @@ type MarketplaceImportResult = {
   renamedProducts?: number
   backupName: string
 }
+type ErpResetResult = {
+  backupFolderName: string
+  backupFiles: string[]
+  clearedSheets: string[]
+  clearedRecords: number
+  archivedFolders: string[]
+}
 type Production = {
   id: string
   date: string
@@ -759,6 +766,27 @@ export default function App() {
     return response.result
   }
 
+  const resetErpData = async (confirmation: string) => {
+    if (!sessionUser || sessionUser.role !== 'Super Admin') throw new Error('Only the Super Admin can reset ERP data.')
+    const response = await apiFetch<{ result: ErpResetResult }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'resetErpData', confirmation }),
+    })
+    setUsers([sessionUser])
+    let refreshFailed = false
+    try {
+      await refreshWorkbook()
+    } catch {
+      refreshFailed = true
+    }
+    setUsers([sessionUser])
+    setSalesAccounts([])
+    setModule('Dashboard')
+    notify(`ERP reset complete: ${response.result.clearedRecords} records cleared. Private backup: ${response.result.backupFolderName}.${refreshFailed ? ' Reload the page to refresh the live workbook.' : ''}`)
+    return response.result
+  }
+
   const saveMachine = async (input: Omit<Machine, 'id'>) => {
     const result = await apiFetch<{ machine: Machine }>('/api/erp', {
       method: 'POST',
@@ -1353,6 +1381,7 @@ export default function App() {
           ) : (
             <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
+              resetErpData={resetErpData}
               saveProduction={saveProduction} reviewProductionQuality={reviewProductionQuality} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
               graphicDesignTasks={graphicDesignTasks} submitGraphicDesignTask={submitGraphicDesignTask} updateGraphicDesignProgress={updateGraphicDesignProgress} reviewGraphicDesignTask={reviewGraphicDesignTask}
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
@@ -1381,6 +1410,7 @@ function ModuleView(props: {
   saveVariant: (input: { masterSku: string; sku: string; size: string; color: string; packQuantity: number; mrp?: number; sellingPrice?: number }) => Promise<Product>;
   saveMarketplaceListing: (input: { platform: string; platformSku: string; productSku: string; mrp: number; sellingPrice: number }) => Promise<MarketplaceListing>;
   importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => Promise<MarketplaceImportResult>;
+  resetErpData: (confirmation: string) => Promise<ErpResetResult>;
   saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
   reviewProductionQuality: (input: { productionId: string; approved: number; rejected: number }) => Promise<Production>;
   graphicDesignTasks: GraphicDesignTask[];
@@ -1410,13 +1440,16 @@ function ModuleView(props: {
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditLoading, setAuditLoading] = useState(true)
   const [auditError, setAuditError] = useState('')
   const [auditRetentionDays, setAuditRetentionDays] = useState(90)
   const [catalogFormOpen, setCatalogFormOpen] = useState<'product' | 'variant' | 'listing' | null>(null)
   const [selectedCatalogMasterSku, setSelectedCatalogMasterSku] = useState('')
+  const [resetPanelOpen, setResetPanelOpen] = useState(false)
+  const [resetConfirmation, setResetConfirmation] = useState('')
+  const [resetBusy, setResetBusy] = useState(false)
   useEffect(() => {
     if (module !== 'Audit Logs') return
     let active = true
@@ -1630,6 +1663,17 @@ function ModuleView(props: {
       setMarketplaceImportError(error instanceof Error ? error.message : 'Marketplace workbook import failed.')
     } finally {
       setMarketplaceImportBusy(false)
+    }
+  }
+  const submitErpReset = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (resetConfirmation !== 'RESET ERP') return
+    setResetBusy(true)
+    try {
+      await resetErpData(resetConfirmation)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'ERP reset failed. No success was reported.')
+      setResetBusy(false)
     }
   }
   const importPlatformCounts = marketplaceImportPreview?.listings.reduce<Record<string, number>>((counts, row) => {
@@ -3094,6 +3138,40 @@ function ModuleView(props: {
           <div className="panel-heading"><div><h2>Shared workbook</h2><p>Catalog, machine, and production changes are backed up and saved to Google Sheets.</p></div></div>
           <p className="local-storage-note">Excel uploads here are preview-only. To import the prepared combined marketplace workbook into the existing Google Sheet, open Product Catalog → Import workbook.</p>
         </div>
+        {sessionUser.role === 'Super Admin' && <div className="panel erp-reset-panel">
+          <div className="panel-heading">
+            <div><h2>Reset ERP data</h2><p>Prepare the workbook and private business records for a fresh start.</p></div>
+            {!resetPanelOpen && <button className="secondary" type="button" onClick={() => setResetPanelOpen(true)}>Review reset</button>}
+          </div>
+          {resetPanelOpen && <div className="erp-reset-content">
+            <div className="erp-reset-warning" role="alert">
+              <strong>This will clear all business records from every master-workbook tab.</strong>
+              <ul>
+                <li>Products, variants, marketplace listings, machines, users other than you, inventory, production, sales, tasks, and targets will be cleared. The current Super Admin account and sheet headers will remain.</li>
+                <li>Private chat records will be cleared. Existing report, label, recording, and chat-attachment folders will be moved into a private Drive reset archive and replaced with empty folders.</li>
+                <li>A private backup of the master workbook and chat workbook is created first. Existing audit history and app/deployment settings are intentionally retained.</li>
+              </ul>
+            </div>
+            <form className="erp-reset-form" onSubmit={submitErpReset}>
+              <label htmlFor="erp-reset-confirmation">Type <code>RESET ERP</code> to confirm</label>
+              <input
+                id="erp-reset-confirmation"
+                value={resetConfirmation}
+                onChange={event => setResetConfirmation(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                aria-describedby="erp-reset-hint"
+              />
+              <span id="erp-reset-hint">This action cannot be undone from the ERP. The backup will be stored in a private Drive folder.</span>
+              <div className="erp-reset-actions">
+                <button className="secondary" type="button" onClick={() => { setResetPanelOpen(false); setResetConfirmation('') }} disabled={resetBusy}>Cancel</button>
+                <button className="erp-reset-submit" type="submit" disabled={!workbookMeta.loaded || resetBusy || resetConfirmation !== 'RESET ERP'}>
+                  {resetBusy ? 'Backing up and resetting…' : 'Back up and reset ERP'}
+                </button>
+              </div>
+            </form>
+          </div>}
+        </div>}
         <div className="panel table-card excel-table"><div className="panel-heading"><div><h2>Import help</h2><p>Marketplace workbook workflow</p></div></div><div className="empty-state"><FileSpreadsheet size={28} /><strong>Import from Product Catalog</strong><span>Use Product Catalog → Import workbook to preview and add missing catalog rows to the connected Sheet.</span></div></div>
       </section>
     )

@@ -34,6 +34,7 @@ import {
   setWorkbookChatTyping,
   readUsers,
   readSheetRecords,
+  resetWorkbookData,
   type PublicUser,
   type WorkbookData,
 } from './_lib/workbook.js'
@@ -1352,7 +1353,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder',
       'cancelSalesOrder', 'setSalesTarget',
     ]
-    const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment']
+    const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment']
     const data = snapshotActions.includes(action) ? await getWorkbookData() : undefined
     const user = data
       ? await getSessionUser(request, readUsers(data.sheets.Users || []))
@@ -1362,6 +1363,14 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     if (action === 'listChatData') {
       sendJson(response, 200, await listWorkbookChatData(user))
+      return
+    }
+    if (action === 'resetErpData') {
+      requireAdmin(user)
+      const confirmation = requiredText(body.confirmation, 'Reset confirmation', 20)
+      if (confirmation !== 'RESET ERP') throw new ApiError(400, 'Type RESET ERP to confirm the data reset.')
+      const result = await resetWorkbookData({ id: user.id, role: user.role, confirmation })
+      sendJson(response, 200, { result })
       return
     }
     if (action === 'listChatMessages') {

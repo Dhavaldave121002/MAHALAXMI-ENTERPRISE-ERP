@@ -287,6 +287,16 @@ function sessionBoundPayload(user: SessionBoundInput) {
   return { sessionUserId: user.id, sessionRole: user.role }
 }
 
+export async function resetWorkbookData(input: SessionBoundInput & { confirmation: string }) {
+  return callAppsScript<{
+    backupFolderName: string
+    backupFiles: string[]
+    clearedSheets: string[]
+    clearedRecords: number
+    archivedFolders: string[]
+  }>('resetErpData', { ...input, ...sessionBoundPayload(input) })
+}
+
 export async function updateWorkbookMarketplaceListing(input: SessionBoundInput & {
   platform: EcommercePlatform
   listingId: string
