@@ -15,7 +15,7 @@ const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.C
 import type { SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
 
-type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'Factory' | 'Production' | 'Production Targets' | 'Stitching' | 'Graphic Design' | 'Raw Material' | 'Finished Goods' |
+type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'Production' | 'Production Targets' | 'Stitching' | 'Graphic Design' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
@@ -205,7 +205,7 @@ function auditFailureMessage(error: unknown): string {
 }
 
 const navSections: { label: string; items: Module[] }[] = [
-  { label: 'MAIN', items: ['Dashboard', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Quality Control'] as Module[] },
+  { label: 'MAIN', items: ['Dashboard', 'Production', 'Production Targets', 'Stitching', 'Quality Control'] },
   { label: 'COMMUNICATION', items: ['Chat'] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
@@ -255,7 +255,6 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   'Daily Work Report': ClipboardCheck, 'Camera Monitoring': Video,
   'Graphic Design': FileSpreadsheet,
   Chat: MessageCircle,
-  Factory: Factory,
 } as Record<Module, typeof LayoutDashboard>
 
 function readStored<T>(key: string, fallback: T): T {
@@ -3793,6 +3792,7 @@ function ModuleView(props: {
   }
 
   if (module === 'Suppliers') {
+    const canAddSuppliers = sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor'
     const canManageSuppliers = sessionUser.role === 'Production Supervisor'
     const supplierRows = suppliers.map(supplier => <tr key={supplier.id}>
       <td><strong>{supplier.name}</strong><small>{supplier.contactPerson || 'No contact person'}</small></td>
@@ -3804,8 +3804,9 @@ function ModuleView(props: {
     </tr>)
     return <section>
       <div className="page-heading"><div><p>PROCUREMENT · DIRECTORY</p><h1>Suppliers</h1></div><span className="status active">{suppliers.filter(supplier => supplier.status.toLowerCase() === 'active').length} active · {suppliers.length} total</span></div>
-      {!canManageSuppliers && <p className="local-storage-note">Read-only supplier directory. The Production Supervisor manages supplier records.</p>}
-      {canManageSuppliers && <form className="panel form-card" onSubmit={event => void submitSupplier(event)}>
+      {sessionUser.role === 'Super Admin' && <p className="local-storage-note">You can add suppliers. The Production Supervisor manages supplier status.</p>}
+      {!canAddSuppliers && <p className="local-storage-note">Read-only supplier directory. The Production Supervisor manages supplier records.</p>}
+      {canAddSuppliers && <form className="panel form-card" onSubmit={event => void submitSupplier(event)}>
         <div className="panel-heading"><div><h2>Add supplier</h2><p>Active suppliers are available when creating raw materials and recording purchases.</p></div></div>
         <div className="field-grid">
           <label>Supplier name<input name="name" required maxLength={180} placeholder="Registered supplier name" /></label>

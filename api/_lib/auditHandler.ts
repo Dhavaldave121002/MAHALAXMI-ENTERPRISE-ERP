@@ -4,7 +4,7 @@ import { getSessionUser, requireAdmin } from './session.js'
 import { listWorkbookAuditEvents, recordWorkbookAuditEvent, type UserRole } from './workbook.js'
 
 const ERP_MODULES = new Set([
-  'Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Factory', 'Production',
+  'Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Production',
   'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog',
   'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO',
   'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels',

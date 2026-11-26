@@ -985,7 +985,7 @@
       if (!user.id || !user.name || roles.indexOf(user.role) < 0) throw apiError_(400, 'Audit actor details are invalid.')
       let target = ''
       if (eventType === 'module_view') {
-        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Factory', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Machines', 'Quality Control', 'Graphic Design', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat']
+        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Machines', 'Quality Control', 'Graphic Design', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat']
         target = String(payload.module || '')
         if (modules.indexOf(target) < 0) throw apiError_(400, 'ERP module is invalid.')
       }
@@ -1280,7 +1280,9 @@
     }
 
     function addSupplier_(spreadsheet, payload) {
-      requireProductionSupervisor_(payload)
+      if (!['Super Admin', 'Production Supervisor'].includes(String(payload.sessionUserRole || ''))) {
+        throw apiError_(403, 'Only the Super Admin or Production Supervisor can add suppliers.')
+      }
       return withWriteLock_(function () {
         const input = payload.supplier || {}
         const name = String(input.name || '').trim()

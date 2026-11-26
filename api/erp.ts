@@ -1397,7 +1397,7 @@ async function applyStockMovement(user: PublicUser, body: Record<string, unknown
 }
 
 async function addSupplier(user: PublicUser, body: Record<string, unknown>) {
-  requireProductionSupervisor(user)
+  requireSupervisorOrAdmin(user)
   const name = requiredText(body.name, 'Supplier name', 180)
   const contactPerson = text(body.contactPerson)
   const phone = text(body.phone)
