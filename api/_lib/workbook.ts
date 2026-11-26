@@ -51,7 +51,7 @@ export type WorkbookData = {
   capabilities?: WorkbookCapabilities
 }
 
-const WORKBOOK_DATA_CACHE_MS = 2_000
+const WORKBOOK_DATA_CACHE_MS = 30_000
 const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'getWorkbookData',
   'getUsers',

@@ -202,8 +202,9 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'CREATIVE', items: ['Graphic Design'] },
   { label: 'WORK REPORTS', items: ['Daily Work Report'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
-  { label: 'ADMIN', items: ['Camera Monitoring', 'Excel Management', 'User Management', 'Settings', 'Audit Logs'] },
+  { label: 'ADMIN', items: ['Camera Monitoring', 'Settings'] },
 ]
+const settingsModules: Module[] = ['User Management', 'Excel Management', 'Audit Logs']
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
 const socialPlatforms = ['Instagram', 'Facebook', 'YouTube', 'LinkedIn']
 const deliveryChannels = ['DIRECT', 'AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
@@ -432,6 +433,97 @@ function recordText(record: Record<string, unknown>, key: string) {
 function recordNumber(record: Record<string, unknown>, key: string) {
   const value = Number(record[key] ?? 0)
   return Number.isFinite(value) ? value : 0
+}
+
+function toSalesLead(record: Record<string, unknown>): SalesLead {
+  const status = recordText(record, 'Status')
+  if (!['New', 'Contacted', 'Qualified', 'Follow-up', 'Converted', 'Lost'].includes(status)) {
+    throw new Error('The saved sales lead returned an invalid status.')
+  }
+  return {
+    id: recordText(record, 'Lead ID'),
+    name: recordText(record, 'Name'),
+    company: recordText(record, 'Company'),
+    phone: recordText(record, 'Phone'),
+    email: recordText(record, 'Email'),
+    productInterest: recordText(record, 'Product Interest'),
+    notes: recordText(record, 'Notes'),
+    referenceUrl: recordText(record, 'Reference URL'),
+    assignedUserId: recordText(record, 'Assigned User ID'),
+    assignedUserName: recordText(record, 'Assigned User Name'),
+    status: status as SalesLeadStatus,
+    nextFollowUp: recordText(record, 'Next Follow-Up'),
+    createdAt: recordText(record, 'Created At'),
+    createdBy: recordText(record, 'Created By'),
+    updatedAt: recordText(record, 'Updated At'),
+  }
+}
+
+function toSalesActivity(record: Record<string, unknown>): SalesActivity {
+  const type = recordText(record, 'Activity Type')
+  if (!['Call', 'WhatsApp', 'Meeting', 'Note'].includes(type)) {
+    throw new Error('The saved sales activity returned an invalid type.')
+  }
+  return {
+    id: recordText(record, 'Activity ID'),
+    leadId: recordText(record, 'Lead ID'),
+    type: type as SalesActivityType,
+    outcome: recordText(record, 'Outcome'),
+    notes: recordText(record, 'Notes'),
+    nextFollowUp: recordText(record, 'Next Follow-Up'),
+    createdAt: recordText(record, 'Created At'),
+    createdBy: recordText(record, 'Created By'),
+    createdByName: recordText(record, 'Created By Name'),
+  }
+}
+
+function toSalesOrder(record: Record<string, unknown>): SalesOrder {
+  return {
+    id: recordText(record, 'Order ID'),
+    createdAt: recordText(record, 'Created At'),
+    salesUserId: recordText(record, 'Sales User ID'),
+    salesUserName: recordText(record, 'Sales User Name'),
+    leadId: recordText(record, 'Lead ID'),
+    customerName: recordText(record, 'Customer Name'),
+    sku: recordText(record, 'Product SKU'),
+    productName: recordText(record, 'Product Name'),
+    quantity: recordNumber(record, 'Quantity'),
+    unitPrice: recordNumber(record, 'Unit Price'),
+    amount: recordNumber(record, 'Amount'),
+    fulfilledQuantity: recordNumber(record, 'Fulfilled Quantity'),
+    cancelledQuantity: recordNumber(record, 'Cancelled Quantity'),
+    status: recordText(record, 'Status'),
+    notes: recordText(record, 'Notes'),
+  }
+}
+
+function salesTargetActualFromOrders(orders: SalesOrder[], salesUserId: string, period: SalesTargetPeriod, periodKey: string) {
+  return orders.reduce((total, order) => {
+    if (order.salesUserId !== salesUserId) return total
+    const orderDate = dateForTimestamp(order.createdAt)
+    if (period === 'monthly' && orderDate.slice(0, 7) !== periodKey) return total
+    if (period === 'yearly' && orderDate.slice(0, 4) !== periodKey) return total
+    const activeAmount = Math.max(0, order.amount - order.unitPrice * order.cancelledQuantity)
+    return Math.round((total + activeAmount) * 100) / 100
+  }, 0)
+}
+
+function toSalesTarget(record: Record<string, unknown>, orders: SalesOrder[]): SalesTarget {
+  const period = recordText(record, 'Period').toLowerCase()
+  if (period !== 'monthly' && period !== 'yearly') throw new Error('The saved sales target returned an invalid period.')
+  const salesUserId = recordText(record, 'Sales User ID')
+  const periodKey = recordText(record, 'Period Key')
+  return {
+    id: recordText(record, 'Target ID'),
+    salesUserId,
+    salesUserName: recordText(record, 'Sales User Name'),
+    period,
+    periodKey,
+    targetAmount: recordNumber(record, 'Target Amount'),
+    actualAmount: salesTargetActualFromOrders(orders, salesUserId, period, periodKey),
+    updatedAt: recordText(record, 'Updated At'),
+    updatedBy: recordText(record, 'Updated By'),
+  }
 }
 
 function toFinishedGood(record: Record<string, unknown>): FinishedGood {
@@ -934,6 +1026,13 @@ export default function App() {
     }
   }
 
+  const refreshSalesTargetActuals = (orders: SalesOrder[]) => {
+    setSalesTargets(previous => previous.map(target => ({
+      ...target,
+      actualAmount: salesTargetActualFromOrders(orders, target.salesUserId, target.period, target.periodKey),
+    })))
+  }
+
   const importSalesLeads = async (rows: SalesLeadImportRow[], assignedUserId: string) => {
     const result = await apiFetch<{ added: number; skipped: number }>('/api/erp', {
       method: 'POST',
@@ -945,59 +1044,96 @@ export default function App() {
   }
 
   const addSalesLead = async (lead: Omit<SalesLeadImportRow, 'assignedUserId'> & { assignedUserId: string }) => {
-    await apiFetch('/api/erp', {
+    const result = await apiFetch<{ lead: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'addSalesLead', lead }),
     })
-    await refreshAfterSalesWrite()
+    const savedLead = toSalesLead(result.lead)
+    setSalesLeads(previous => [savedLead, ...previous.filter(item => item.id !== savedLead.id)])
+    workbookLastRefreshAt.current = Date.now()
   }
 
   const assignSalesLead = async (leadId: string, assignedUserId: string) => {
-    await apiFetch('/api/erp', {
+    const result = await apiFetch<{ lead: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'assignSalesLead', leadId, assignedUserId }),
     })
-    await refreshAfterSalesWrite()
+    const savedLead = toSalesLead(result.lead)
+    setSalesLeads(previous => previous.map(lead => lead.id === savedLead.id ? savedLead : lead))
+    workbookLastRefreshAt.current = Date.now()
     notify('Lead reassigned.')
   }
 
   const updateSalesLead = async (input: { leadId: string; status: SalesLeadStatus; activityType: SalesActivityType; outcome: string; notes: string; nextFollowUp: string }) => {
-    await apiFetch('/api/erp', {
+    const result = await apiFetch<{ lead: Record<string, unknown>; activity: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'recordSalesActivity', ...input }),
     })
-    await refreshAfterSalesWrite()
+    const savedLead = toSalesLead(result.lead)
+    const savedActivity = toSalesActivity(result.activity)
+    setSalesLeads(previous => previous.map(lead => lead.id === savedLead.id ? savedLead : lead))
+    setSalesActivities(previous => [savedActivity, ...previous.filter(activity => activity.id !== savedActivity.id)])
+    workbookLastRefreshAt.current = Date.now()
     notify('Call update saved.')
   }
 
   const createSalesOrder = async (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string }) => {
-    await apiFetch('/api/erp', {
+    const result = await apiFetch<{ order: Record<string, unknown>; item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'createSalesOrder', ...input }),
     })
-    await refreshAfterSalesWrite()
+    const order = toSalesOrder(result.order)
+    const orders = [order, ...salesOrders.filter(existing => existing.id !== order.id)]
+    const item = toFinishedGood(result.item)
+    const movement = toStockMovement(result.movement)
+    setSalesOrders(orders)
+    refreshSalesTargetActuals(orders)
+    setFinishedGoods(previous => [item, ...previous.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
+    setProducts(previous => previous.map(product => product.sku.toLowerCase() === item.sku.toLowerCase()
+      ? { ...product, stock: item.availableStock }
+      : product))
+    setStockMovements(previous => [movement, ...previous.filter(existing => existing.id !== movement.id)])
+    if (input.leadId) {
+      setSalesLeads(previous => previous.map(lead => lead.id === input.leadId
+        ? { ...lead, status: 'Converted', updatedAt: order.createdAt }
+        : lead))
+    }
+    workbookLastRefreshAt.current = Date.now()
   }
 
   const cancelSalesOrder = async (orderId: string) => {
-    await apiFetch('/api/erp', {
+    const result = await apiFetch<{ order: Record<string, unknown>; item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'cancelSalesOrder', orderId }),
     })
-    await refreshAfterSalesWrite()
+    const order = toSalesOrder(result.order)
+    const orders = [order, ...salesOrders.filter(existing => existing.id !== order.id)]
+    const item = toFinishedGood(result.item)
+    const movement = toStockMovement(result.movement)
+    setSalesOrders(orders)
+    refreshSalesTargetActuals(orders)
+    setFinishedGoods(previous => [item, ...previous.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
+    setProducts(previous => previous.map(product => product.sku.toLowerCase() === item.sku.toLowerCase()
+      ? { ...product, stock: item.availableStock }
+      : product))
+    setStockMovements(previous => [movement, ...previous.filter(existing => existing.id !== movement.id)])
+    workbookLastRefreshAt.current = Date.now()
   }
 
   const setSalesTarget = async (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => {
-    await apiFetch('/api/erp', {
+    const result = await apiFetch<{ target: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'setSalesTarget', salesUserId, period, periodKey, targetAmount }),
     })
-    await refreshAfterSalesWrite()
+    const target = toSalesTarget(result.target, salesOrders)
+    setSalesTargets(previous => [target, ...previous.filter(existing => existing.id !== target.id)])
+    workbookLastRefreshAt.current = Date.now()
   }
 
   const saveRawMaterial = async (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => {
@@ -1241,8 +1377,8 @@ export default function App() {
       qty: production.filter(row => row.date === key).reduce((sum, row) => sum + row.actual, 0),
     }
   })
-  const adminModules = navSections.flatMap(section => section.items)
-  const adminOnlyModules: Module[] = ['Camera Monitoring', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'User Management', 'Settings', 'Audit Logs']
+  const adminModules = [...navSections.flatMap(section => section.items), ...settingsModules]
+  const adminOnlyModules: Module[] = ['Camera Monitoring', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'User Management', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
@@ -1646,6 +1782,30 @@ function ModuleView(props: {
   }, {})
   if (!allowedModules.includes(module)) {
     return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Your account role cannot open this section.</span></div></section>
+  }
+
+  if (module === 'Settings') {
+    const allSettingsLinks: { module: Module; description: string }[] = [
+      { module: 'User Management', description: 'Create accounts, assign roles, and manage team access.' },
+      { module: 'Excel Management', description: 'Review the shared workbook connection and import tools.' },
+      { module: 'Audit Logs', description: 'Review sign-ins, module visits, and recorded ERP activity.' },
+    ]
+    const settingsLinks = allSettingsLinks.filter(item => allowedModules.includes(item.module))
+    return (
+      <section>
+        <div className="page-heading"><div><p>ADMINISTRATION</p><h1>Settings</h1><span className="dashboard-description">Manage access, workbook tools, and system activity.</span></div></div>
+        <div className="settings-hub-grid">
+          {settingsLinks.map(item => {
+            const Icon = moduleIcons[item.module]
+            return <button className="settings-hub-card" key={item.module} type="button" onClick={() => setModule(item.module)}>
+              <span className="settings-hub-icon"><Icon size={20} /></span>
+              <span><strong>{item.module}</strong><small>{item.description}</small></span>
+              <ArrowUpRight size={17} />
+            </button>
+          })}
+        </div>
+      </section>
+    )
   }
 
   if (module === 'Daily Work Report' && sessionUser.role === 'Graphic Designer') {
@@ -3093,7 +3253,7 @@ function ModuleView(props: {
   if (module === 'Excel Management') {
     return (
       <section>
-        <div className="page-heading"><div><p>DATA CONTROL</p><h1>Excel Management</h1></div><button className="primary" onClick={() => fileRef.current?.click()}><Upload size={17} /> Preview Excel</button></div>
+        <div className="page-heading"><div><p>DATA CONTROL</p><h1>Excel Management</h1></div><div className="heading-actions"><button className="secondary" onClick={() => setModule('Settings')}><Settings size={16} /> Settings</button><button className="primary" onClick={() => fileRef.current?.click()}><Upload size={17} /> Preview Excel</button></div></div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => e.target.files?.[0] && importExcel(e.target.files[0])} />
         <div className="excel-status-grid">
           <div className="panel provider-card"><div className="provider-icon"><FileSpreadsheet size={24} /></div><div><span>Master workbook</span><strong>{workbookMeta.name}</strong></div><b className={workbookMeta.loaded ? 'status active' : 'status pending'}>{workbookMeta.loaded ? 'Connected' : 'Not loaded'}</b></div>
@@ -3263,7 +3423,7 @@ function ModuleView(props: {
     </tr>)
     return (
       <section>
-        <div className="page-heading"><div><p>ADMINISTRATION</p><h1>User Management</h1></div><div className="heading-actions"><button className="secondary" onClick={() => void refreshUsers()}><RotateCcw size={16} /> Refresh users</button><button className="secondary" onClick={exportUsers}><Download size={16} /> Export users</button></div></div>
+        <div className="page-heading"><div><p>ADMINISTRATION</p><h1>User Management</h1></div><div className="heading-actions"><button className="secondary" onClick={() => setModule('Settings')}><Settings size={16} /> Settings</button><button className="secondary" onClick={() => void refreshUsers()}><RotateCcw size={16} /> Refresh users</button><button className="secondary" onClick={exportUsers}><Download size={16} /> Export users</button></div></div>
         <div className="form-grid">
           <form className="panel form-card" onSubmit={createUser}>
             <div className="panel-heading"><div><h2>Create account</h2><p>Assign a role and secure login</p></div></div>
@@ -3300,7 +3460,7 @@ function ModuleView(props: {
 
   if (module === 'Audit Logs') {
     return (
-      <section><div className="page-heading"><div><p>SECURITY</p><h1>Audit Logs</h1></div></div>
+      <section><div className="page-heading"><div><p>SECURITY</p><h1>Audit Logs</h1></div><button className="secondary" onClick={() => setModule('Settings')}><Settings size={16} /> Settings</button></div>
         <div className="panel audit-card">
           <div className="panel-heading"><div><h2>ERP activity</h2><p>Auto-refreshes every 30 seconds · events retained for {auditRetentionDays} days</p></div></div>
           <p className="audit-scope-note">This log records sign-ins/sign-outs, ERP module visits, business-record actions, and screen-recording start/stop events. Screen video is optional and user-started; the browser shows a sharing prompt. The selected display may include other visible tabs or apps. No audio, keystrokes, or browser history is collected.</p>

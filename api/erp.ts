@@ -371,14 +371,6 @@ function salesTargetActual(orders: SalesOrder[], salesUserId: string, period: st
   }, 0)
 }
 
-function requireActiveSalesExecutive(data: WorkbookData, userId: string) {
-  const executive = optionalRecords(data, 'Users').find(row => {
-    const active = row.Active === true || ['true', '1', 'yes'].includes(text(row.Active).toLowerCase())
-    return active && text(row['User ID']) === userId && text(row.Role) === 'Sales Executive'
-  })
-  if (!executive) throw new ApiError(400, 'Choose an active Sales Executive account.')
-}
-
 export function getSnapshot(data: WorkbookData, user: PublicUser) {
   if (user.role === 'E-commerce Executive' || user.role === 'E-commerce Manager') {
     return {
@@ -1352,6 +1344,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
   try {
     if (request.method === 'GET') {
+      const sessionUser = await getSessionUser(request)
+      if (sessionUser.role === 'E-commerce Executive' || sessionUser.role === 'E-commerce Manager') {
+        const emptyWorkbook: WorkbookData = {
+          name: 'Mahalaxmi-Enterprise-Master.xlsx',
+          sheetCount: 0,
+          sheetNames: [],
+          sheets: {},
+          capabilities: { sessionBoundWrites: true },
+        }
+        refreshSessionCookie(response, request, sessionUser, true)
+        sendJson(response, 200, { ...getSnapshot(emptyWorkbook, sessionUser), user: sessionUser })
+        return
+      }
       const data = await getWorkbookData()
       const users = readUsers(data.sheets.Users || [])
       const user = await getSessionUser(request, users)
@@ -1364,10 +1369,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const action = text(body.action)
     const snapshotActions = [
       'addProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine', 'setProductionTarget',
-      'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder',
-      'cancelSalesOrder', 'setSalesTarget',
     ]
-    const sessionBoundActions = ['addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment']
+    const sessionBoundActions = [
+      'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData',
+      'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget',
+      'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment',
+    ]
     const data = snapshotActions.includes(action) ? await getWorkbookData() : undefined
     const user = data
       ? await getSessionUser(request, readUsers(data.sheets.Users || []))
@@ -1517,9 +1524,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'importSalesLeads') {
       requireAdmin(user)
-      if (!data) throw new ApiError(500, 'Workbook data is unavailable for sales lead validation.')
       const assignedUserId = requiredText(body.assignedUserId, 'Sales Executive', 120)
-      requireActiveSalesExecutive(data, assignedUserId)
       if (!Array.isArray(body.rows) || body.rows.length < 1 || body.rows.length > 500) {
         throw new ApiError(400, 'Import between 1 and 500 lead rows at a time.')
       }
@@ -1527,7 +1532,6 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         if (!row || typeof row !== 'object' || Array.isArray(row)) throw new ApiError(400, `Lead row ${index + 1} is invalid.`)
         const lead = row as Record<string, unknown>
         const rowAssignedUserId = text(lead.assignedUserId) || assignedUserId
-        requireActiveSalesExecutive(data, rowAssignedUserId)
         return { ...lead, assignedUserId: rowAssignedUserId }
       })
       const result = await importWorkbookSalesLeads({
@@ -1539,24 +1543,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'addSalesLead') {
       requireAdmin(user)
-      if (!data) throw new ApiError(500, 'Workbook data is unavailable for sales lead validation.')
       if (!body.lead || typeof body.lead !== 'object' || Array.isArray(body.lead)) throw new ApiError(400, 'Enter lead details.')
       const lead = body.lead as Record<string, unknown>
-      const assignedUserId = requiredText(lead.assignedUserId, 'Sales Executive', 120)
-      requireActiveSalesExecutive(data, assignedUserId)
+      requiredText(lead.assignedUserId, 'Sales Executive', 120)
       const result = await addWorkbookSalesLead({ id: user.id, role: user.role, lead })
       sendJson(response, 201, result)
       return
     }
     if (action === 'assignSalesLead') {
       requireAdmin(user)
-      if (!data) throw new ApiError(500, 'Workbook data is unavailable for sales lead assignment.')
-      const assignedUserId = requiredText(body.assignedUserId, 'Sales Executive', 120)
-      requireActiveSalesExecutive(data, assignedUserId)
       const result = await assignWorkbookSalesLead({
         id: user.id, role: user.role,
         leadId: requiredText(body.leadId, 'Lead', 160),
-        assignedUserId,
+        assignedUserId: requiredText(body.assignedUserId, 'Sales Executive', 120),
       })
       sendJson(response, 200, result)
       return
@@ -1585,25 +1584,16 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'createSalesOrder') {
       if (user.role !== 'Sales Executive') throw new ApiError(403, 'Only a Sales Executive can book a sales order.')
-      if (!data) throw new ApiError(500, 'Workbook data is unavailable for order validation.')
       const leadId = text(body.leadId)
       const customerName = text(body.customerName)
       const productName = text(body.productName)
       if (leadId.length > 160 || customerName.length > 180 || productName.length > 300) {
         throw new ApiError(400, 'Customer name, product name, or lead ID is too long.')
       }
-      if (leadId) {
-        const assignedLead = optionalRecords(data, 'Sales_Leads').find(row =>
-          text(row['Lead ID']) === leadId && text(row['Assigned User ID']) === user.id,
-        )
-        if (!assignedLead) throw new ApiError(403, 'You can only book orders for your assigned leads.')
-      } else if (!customerName) {
+      if (!leadId && !customerName) {
         throw new ApiError(400, 'Choose an assigned lead or enter a customer name.')
       }
       const sku = requiredText(body.sku, 'Product SKU', 100)
-      if (!productionSkus(getSnapshot(data, user).products).some(product => product.sku.toLowerCase() === sku.toLowerCase())) {
-        throw new ApiError(400, 'Choose an active product SKU.')
-      }
       const quantity = Number(body.quantity)
       const unitPrice = Number(body.unitPrice)
       const notes = text(body.notes)
@@ -1630,9 +1620,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'setSalesTarget') {
       requireAdmin(user)
-      if (!data) throw new ApiError(500, 'Workbook data is unavailable for sales target validation.')
       const salesUserId = requiredText(body.salesUserId, 'Sales Executive', 120)
-      requireActiveSalesExecutive(data, salesUserId)
       const period = text(body.period).toLowerCase()
       const periodKey = requiredText(body.periodKey, 'Target period', 7)
       const targetAmount = Number(body.targetAmount)

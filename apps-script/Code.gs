@@ -40,7 +40,7 @@
     const ERP_ECOMMERCE_MANAGER_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_DAILY_TARGET_'
     const ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_'
     const ERP_ECOMMERCE_TASK_HEADERS = ['Task ID', 'Manager ID', 'Manager Name', 'Executive ID', 'Executive Name', 'Task Date', 'Title', 'Description', 'Status', 'Created At', 'Updated At', 'Reviewed By ID', 'Reviewed By', 'Reviewed At', 'Review Note']
-    const ERP_WORKBOOK_CACHE_SECONDS = 10
+    const ERP_WORKBOOK_CACHE_SECONDS = 30
     const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
     const ERP_FINISHED_GOODS_HEADERS = ['Product SKU', 'Product Name', 'Opening Stock', 'Production Received', 'Quality Approved', 'Rejected', 'Reserved Stock', 'Available Stock', 'Dispatched Stock', 'Returned Stock', 'Damaged Stock', 'Last Updated', 'Adjustment In', 'Adjustment Out', 'Status']
