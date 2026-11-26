@@ -45,12 +45,14 @@ type MarketplaceImportRows = {
   products: Record<string, unknown>[]
   variants: Record<string, unknown>[]
   listings: Record<string, unknown>[]
+  finishedGoods: Record<string, unknown>[]
   issues: Record<string, unknown>[]
 }
 type MarketplaceImportResult = {
   added: { products: number; variants: number; listings: number }
   updated?: { products: number; variants: number; listings: number }
   skipped: { products: number; variants: number; listings: number }
+  openingStock?: { added: number; skipped: number }
   renamedProducts?: number
   backupName: string
 }
@@ -750,7 +752,7 @@ export default function App() {
     return result.listing
   }
 
-  const importMarketplaceWorkbook = async (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => {
+  const importMarketplaceWorkbook = async (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings' | 'finishedGoods'>) => {
     const response = await apiFetch<{ result: MarketplaceImportResult }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -762,7 +764,7 @@ export default function App() {
       notify('Import saved, but the live workbook could not be refreshed. Reload the page before retrying.')
       throw new Error('Import succeeded, but the live workbook could not be refreshed. Reload the page before retrying.')
     }
-    notify(`Import complete: ${response.result.added.products + response.result.added.variants + response.result.added.listings} rows added; ${response.result.updated ? response.result.updated.products + response.result.updated.variants + response.result.updated.listings : 0} rows updated; ${response.result.renamedProducts ?? 0} product SKUs renamed.`)
+    notify(`Import complete: ${response.result.added.products + response.result.added.variants + response.result.added.listings} catalog rows and ${response.result.openingStock?.added ?? 0} opening-stock rows added; ${response.result.updated ? response.result.updated.products + response.result.updated.variants + response.result.updated.listings : 0} catalog rows updated; ${response.result.renamedProducts ?? 0} product SKUs renamed.`)
     return response.result
   }
 
@@ -1149,7 +1151,7 @@ export default function App() {
     const sheet = XLSX.utils.json_to_sheet(products)
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, sheet, 'Product Master')
-    XLSX.writeFile(workbook, 'Mahalaxmi-Product-Master.xlsx')
+    XLSX.writeFile(workbook, 'Mahalaxmi-Enterprise-Product-Master.xlsx')
   }
 
   const login = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1198,7 +1200,7 @@ export default function App() {
     return (
       <main className="login-page">
         <section className="login-card" role="status" aria-live="polite">
-          <div className="login-brand"><div className="brand-mark">M</div><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div>
+          <div className="login-brand"><img className="brand-mark brand-logo" src="/mahalaxmi-enterprise-logo.jpg" alt="" /><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div>
           <div className="login-heading"><p>SECURE WORKSPACE</p><h1>Restoring your session…</h1><span className="login-description">Checking your sign-in and loading your workspace.</span></div>
         </section>
       </main>
@@ -1244,7 +1246,7 @@ export default function App() {
       return (
         <main className="login-page">
           <section className="login-card">
-            <div className="login-brand"><div className="brand-mark">M</div><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div>
+            <div className="login-brand"><img className="brand-mark brand-logo" src="/mahalaxmi-enterprise-logo.jpg" alt="" /><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div>
             <div className="login-heading"><p>FIRST-TIME SETUP</p><h1>Create Admin ID &amp; Password</h1><span className="login-description">This creates the single Super Admin account in the connected workbook.</span></div>
             <form onSubmit={createOwner}>
               <label>Full name<input name="name" required placeholder="Owner name" /></label>
@@ -1263,7 +1265,7 @@ export default function App() {
     return (
       <main className="login-page">
         <section className="login-card">
-          <div className="login-brand"><div className="brand-mark">M</div><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div>
+          <div className="login-brand"><img className="brand-mark brand-logo" src="/mahalaxmi-enterprise-logo.jpg" alt="" /><div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div></div>
           <div className="login-heading"><p>{isAdminRoute ? 'ADMIN LOGIN' : 'TEAM LOGIN'}</p><h1>{isAdminRoute ? 'Super Admin sign in' : 'Sign in to your workspace'}</h1><span className="login-description">{isAdminRoute ? 'Use the single Super Admin ID and password to open Admin controls.' : 'Admin-created supervisors and staff use their own login ID and password here. Your assigned role opens the right workspace.'}</span></div>
           <form onSubmit={login}>
             <label>Login ID<input name="username" autoComplete="username" required placeholder="Enter your login ID" /></label>
@@ -1311,8 +1313,8 @@ export default function App() {
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
       <aside className={sidebarOpen ? 'sidebar' : 'sidebar collapsed'}>
         <div className="brand">
-          <div className="brand-mark">M</div>
-          {sidebarOpen && <div><strong>Mahalaxmi</strong><span>ENTERPRISE ERP</span></div>}
+          <img className="brand-mark brand-logo" src="/mahalaxmi-enterprise-logo.jpg" alt="" />
+          {sidebarOpen && <div><strong>Mahalaxmi Enterprise</strong><span>ENTERPRISE ERP</span></div>}
         </div>
         <nav id="primary-navigation" aria-label="Primary navigation" className={mobileMenuOpen ? 'mobile-nav-open' : ''}>
           {navSections.map(section => {
@@ -1409,7 +1411,7 @@ function ModuleView(props: {
   saveProduct: (input: { sku: string; name: string; category: string; mrp: number }) => Promise<Product>;
   saveVariant: (input: { masterSku: string; sku: string; size: string; color: string; packQuantity: number; mrp?: number; sellingPrice?: number }) => Promise<Product>;
   saveMarketplaceListing: (input: { platform: string; platformSku: string; productSku: string; mrp: number; sellingPrice: number }) => Promise<MarketplaceListing>;
-  importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings'>) => Promise<MarketplaceImportResult>;
+  importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings' | 'finishedGoods'>) => Promise<MarketplaceImportResult>;
   resetErpData: (confirmation: string) => Promise<ErpResetResult>;
   saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
   reviewProductionQuality: (input: { productionId: string; approved: number; rejected: number }) => Promise<Production>;
@@ -1617,8 +1619,17 @@ function ModuleView(props: {
       const products = readSheet('Products_Import', ['Internal Product ID', 'Master SKU', 'Product Title'])
       const variants = readSheet('SKU_Variants_Import', ['Variant ID', 'Master SKU', 'Variant SKU'])
       const listings = readSheet('Marketplace_Listings_Import', ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name'])
-      if (products.length > 5000 || variants.length > 10000 || listings.length > 10000) {
+      const inventorySheet = workbook.Sheets.Finished_Goods_Import
+      const finishedGoods = inventorySheet
+        ? XLSX.utils.sheet_to_json<Record<string, unknown>>(inventorySheet, { defval: '' })
+        : []
+      if (products.length > 5000 || variants.length > 10000 || listings.length > 10000 || finishedGoods.length > 5000) {
         throw new Error('This workbook exceeds the safe import row limits.')
+      }
+      if (finishedGoods.length) {
+        const requiredInventoryHeaders = ['Product SKU', 'Product Name', 'Opening Stock']
+        const missingInventoryHeaders = requiredInventoryHeaders.filter(header => !Object.prototype.hasOwnProperty.call(finishedGoods[0], header))
+        if (missingInventoryHeaders.length) throw new Error(`Finished_Goods_Import is missing columns: ${missingInventoryHeaders.join(', ')}.`)
       }
       const issues = workbook.Sheets.Import_Issues
         ? XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets.Import_Issues, { defval: '' })
@@ -1638,8 +1649,15 @@ function ModuleView(props: {
           throw new Error(`Marketplace_Listings_Import row ${index + 2} is missing required listing data.`)
         }
       }
+      for (const [index, row] of finishedGoods.entries()) {
+        const openingStock = Number(row['Opening Stock'])
+        if (!row['Product SKU'] || !row['Product Name'] || row['Opening Stock'] === '' ||
+          !Number.isInteger(openingStock) || openingStock < 0 || openingStock > 10000000) {
+          throw new Error(`Finished_Goods_Import row ${index + 2} must have a SKU, product name, and whole-number opening stock from 0 to 10,000,000.`)
+        }
+      }
       setMarketplaceImportFileName(file.name)
-      setMarketplaceImportPreview({ products, variants, listings, issues })
+      setMarketplaceImportPreview({ products, variants, listings, finishedGoods, issues })
       setMarketplaceImportResult(null)
       setMarketplaceImportError('')
     } catch (error) {
@@ -1656,6 +1674,7 @@ function ModuleView(props: {
         products: marketplaceImportPreview.products,
         variants: marketplaceImportPreview.variants,
         listings: marketplaceImportPreview.listings,
+        finishedGoods: marketplaceImportPreview.finishedGoods,
       })
       setMarketplaceImportResult(result)
       setMarketplaceImportPreview(null)
@@ -2449,7 +2468,7 @@ function ModuleView(props: {
       const rows = machines.map(({ id, name, type, operator, status }) => ({ id, name, type, operator, status }))
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Machines')
-      XLSX.writeFile(workbook, `Mahalaxmi-Machines-${indiaDateKey()}.xlsx`)
+      XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Machines-${indiaDateKey()}.xlsx`)
       notify('Machine list downloaded as a new workbook')
     }
     const addMachine = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -2672,12 +2691,13 @@ function ModuleView(props: {
             <div><strong>{marketplaceImportPreview.products.length}</strong><span>Product masters</span></div>
             <div><strong>{marketplaceImportPreview.variants.length}</strong><span>SKU variants</span></div>
             <div><strong>{marketplaceImportPreview.listings.length}</strong><span>Marketplace listings</span></div>
+            <div><strong>{marketplaceImportPreview.finishedGoods.length}</strong><span>ERP opening-stock rows</span></div>
           </div>
           <p className="marketplace-selection-note">
             Platforms: {Object.entries(importPlatformCounts || {}).map(([platform, count]) => `${platform} ${count}`).join(' · ')}.
             {' '}Workbook issues flagged: {marketplaceImportPreview.issues.length}.
           </p>
-          <p className="local-storage-note">Matching products, variants, and listings are updated only when imported values differ; blank cells never erase saved values. A product SKU change matches by product ID, then by a unique exact title, and updates linked current records while leaving historical stock and production logs unchanged. Unchanged rows are preserved, and nothing is deleted. A Drive backup is created before changes.</p>
+          <p className="local-storage-note">Matching products, variants, and listings are updated only when imported values differ; blank cells never erase saved values. Optional opening-stock rows are added only for SKUs without an existing stock record or ledger history, and create an opening movement. A product SKU change matches by product ID, then by a unique exact title, and updates linked current records while leaving historical stock and production logs unchanged. Unchanged rows are preserved, and nothing is deleted. A Drive backup is created before changes.</p>
           {marketplaceImportPreview.issues.length > 0 && <details className="marketplace-import-issues">
             <summary>Review {marketplaceImportPreview.issues.length} source issues</summary>
             <ul>{marketplaceImportPreview.issues.slice(0, 20).map((issue, index) => (
@@ -2688,13 +2708,14 @@ function ModuleView(props: {
             {marketplaceImportPreview.issues.length > 20 && <span>Only the first 20 issues are shown.</span>}
           </details>}
           <button className="primary wide" type="button" disabled={marketplaceImportBusy} onClick={() => void applyMarketplaceImport()}>
-            {marketplaceImportBusy ? 'Importing…' : `Back up and import ${marketplaceImportPreview.listings.length} listings to the existing Google Sheet`}
+            {marketplaceImportBusy ? 'Importing…' : `Back up and import ${marketplaceImportPreview.listings.length} listings and ${marketplaceImportPreview.finishedGoods.length} opening-stock rows`}
           </button>
         </div>}
         {marketplaceImportResult && <div className="panel marketplace-import-panel">
           <div className="panel-heading"><div><h2>Import complete</h2><p>Rows were merged into the existing connected Google Sheet.</p></div></div>
           <p className="marketplace-selection-note">
             Added: {marketplaceImportResult.added.products} products, {marketplaceImportResult.added.variants} variants, {marketplaceImportResult.added.listings} listings.
+            {marketplaceImportResult.openingStock && <> Added {marketplaceImportResult.openingStock.added} ERP opening-stock rows; {marketplaceImportResult.openingStock.skipped} already imported.</>}
             {marketplaceImportResult.updated
               ? <> Updated: {marketplaceImportResult.updated.products} products, {marketplaceImportResult.updated.variants} variants, {marketplaceImportResult.updated.listings} listings.</>
               : <> Latest Apps Script must be deployed to show how many existing rows were updated.</>}
@@ -2821,7 +2842,7 @@ function ModuleView(props: {
       const dailyArchive = readStored<Production[]>('erp-daily-production', [])
       const archivedIds = new Set(dailyArchive.map(row => row.id))
       localStorage.setItem('erp-daily-production', JSON.stringify([...dailyArchive, ...visibleProduction.filter(row => !archivedIds.has(row.id))]))
-      XLSX.writeFile(workbook, `Mahalaxmi-Daily-Production-${today}.xlsx`)
+      XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Daily-Production-${today}.xlsx`)
       notify('Daily production report exported')
     }
     const exportMonthlyReport = () => {
@@ -2837,7 +2858,7 @@ function ModuleView(props: {
         PendingQC: monthlyRows.reduce((sum, row) => sum + Math.max(0, row.actual - row.qcApproved - row.qcRejected), 0),
         PreparedFor: sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor' ? 'All users' : sessionUser.name,
       }]), 'Summary')
-      XLSX.writeFile(workbook, `Mahalaxmi-Production-${month}.xlsx`)
+      XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Production-${month}.xlsx`)
       notify(`New monthly workbook downloaded: ${month}`)
     }
     return (
@@ -2921,7 +2942,7 @@ function ModuleView(props: {
         Actual: target.actual,
         Shortfall: Math.max(0, target.targetQuantity - target.actual),
       }))), 'Machine Targets')
-      XLSX.writeFile(workbook, `Mahalaxmi-Stitching-${stitchingReportDate}.xlsx`)
+      XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Stitching-${stitchingReportDate}.xlsx`)
     }
     return (
       <section>
@@ -3070,7 +3091,7 @@ function ModuleView(props: {
         'Created by': task.createdBy,
       }))), 'Monthly Content Plan')
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(platformCounts), 'Platform Summary')
-      XLSX.writeFile(workbook, `Mahalaxmi-Social-Plan-${graphicPlanMonth}.xlsx`)
+      XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Social-Plan-${graphicPlanMonth}.xlsx`)
     }
     return (
       <section>
@@ -3195,7 +3216,7 @@ function ModuleView(props: {
       }))
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(safeRows), 'User Accounts')
-      XLSX.writeFile(workbook, `Mahalaxmi-Users-${indiaDateKey()}.xlsx`)
+      XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Users-${indiaDateKey()}.xlsx`)
       notify('User list exported without password data')
     }
     const createUser = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -3353,7 +3374,7 @@ function ModuleView(props: {
   const Icon = moduleIcons[module] || Package
   return (
     <section>
-      <div className="page-heading"><div><p>MAHALAXMI ERP</p><h1>{module}</h1></div></div>
+      <div className="page-heading"><div><p>MAHALAXMI ENTERPRISE ERP</p><h1>{module}</h1></div></div>
       <div className="panel placeholder">
         <div className="placeholder-icon"><Icon size={28} /></div>
         <h2>{module} workspace</h2>

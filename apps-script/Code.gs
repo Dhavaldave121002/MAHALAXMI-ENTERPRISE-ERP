@@ -4238,6 +4238,15 @@
         const inputProducts = rowsFor('products', 'Products', 5000)
         const inputVariants = rowsFor('variants', 'SKU variants', 10000)
         const inputListings = rowsFor('listings', 'Marketplace listings', 10000)
+        const inputFinishedGoods = payload.finishedGoods === undefined ? [] : payload.finishedGoods
+        if (!Array.isArray(inputFinishedGoods) || inputFinishedGoods.length > 5000) {
+          throw apiError_(400, 'Finished-goods opening stock must contain no more than 5000 rows.')
+        }
+        inputFinishedGoods.forEach(function (row, index) {
+          if (!row || typeof row !== 'object' || Array.isArray(row)) {
+            throw apiError_(400, 'Finished-goods opening stock row ' + (index + 1) + ' must be an object.')
+          }
+        })
         const productHeaders = ['Internal Product ID', 'Master SKU', 'Product Title', 'Category', 'MRP', 'Status', 'Created Date', 'Updated Date', 'ASIN', 'Shopify Product ID', 'Previous SKUs']
         const variantHeaders = ['Variant ID', 'Master SKU', 'Variant SKU', 'Size', 'Color', 'Pack Quantity', 'MRP', 'Selling Price', 'Status', 'Variant Title', 'Shopify Product ID', 'Shopify Variant ID', 'Shopify Inventory']
         const listingHeaders = ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name', 'ASIN', 'Amazon Listing ID', 'Selling Price', 'MRP', 'Fulfillment Channel', 'Status', 'Variant Title', 'Shopify Product ID', 'Shopify Variant ID', 'Shopify Inventory', 'Created By', 'Created At']
@@ -4322,6 +4331,8 @@
         const updatedProducts = []
         const updatedVariants = []
         const updatedListings = []
+        const addedFinishedGoods = []
+        let skippedOpeningStock = 0
         const matched = { products: 0, variants: 0, listings: 0 }
         const skuMrpUpdates = new Map()
         const seenProductSkus = new Set()
@@ -4575,6 +4586,81 @@
           }
         })
 
+        const finishedRows = readSheetRecords_(spreadsheet, 'Finished_Goods')
+        const movementRows = readSheetRecords_(spreadsheet, 'Stock_Movement')
+        const stockSkus = new Set()
+        inputFinishedGoods.forEach(function (row, index) {
+          const label = 'Finished-goods opening stock row ' + (index + 1)
+          const sku = requiredImportText(row, 'Product SKU', label + ' Product SKU', 100)
+          const productName = requiredImportText(row, 'Product Name', label + ' Product Name', 300)
+          const openingStock = importAmount(row['Opening Stock'], label + ' Opening Stock')
+          const skuKey = keyOf(sku)
+          if (openingStock === '' || !Number.isInteger(openingStock) || openingStock > 10000000) {
+            throw apiError_(400, label + ' Opening Stock must be a whole number from 0 to 10,000,000.')
+          }
+          if (stockSkus.has(skuKey)) throw apiError_(409, 'Duplicate finished-goods SKU in import: ' + sku)
+          stockSkus.add(skuKey)
+          if (!productSkuToMaster.has(skuKey) && !variantSkuToMaster.has(skuKey)) {
+            throw apiError_(422, 'Finished-goods SKU ' + sku + ' does not match an imported product or variant.')
+          }
+          if (skuRenames.some(function (rename) { return keyOf(rename.newSku) === skuKey })) {
+            throw apiError_(409, 'Import opening stock for renamed SKU ' + sku + ' separately after resolving its existing stock.')
+          }
+
+          const existingStockRows = finishedRows.filter(function (record) { return keyOf(record['Product SKU']) === skuKey })
+          if (existingStockRows.length > 1) throw apiError_(409, 'Finished-goods stock contains duplicate rows for SKU ' + sku + '.')
+          const skuMovements = movementRows.filter(function (record) {
+            const itemType = String(record['Item Type'] || '').trim()
+            return keyOf(record.SKU) === skuKey && (!itemType || itemType === 'Finished Goods')
+          })
+          const referenceId = 'ERP-IMPORT-OPENING-STOCK-' + sku
+          const importedMovement = skuMovements.filter(function (record) {
+            return String(record['Movement Type'] || '').trim() === 'Opening Stock' &&
+              String(record['Reference ID'] || '').trim() === referenceId
+          })
+          if (existingStockRows.length) {
+            const priorOpening = Number(existingStockRows[0]['Opening Stock'])
+            if (importedMovement.length === 1 && priorOpening === openingStock) {
+              skippedOpeningStock += 1
+              return
+            }
+            throw apiError_(409, 'Finished-goods stock already exists for SKU ' + sku + '; existing stock will not be overwritten.')
+          }
+          if (skuMovements.length) {
+            throw apiError_(409, 'Stock history already exists for SKU ' + sku + '; opening stock cannot be imported safely.')
+          }
+
+          const stockRecord = {
+            'Product SKU': sku,
+            'Product Name': productName,
+            'Opening Stock': openingStock,
+            'Production Received': 0,
+            'Quality Approved': 0,
+            Rejected: 0,
+            'Reserved Stock': 0,
+            'Available Stock': openingStock,
+            'Dispatched Stock': 0,
+            'Returned Stock': 0,
+            'Damaged Stock': 0,
+            'Last Updated': new Date().toISOString(),
+            'Adjustment In': 0,
+            'Adjustment Out': 0,
+            Status: 'Active',
+          }
+          const movement = stockMovementRecord_({
+            sku: sku,
+            type: 'Opening Stock',
+            quantity: openingStock,
+            referenceId: referenceId,
+            reason: 'Opening stock imported from the catalog workbook.',
+            opening: 0,
+            closing: openingStock,
+            createdBy: String(payload.createdBy || ''),
+            itemType: 'Finished Goods',
+          })
+          addedFinishedGoods.push({ stock: stockRecord, movement: movement })
+        })
+
         currentProducts.forEach(function (row) {
           const currentSku = String(row['Master SKU'] || '').trim()
           const currentSkuKey = keyOf(currentSku)
@@ -4642,7 +4728,6 @@
           }
         })
 
-        const finishedRows = readSheetRecords_(spreadsheet, 'Finished_Goods')
         const finishedUpdates = []
         const finishedSkuKeys = new Set(finishedRows.map(function (row) { return keyOf(row['Product SKU']) }).filter(Boolean))
         const renameTargets = new Set()
@@ -4671,11 +4756,13 @@
           added: { products: addedProducts.length, variants: addedVariants.length, listings: addedListings.length },
           updated: { products: 0, variants: 0, listings: 0 },
           skipped: { products: 0, variants: 0, listings: 0 },
+          openingStock: { added: addedFinishedGoods.length, skipped: skippedOpeningStock },
           renamedProducts: skuRenames.length,
           backupName: '',
         }
         if (!addedProducts.length && !addedVariants.length && !addedListings.length
-          && !updatedProducts.length && !updatedVariants.length && !updatedListings.length && !finishedUpdates.length) {
+          && !updatedProducts.length && !updatedVariants.length && !updatedListings.length
+          && !finishedUpdates.length && !addedFinishedGoods.length) {
           totals.skipped = matched
           return totals
         }
@@ -4685,8 +4772,11 @@
         const productTarget = ensureStockSheet_(spreadsheet, 'Products', productHeaders, backupState)
         const variantTarget = ensureStockSheet_(spreadsheet, 'SKU_Variants', variantHeaders, backupState)
         const listingTarget = ensureStockSheet_(spreadsheet, 'Marketplace_Listings', listingHeaders, backupState)
-        const finishedTarget = finishedUpdates.length
+        const finishedTarget = finishedUpdates.length || addedFinishedGoods.length
           ? ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
+          : null
+        const movementTarget = addedFinishedGoods.length
+          ? ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
           : null
         appendImportRows(productTarget, addedProducts)
         appendImportRows(variantTarget, addedVariants)
@@ -4695,6 +4785,10 @@
         totals.updated.variants = updateImportRows(variantTarget, updatedVariants, 'Variant ID')
         totals.updated.listings = updateImportRows(listingTarget, updatedListings, 'Listing ID')
         if (finishedTarget) updateImportRows(finishedTarget, finishedUpdates, 'Product SKU')
+        addedFinishedGoods.forEach(function (record) {
+          appendStockRow_(finishedTarget.sheet, finishedTarget.headers, record.stock)
+          appendStockRow_(movementTarget.sheet, movementTarget.headers, record.movement)
+        })
         totals.skipped = {
           products: Math.max(0, matched.products - totals.updated.products),
           variants: Math.max(0, matched.variants - totals.updated.variants),

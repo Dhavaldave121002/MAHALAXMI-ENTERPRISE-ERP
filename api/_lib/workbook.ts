@@ -507,6 +507,7 @@ export async function importWorkbookMarketplaceCatalog(input: {
   products: Record<string, unknown>[]
   variants: Record<string, unknown>[]
   listings: Record<string, unknown>[]
+  finishedGoods: Record<string, unknown>[]
   createdBy: string
   sessionUserId: string
   sessionRole: string
@@ -515,6 +516,7 @@ export async function importWorkbookMarketplaceCatalog(input: {
     added: { products: number; variants: number; listings: number }
     updated?: { products: number; variants: number; listings: number }
     skipped: { products: number; variants: number; listings: number }
+    openingStock?: { added: number; skipped: number }
     backupName: string
   }>('importMarketplaceWorkbook', input)
 }

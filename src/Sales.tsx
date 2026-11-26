@@ -130,7 +130,7 @@ export function SalesDailyReportView(props: {
       'Issues / notes': report.issues,
       'Last updated': report.updatedAt,
     }))), 'Work Reports')
-    XLSX.writeFile(workbook, `Mahalaxmi-Sales-Daily-Report-${dailyReportDate}.xlsx`)
+    XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Sales-Daily-Report-${dailyReportDate}.xlsx`)
   }
 
   return (
@@ -381,7 +381,7 @@ export function SalesDashboardView(props: {
         Notes: activity.notes,
         'Next Follow-Up': activity.nextFollowUp,
       }))), 'Daily Activities')
-    XLSX.writeFile(workbook, `Mahalaxmi-Sales-Report-${selectedMonth}.xlsx`)
+    XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Sales-Report-${selectedMonth}.xlsx`)
   }
 
   return (
@@ -541,7 +541,7 @@ export function SalesLeadsView(props: {
       'Reference URL': 'https://example.com/lead-details.pdf',
       'Assigned To': '',
     }]), 'Leads')
-    XLSX.writeFile(workbook, 'Mahalaxmi-Sales-Leads-Template.xlsx')
+    XLSX.writeFile(workbook, 'Mahalaxmi-Enterprise-Sales-Leads-Template.xlsx')
   }
 
   return (

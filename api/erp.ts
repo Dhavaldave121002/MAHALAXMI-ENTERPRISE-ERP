@@ -917,13 +917,27 @@ async function importMarketplaceWorkbook(user: PublicUser, body: Record<string, 
   const products = marketplaceImportRows(body, 'products', ['Internal Product ID', 'Master SKU', 'Product Title'], 5000)
   const variants = marketplaceImportRows(body, 'variants', ['Variant ID', 'Master SKU', 'Variant SKU'], 10000)
   const listings = marketplaceImportRows(body, 'listings', ['Listing ID', 'Platform', 'Platform SKU', 'Product SKU', 'Master SKU', 'Product Name'], 10000)
+  let finishedGoods: Record<string, unknown>[] = []
+  if (body.finishedGoods !== undefined) {
+    if (!Array.isArray(body.finishedGoods)) throw new ApiError(400, 'finishedGoods must be an array.')
+    if (body.finishedGoods.length > 5000) throw new ApiError(400, 'finishedGoods cannot contain more than 5000 rows.')
+    if (body.finishedGoods.length) {
+      finishedGoods = marketplaceImportRows(body, 'finishedGoods', ['Product SKU', 'Product Name', 'Opening Stock'], 5000)
+      for (const [index, item] of finishedGoods.entries()) {
+        const openingStock = Number(item['Opening Stock'])
+        if (!Number.isInteger(openingStock) || openingStock < 0 || openingStock > 10000000) {
+          throw new ApiError(400, `finishedGoods row ${index + 1} Opening Stock must be a whole number from 0 to 10,000,000.`)
+        }
+      }
+    }
+  }
   for (const [index, listing] of listings.entries()) {
     if (!MARKETPLACES.includes(text(listing.Platform))) {
       throw new ApiError(400, `Marketplace_Listings_Import row ${index + 1} uses an unsupported platform.`)
     }
   }
   return importWorkbookMarketplaceCatalog({
-    products, variants, listings, createdBy: user.name, sessionUserId: user.id, sessionRole: user.role,
+    products, variants, listings, finishedGoods, createdBy: user.name, sessionUserId: user.id, sessionRole: user.role,
   })
 }
 
