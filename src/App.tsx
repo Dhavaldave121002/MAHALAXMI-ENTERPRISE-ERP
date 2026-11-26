@@ -1330,6 +1330,9 @@ export default function App() {
       if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error('Choose an .xlsx, .xls or .csv file')
       const buffer = await file.arrayBuffer()
       const workbook = XLSX.read(buffer)
+      if (workbook.Sheets.Products_Import && workbook.Sheets.Marketplace_Listings_Import) {
+        throw new Error('This is a combined marketplace workbook. Import it from Product Catalog → Import workbook so every platform and SKU is validated together.')
+      }
       const sheetName = workbook.SheetNames.includes('Products')
         ? 'Products'
         : workbook.SheetNames.includes('SKU_Variants')
