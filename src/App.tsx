@@ -196,12 +196,18 @@ type AuthStatus = 'checking' | 'ready' | 'unavailable'
 function auditFailureMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
   if (/unknown erp action|deployment is outdated/i.test(message)) {
-    return 'ERP activity logging is temporarily unavailable. The current session can continue; notify the Super Admin.'
+    return 'ERP activity logging is unavailable because the Apps Script deployment is outdated. The Super Admin must deploy the latest Code.gs as a new web-app version.'
+  }
+  if (/invalid api secret/i.test(message)) {
+    return 'ERP activity logging failed: GOOGLE_APPS_SCRIPT_SECRET in Vercel does not match the secret configured in Apps Script. The administrator must align them and redeploy; do not share the secret in chat.'
   }
   if (/permission|authorization|not authorized|external_request/i.test(message)) {
-    return 'Apps Script needs authorization. Run installEcommerceLabelCleanupTrigger in the script editor and approve the requested permissions.'
+    return 'ERP activity logging failed because Apps Script needs authorization. The Apps Script owner must approve the required Google Sheets and Drive permissions, then redeploy the web app.'
   }
-  return 'ERP activity logging is temporarily unavailable. Please notify the administrator.'
+  if (/audit spreadsheet|audit events sheet/i.test(message)) {
+    return 'ERP activity logging failed because the private audit spreadsheet is missing or misconfigured. The administrator should check Apps Script Executions and the private audit-log setup.'
+  }
+  return 'ERP activity logging is temporarily unavailable. The ERP session can continue; the administrator should check the Vercel function logs and Apps Script Executions.'
 }
 
 const navSections: { label: string; items: Module[] }[] = [
