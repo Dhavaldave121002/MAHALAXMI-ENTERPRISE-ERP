@@ -176,9 +176,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       const targetRequest = user.role === 'Super Admin' || user.role === 'E-commerce Executive' || user.role === 'E-commerce Manager'
         ? listWorkbookEcommerceTargets(user)
         : Promise.resolve({ targets: {} })
+      const labelRequest = user.role === 'Super Admin'
+        ? Promise.resolve({ labels: [] })
+        : listWorkbookEcommerceLabels(user)
       const [data, labelResult, targetResult] = await Promise.all([
         getWorkbookData(),
-        listWorkbookEcommerceLabels(user),
+        labelRequest,
         targetRequest,
       ])
       sendJson(response, 200, { ...workspaceData(data, user, users), labels: labelResult.labels, targets: targetResult.targets })
@@ -262,8 +265,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     if (action === 'uploadLabel') {
-      if (user.role !== 'E-commerce Executive' && user.role !== 'Super Admin') {
-        throw new ApiError(403, 'Only an E-commerce Executive or Super Admin can upload shipping labels.')
+      if (user.role !== 'E-commerce Executive') {
+        throw new ApiError(403, 'Only an E-commerce Executive can upload shipping labels.')
       }
       const orderNumber = requireText(body.orderNumber, 'Order number', 120)
       const fileName = requireText(body.fileName, 'PDF file name', 180)

@@ -1085,7 +1085,9 @@ async function setProductionTarget(data: WorkbookData, user: PublicUser, body: R
 }
 
 async function addProduction(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
-  if (user.role === 'Store Manager') throw new ApiError(403, 'Your role cannot enter production records.')
+  if (user.role !== 'Production Supervisor') {
+    throw new ApiError(403, 'Only the Production Supervisor can enter production records.')
+  }
   const date = requiredText(body.date, 'Production date', 10)
   const parsedDate = Date.parse(`${date}T00:00:00.000Z`)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsedDate) || new Date(parsedDate).toISOString().slice(0, 10) !== date) {
@@ -1138,7 +1140,6 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
     qcReviewedAt: '',
     createdBy: user.name,
   }
-  if (user.role !== 'Super Admin' && user.role !== 'Production Supervisor') return savedRecord
   return {
     ...savedRecord,
     finishedGood: {
@@ -1162,7 +1163,9 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
 }
 
 async function reviewProductionQuality(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
-  requireSupervisorOrAdmin(user)
+  if (user.role !== 'Production Supervisor') {
+    throw new ApiError(403, 'Only the Production Supervisor can review production quality.')
+  }
   const productionId = requiredText(body.productionId, 'Production batch', 120)
   const rows = records(data, 'Production')
   const recordIndex = rows.findIndex(row => text(row['Production ID']) === productionId)
@@ -1590,8 +1593,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     if (action === 'addProduction') {
-      if (!['Super Admin', 'Production Supervisor', 'Machine Operator'].includes(user.role)) {
-        throw new ApiError(403, 'This account cannot record production.')
+      if (user.role !== 'Production Supervisor') {
+        throw new ApiError(403, 'Only the Production Supervisor can enter production records.')
       }
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for production validation.')
       const record = await addProduction(data, user, body)

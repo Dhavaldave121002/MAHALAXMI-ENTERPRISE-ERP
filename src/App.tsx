@@ -1472,7 +1472,7 @@ export default function App() {
   const adminModules = [...navSections.flatMap(section => section.items), ...settingsModules]
   const adminOnlyModules: Module[] = ['Camera Monitoring', 'Employees', 'Accounts', 'Reports', 'User Management', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
-    'Super Admin': adminModules.filter(item => item !== 'Daily Work Report'),
+    'Super Admin': adminModules.filter(item => item !== 'Daily Work Report' && item !== 'Shipping Labels'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
     'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat'],
     'Store Manager': ['Dashboard', 'Chat'],
@@ -3241,34 +3241,36 @@ function ModuleView(props: {
     return (
       <section>
         <div className="page-heading"><div><p>FACTORY · {formatIndiaDate(today)}</p><h1>Production</h1></div><div className="heading-actions"><button className="secondary" onClick={exportDailyReport}><Download size={17} /> Daily Excel</button><button className="primary" onClick={exportMonthlyReport}><FileSpreadsheet size={17} /> Monthly Excel</button></div></div>
-        <div className="form-grid">
-          <form className="panel form-card" onSubmit={submitProduction}>
-            <div className="panel-heading"><div><h2>Quick production entry</h2><p>Record actual quantities by machine</p></div></div>
-            <div className="field-grid">
-              <label>Date<input name="date" type="date" required value={productionDate} onChange={event => {
-                setProductionDate(event.target.value)
-                setProductionBlockChoice('')
-              }} /><small className="field-hint">India date: {formatIndiaDate(productionDate)}</small></label>
-              <label>Machine<select name="machine" required disabled={availableMachines.length === 0}><option value="">Select machine</option>{availableMachines.map(machine => <option key={machine.id} value={machine.id}>{machine.id}{machine.name ? ` — ${machine.name}` : ''}</option>)}</select></label>
-              <label>Production block<select name={autoProductionBlock ? undefined : 'block'} required value={selectedProductionBlock} disabled={Boolean(autoProductionBlock)} onChange={event => setProductionBlockChoice(event.target.value)}><option value="">Select time block</option>{productionBlocks.map(block => <option key={block.name} value={block.name}>{block.name} · {block.time}</option>)}</select>{autoProductionBlock && <input type="hidden" name="block" value={autoProductionBlock.name} />}</label>
-              <label>Product + SKU<select name="sku" required disabled={activeProducts.length === 0}><option value="">Select product and SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{[product.size, product.color].filter(Boolean).length ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
-              <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
-              <label>Initial reject estimate<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /><small className="field-hint">Quality Control confirms the final pass/reject quantities.</small></label>
+        {sessionUser.role === 'Production Supervisor' ? (
+          <div className="form-grid">
+            <form className="panel form-card" onSubmit={submitProduction}>
+              <div className="panel-heading"><div><h2>Quick production entry</h2><p>Record actual quantities by machine</p></div></div>
+              <div className="field-grid">
+                <label>Date<input name="date" type="date" required value={productionDate} onChange={event => {
+                  setProductionDate(event.target.value)
+                  setProductionBlockChoice('')
+                }} /><small className="field-hint">India date: {formatIndiaDate(productionDate)}</small></label>
+                <label>Machine<select name="machine" required disabled={availableMachines.length === 0}><option value="">Select machine</option>{availableMachines.map(machine => <option key={machine.id} value={machine.id}>{machine.id}{machine.name ? ` — ${machine.name}` : ''}</option>)}</select></label>
+                <label>Production block<select name={autoProductionBlock ? undefined : 'block'} required value={selectedProductionBlock} disabled={Boolean(autoProductionBlock)} onChange={event => setProductionBlockChoice(event.target.value)}><option value="">Select time block</option>{productionBlocks.map(block => <option key={block.name} value={block.name}>{block.name} · {block.time}</option>)}</select>{autoProductionBlock && <input type="hidden" name="block" value={autoProductionBlock.name} />}</label>
+                <label>Product + SKU<select name="sku" required disabled={activeProducts.length === 0}><option value="">Select product and SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}{[product.size, product.color].filter(Boolean).length ? ` · ${[product.size, product.color].filter(Boolean).join(' / ')}` : ''}</option>)}</select></label>
+                <label>Actual quantity<input name="actual" type="number" min="1" step="1" required /></label>
+                <label>Initial reject estimate<input name="rejected" type="number" min="0" step="1" defaultValue="0" required /><small className="field-hint">Quality Control confirms the final pass/reject quantities.</small></label>
+              </div>
+              {autoProductionBlock
+                ? <p className="local-storage-note">Automatically selected from current India time: {autoProductionBlock.name} ({autoProductionBlock.time}).</p>
+                : productionDate === today
+                  ? <p className="local-storage-note">Current India time is outside a production block or during a break. Select the block manually for this entry.</p>
+                  : <p className="local-storage-note">For a different production date, select the block manually.</p>}
+              {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin or Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask the Super Admin or Production Supervisor to add a machine.' : ''}</p>}
+              <button className="primary wide" type="submit" disabled={activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> Save production record</button>
+            </form>
+            <div className="panel time-card">
+              <div className="panel-heading"><div><h2>Production blocks</h2><p>Break periods are excluded</p></div></div>
+              {productionBlocks.map(block => <div className="time-row" key={block.name}><span>{block.name}</span><strong>{block.time}</strong></div>)}
+              <div className="break-note"><AlertTriangle size={16} /> Break time is not counted as production time.</div>
             </div>
-            {autoProductionBlock
-              ? <p className="local-storage-note">Automatically selected from current India time: {autoProductionBlock.name} ({autoProductionBlock.time}).</p>
-              : productionDate === today
-                ? <p className="local-storage-note">Current India time is outside a production block or during a break. Select the block manually for this entry.</p>
-                : <p className="local-storage-note">For a different production date, select the block manually.</p>}
-            {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin or Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask the Super Admin or Production Supervisor to add a machine.' : ''}</p>}
-            <button className="primary wide" type="submit" disabled={activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> Save production record</button>
-          </form>
-          <div className="panel time-card">
-            <div className="panel-heading"><div><h2>Production blocks</h2><p>Break periods are excluded</p></div></div>
-            {productionBlocks.map(block => <div className="time-row" key={block.name}><span>{block.name}</span><strong>{block.time}</strong></div>)}
-            <div className="break-note"><AlertTriangle size={16} /> Break time is not counted as production time.</div>
           </div>
-        </div>
+        ) : <p className="local-storage-note">Only the Production Supervisor can add production entries. Existing records are available here for inspection.</p>}
         <div className="table-card entries-table"><PaginatedTable label="Today's production entries" resetKey={today} header={<thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Initial reject estimate</th><th>QC status</th><th>QC pass</th><th>QC reject</th><th>Entered by</th></tr></thead>} rows={productionRows} />{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
       </section>
     )
@@ -3354,7 +3356,7 @@ function ModuleView(props: {
   }
 
   if (module === 'Quality Control') {
-    const canReview = sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor'
+    const canReview = sessionUser.role === 'Production Supervisor'
     const pendingQuality = production.filter(row => row.qcStatus === 'Pending').sort((left, right) => left.date.localeCompare(right.date))
     const reviewedQuality = production.filter(row => row.qcStatus === 'Reviewed' && row.date === qualityReportDate)
     const targetRows = productionTargets
@@ -3388,7 +3390,7 @@ function ModuleView(props: {
           <div><p>FACTORY OPERATIONS</p><h1>Quality Control</h1><span className="dashboard-description">Pass/reject production batches; only QC-approved quantities increase finished-goods stock.</span></div>
           <div className="heading-actions"><label>Report date<input type="date" value={qualityReportDate} onChange={event => setQualityReportDate(event.target.value || indiaDateKey(clock))} /></label></div>
         </div>
-        {!canReview && <p className="local-storage-note">Only the Super Admin or Production Supervisor can submit QC decisions.</p>}
+        {!canReview && <p className="local-storage-note">Only the Production Supervisor can submit QC decisions. Existing results are available here for inspection.</p>}
         <div className="stats-grid">
           <div className="stat-card"><div className="stat-icon orange"><AlertTriangle size={20} /></div><div className="stat-body"><span>Pending batches</span><strong>{pendingQuality.length}</strong><small>Awaiting review</small></div></div>
           <div className="stat-card"><div className="stat-icon blue"><Factory size={20} /></div><div className="stat-body"><span>Units awaiting QC</span><strong>{pendingUnits.toLocaleString('en-IN')}</strong><small>Not available as stock</small></div></div>
@@ -4208,7 +4210,7 @@ function EcommerceWorkspace({
     return !query || [listing.productName, listing.productSku, listing.platformSku].some(value => value.toLowerCase().includes(query))
   })
   const movements = data?.movements.filter(movement => movement.platform === selectedPlatform) || []
-  const canEdit = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
+  const canEditListings = user.role === 'E-commerce Executive' || user.role === 'Super Admin'
   const listingRows = visibleListings.map(listing => editingListingId === listing.id
     ? <tr key={listing.id}><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td colSpan={6}><form className="inline-listing-form" onSubmit={event => void saveListing(event, listing)}>
       <label>Platform SKU<input aria-label={`Platform SKU for ${listing.productName}`} value={platformSkuDraft} onChange={event => setPlatformSkuDraft(event.target.value)} maxLength={120} required /></label>
@@ -4225,7 +4227,7 @@ function EcommerceWorkspace({
       <td>₹{listing.sellingPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       <td>{listing.availableStock.toLocaleString('en-IN')}</td>
       <td>{listing.stockStatus}</td>
-      {canEdit && <td><button className="secondary" type="button" onClick={() => {
+      {canEditListings && <td><button className="secondary" type="button" onClick={() => {
         setEditingListingId(listing.id)
         setPlatformSkuDraft(listing.platformSku)
         setMrpDraft(String(listing.mrp))
@@ -4264,7 +4266,7 @@ function EcommerceWorkspace({
   const showOverview = showAll || page === 'overview'
   const showStock = showAll || page === 'stock'
   const showOrders = showAll || page === 'orders'
-  const showLabels = showAll || page === 'labels'
+  const showLabels = user.role !== 'Super Admin' && (showAll || page === 'labels')
   const showReport = user.role === 'E-commerce Executive'
     ? showAll || page === 'report'
     : user.role === 'E-commerce Manager' && page === 'report'
@@ -4587,11 +4589,11 @@ function EcommerceWorkspace({
 
   return (
     <section className="ecommerce-workspace">
-      <div className="page-heading"><div><p>PLATFORM OPERATIONS</p><h1>{pageTitle}</h1><span className="catalog-intro">Platform access is verified on the server for stock, orders, SKU updates, labels, and reports.</span></div><button className="secondary" onClick={() => { setLoading(true); void reload() }} disabled={loading}><RotateCcw size={16} /> Refresh</button></div>
+      <div className="page-heading"><div><p>PLATFORM OPERATIONS</p><h1>{pageTitle}</h1><span className="catalog-intro">{user.role === 'Super Admin' ? 'Platform access is verified on the server for stock, orders, SKU updates, and reports.' : 'Platform access is verified on the server for stock, orders, SKU updates, labels, and reports.'}</span></div><button className="secondary" onClick={() => { setLoading(true); void reload() }} disabled={loading}><RotateCcw size={16} /> Refresh</button></div>
       {(showOverview || showAll) && user.role !== 'E-commerce Manager' && <nav className="ecommerce-quick-links" aria-label="E-commerce workspace shortcuts">
         <button className="secondary" type="button" onClick={() => setModule('E-commerce Stock')}><Boxes size={16} /> Stock & SKUs</button>
         <button className="secondary" type="button" onClick={() => setModule('E-commerce Orders')}><Truck size={16} /> Dispatches & Returns</button>
-        <button className="secondary" type="button" onClick={() => setModule('Shipping Labels')}><FileSpreadsheet size={16} /> Shipping Labels</button>
+        {user.role !== 'Super Admin' && <button className="secondary" type="button" onClick={() => setModule('Shipping Labels')}><FileSpreadsheet size={16} /> Shipping Labels</button>}
         {user.role === 'E-commerce Executive' && <button className="secondary" type="button" onClick={() => setModule('Daily Work Report')}><ClipboardCheck size={16} /> Daily Report</button>}
       </nav>}
       {error && <div className="ecommerce-error" role="alert">{error}</div>}
@@ -4683,12 +4685,12 @@ function EcommerceWorkspace({
           <div className="stat-card"><div className="stat-icon blue"><Boxes size={20} /></div><div className="stat-body"><span>Available stock</span><strong>{Array.from(uniqueStock.values()).reduce((total, stock) => total + stock, 0).toLocaleString('en-IN')}</strong><small>Across {listings.length} assigned listings</small></div></div>
           <div className="stat-card"><div className="stat-icon green"><Truck size={20} /></div><div className="stat-body"><span>Orders dispatched this month</span><strong>{selectedSummary?.dispatchedOrders || 0}</strong><small>{selectedSummary?.dispatchedUnits || 0} units · {selectedMonth}</small></div></div>
           <div className="stat-card"><div className="stat-icon orange"><RotateCcw size={20} /></div><div className="stat-body"><span>Returns / damage this month</span><strong>{(selectedSummary?.returnedOrders || 0) + (selectedSummary?.damagedOrders || 0)}</strong><small>Order events · {selectedMonth}</small></div></div>
-          <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Permanently deleted after 7 days</small></div></div>
+          {user.role !== 'Super Admin' && <div className="stat-card"><div className="stat-icon blue"><FileSpreadsheet size={20} /></div><div className="stat-body"><span>Shipping labels</span><strong>{labels.length}</strong><small>Permanently deleted after 7 days</small></div></div>}
         </div>}
         {showStock && <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>{selectedPlatform} stock and SKUs</h2><p>Edit this platform's SKU, MRP, or selling price here. Sales reports use the current selling price; the shared Product SKU stays unchanged.</p></div></div>
           <div className="ecommerce-listing-toolbar"><label><Search size={16} /><input type="search" aria-label="Search product name, product SKU, or platform SKU" placeholder="Search product name or SKU" value={listingSearch} onChange={event => setListingSearch(event.target.value)} /></label><span>{visibleListings.length} of {listings.length} listings</span></div>
-          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : visibleListings.length === 0 ? <div className="empty-state"><Search size={24} /><strong>No matching products</strong><span>Try a different product name or SKU.</span></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedPlatform} stock and SKUs`} resetKey={`${selectedPlatform}:${listingSearch}`} header={<thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>MRP</th><th>Selling price</th><th>Available stock</th><th>Status</th>{canEdit && <th />}</tr></thead>} rows={listingRows} /></div>}
+          {listings.length === 0 ? <div className="empty-state"><Boxes size={24} /><strong>No marketplace listings</strong><span>Assigned platform products will appear here.</span></div> : visibleListings.length === 0 ? <div className="empty-state"><Search size={24} /><strong>No matching products</strong><span>Try a different product name or SKU.</span></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${selectedPlatform} stock and SKUs`} resetKey={`${selectedPlatform}:${listingSearch}`} header={<thead><tr><th>Product</th><th>Product SKU</th><th>Platform SKU</th><th>MRP</th><th>Selling price</th><th>Available stock</th><th>Status</th>{canEditListings && <th />}</tr></thead>} rows={listingRows} /></div>}
         </section>}
         {showOrders && <section className="panel ecommerce-section">
           <div className="panel-heading"><div><h2>Dispatches and returns</h2><p>Dispatch, return, and damage records tied to order numbers.</p></div></div>
@@ -4697,7 +4699,7 @@ function EcommerceWorkspace({
         {(showLabels || showReport) && <div className={`ecommerce-panels${showLabels !== showReport ? ' ecommerce-single-panel' : ''}`}>
           {showLabels && <section className="panel ecommerce-section" id="ecommerce-shipping-labels">
             <div className="panel-heading"><div><h2>Shipping labels</h2><p>PDFs are stored privately and permanently deleted after 7 days.</p></div></div>
-            {canEdit && <form className="ecommerce-form" onSubmit={event => void uploadLabel(event)}><label>Marketplace order number<input name="orderNumber" required maxLength={120} /></label><label>Label PDF<input name="label" type="file" accept="application/pdf,.pdf" required /></label><small>PDF only · maximum 3 MB</small><button className="primary" type="submit" disabled={busy}><Upload size={15} /> Upload label</button></form>}
+            {user.role === 'E-commerce Executive' && <form className="ecommerce-form" onSubmit={event => void uploadLabel(event)}><label>Marketplace order number<input name="orderNumber" required maxLength={120} /></label><label>Label PDF<input name="label" type="file" accept="application/pdf,.pdf" required /></label><small>PDF only · maximum 3 MB</small><button className="primary" type="submit" disabled={busy}><Upload size={15} /> Upload label</button></form>}
             {labels.length === 0 ? <div className="empty-state"><FileSpreadsheet size={24} /><strong>No labels for {selectedPlatform}</strong><span>Uploaded shipping labels will be listed here.</span></div> : <PaginatedList label={`${selectedPlatform} shipping labels`} resetKey={selectedPlatform} items={labelRows} className="ecommerce-label-list" />}
           </section>}
           {showReport && <section className="panel ecommerce-section">
@@ -4873,7 +4875,7 @@ function DashboardView({
   const descriptions: Record<Role, string> = {
     'Super Admin': 'Manage the full ERP, inventory, factory operations, and team access.',
     'Production Supervisor': 'Manage production, inventory, catalog, machines, and sales. Management, User Management, Settings, and Audit Logs are Admin-only.',
-    'Machine Operator': 'Record your daily output and review your own production entries.',
+    'Machine Operator': 'Review production entries and assigned machine targets.',
     'Store Manager': 'This account has dashboard-only access. Contact the Super Admin if your assigned workspace needs to change.',
     'E-commerce Manager': 'Manage your assigned E-commerce Executives, set team targets, and review their daily reports.',
     'E-commerce Executive': 'Review assigned-platform stock and dispatches, upload labels, update marketplace SKUs, and submit your daily report.',
@@ -4943,7 +4945,7 @@ function DashboardView({
       { module: 'Orders', detail: 'View sales bookings and fulfillment status' },
     ],
     'Machine Operator': [
-      { module: 'Production', detail: 'Record output by machine and SKU' },
+      { module: 'Production', detail: 'Inspect production entries and your machine targets' },
       { module: 'Production Targets', detail: 'See the target assigned to your machine' },
     ],
     'Store Manager': [],

@@ -18,7 +18,7 @@ const ADMIN_ONLY_MODULES = new Set([
 ])
 
 const ROLE_MODULES: Record<UserRole, Set<string>> = {
-  'Super Admin': new Set([...ERP_MODULES].filter(module => module !== 'Daily Work Report')),
+  'Super Admin': new Set([...ERP_MODULES].filter(module => module !== 'Daily Work Report' && module !== 'Shipping Labels')),
   'Production Supervisor': new Set([...ERP_MODULES].filter(module => module !== 'Daily Work Report' && !ADMIN_ONLY_MODULES.has(module))),
   'Machine Operator': new Set(['Dashboard', 'Production', 'Production Targets', 'Chat']),
   'Store Manager': new Set(['Dashboard', 'Chat']),

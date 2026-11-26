@@ -1878,6 +1878,9 @@
     }
 
     function recordProduction_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Production Supervisor') {
+        throw apiError_(403, 'Only the Production Supervisor can record production.')
+      }
       return withWriteLock_(function () {
         const record = payload.record
         if (!record || typeof record !== 'object' || Array.isArray(record)) throw apiError_(400, 'A production record is required.')
@@ -1941,8 +1944,8 @@
     }
 
     function reviewProductionQuality_(spreadsheet, payload) {
-      if (!['Super Admin', 'Production Supervisor'].includes(String(payload.sessionUserRole || ''))) {
-        throw apiError_(403, 'Only the Super Admin or Production Supervisor can review production quality.')
+      if (String(payload.sessionUserRole || '') !== 'Production Supervisor') {
+        throw apiError_(403, 'Only the Production Supervisor can review production quality.')
       }
       return withWriteLock_(function () {
         const productionId = String(payload.productionId || '').trim()
@@ -3379,6 +3382,9 @@
     }
 
     function uploadEcommerceLabel_(payload) {
+      if (String(payload.sessionUserRole || '') !== 'E-commerce Executive') {
+        throw apiError_(403, 'Only an E-commerce Executive can upload shipping labels.')
+      }
       assertEcommerceWriteRole_(payload)
       const platform = assertEcommercePlatformAccess_(payload, payload.platform)
       const orderNumber = String(payload.orderNumber || '').trim()
@@ -3414,7 +3420,7 @@
     }
 
     function listEcommerceLabels_(spreadsheet, payload) {
-      if (['E-commerce Executive', 'E-commerce Manager', 'Production Supervisor', 'Super Admin'].indexOf(String(payload.sessionUserRole || '')) < 0) {
+      if (['E-commerce Executive', 'E-commerce Manager', 'Production Supervisor'].indexOf(String(payload.sessionUserRole || '')) < 0) {
         throw apiError_(403, 'This account cannot view shipping labels.')
       }
       const platform = String(payload.platform || '').trim().toUpperCase()
@@ -3441,6 +3447,9 @@
     }
 
     function downloadEcommerceLabel_(spreadsheet, payload) {
+      if (['E-commerce Executive', 'E-commerce Manager', 'Production Supervisor'].indexOf(String(payload.sessionUserRole || '')) < 0) {
+        throw apiError_(403, 'This account cannot download shipping labels.')
+      }
       const fileId = String(payload.fileId || '').trim()
       if (!fileId) throw apiError_(400, 'A shipping-label ID is required.')
       const folder = getEcommerceLabelFolder_(false)
