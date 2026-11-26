@@ -4425,24 +4425,25 @@
           const keyIndex = target.headers.indexOf(keyColumn)
           if (keyIndex < 0) return 0
           const values = target.sheet.getRange(2, 1, target.sheet.getLastRow() - 1, target.headers.length).getValues()
+          const rowIndexes = new Map()
+          values.forEach(function (row, rowIndex) {
+            const key = keyOf(row[keyIndex])
+            if (key && !rowIndexes.has(key)) rowIndexes.set(key, rowIndex)
+          })
           let updated = 0
           rows.forEach(function (record) {
             const key = keyOf(record.__importMatchKey === undefined ? record[keyColumn] : record.__importMatchKey)
             if (!key) return
-            for (let rowIndex = 0; rowIndex < values.length; rowIndex += 1) {
-              if (keyOf(values[rowIndex][keyIndex]) !== key) continue
-              let rowChanged = false
-              target.headers.forEach(function (header, columnIndex) {
-                if (record[header] === undefined || record[header] === '' ||
-                    sameImportValue(values[rowIndex][columnIndex], record[header])) return
-                values[rowIndex][columnIndex] = safeCellValue_(record[header])
-                rowChanged = true
-              })
-              if (rowChanged) {
-                updated += 1
-              }
-              break
-            }
+            const rowIndex = rowIndexes.get(key)
+            if (rowIndex === undefined) return
+            let rowChanged = false
+            target.headers.forEach(function (header, columnIndex) {
+              if (record[header] === undefined || record[header] === '' ||
+                  sameImportValue(values[rowIndex][columnIndex], record[header])) return
+              values[rowIndex][columnIndex] = safeCellValue_(record[header])
+              rowChanged = true
+            })
+            if (rowChanged) updated += 1
           })
           if (updated) target.sheet.getRange(2, 1, values.length, target.headers.length).setValues(values)
           return updated
@@ -4478,6 +4479,7 @@
         const listingSkuToId = new Map()
         const listingIds = new Map()
         const listingById = new Map()
+        const listingByPlatformSku = new Map()
         const skuRenames = []
 
         function titleKey(value) {
@@ -4535,7 +4537,10 @@
             listingIds.set(id, platformKey)
             listingById.set(id, row)
           }
-          if (row.Platform && row['Platform SKU']) listingSkuToId.set(platformKey, id)
+          if (row.Platform && row['Platform SKU']) {
+            listingSkuToId.set(platformKey, id)
+            listingByPlatformSku.set(platformKey, row)
+          }
         })
 
         const addedProducts = []
@@ -4768,10 +4773,7 @@
             'Created By': '',
             'Created At': '',
           }
-          const existingListing = listingById.get(idKey) ||
-            currentListings.find(function (item) {
-              return keyOf(item.Platform) + ':' + keyOf(item['Platform SKU']) === listingKey
-            })
+          const existingListing = listingById.get(idKey) || listingByPlatformSku.get(listingKey)
           if (existingIdPlatform !== undefined || existingSkuId !== undefined) {
             if (existingListing) {
               matched.listings += 1
@@ -4801,6 +4803,25 @@
 
         const finishedRows = readSheetRecords_(spreadsheet, 'Finished_Goods')
         const movementRows = readSheetRecords_(spreadsheet, 'Stock_Movement')
+        const finishedRowsBySku = new Map()
+        finishedRows.forEach(function (record) {
+          const key = keyOf(record['Product SKU'])
+          if (!key) return
+          const rows = finishedRowsBySku.get(key) || []
+          rows.push(record)
+          finishedRowsBySku.set(key, rows)
+        })
+        const movementsBySku = new Map()
+        movementRows.forEach(function (record) {
+          const itemType = String(record['Item Type'] || '').trim()
+          if (itemType && itemType !== 'Finished Goods') return
+          const key = keyOf(record.SKU)
+          if (!key) return
+          const rows = movementsBySku.get(key) || []
+          rows.push(record)
+          movementsBySku.set(key, rows)
+        })
+        const renamedSkuKeys = new Set(skuRenames.map(function (rename) { return keyOf(rename.newSku) }))
         const stockSkus = new Set()
         inputFinishedGoods.forEach(function (row, index) {
           const label = 'Finished-goods opening stock row ' + (index + 1)
@@ -4816,16 +4837,13 @@
           if (!productSkuToMaster.has(skuKey) && !variantSkuToMaster.has(skuKey)) {
             throw apiError_(422, 'Finished-goods SKU ' + sku + ' does not match an imported product or variant.')
           }
-          if (skuRenames.some(function (rename) { return keyOf(rename.newSku) === skuKey })) {
+          if (renamedSkuKeys.has(skuKey)) {
             throw apiError_(409, 'Import opening stock for renamed SKU ' + sku + ' separately after resolving its existing stock.')
           }
 
-          const existingStockRows = finishedRows.filter(function (record) { return keyOf(record['Product SKU']) === skuKey })
+          const existingStockRows = finishedRowsBySku.get(skuKey) || []
           if (existingStockRows.length > 1) throw apiError_(409, 'Finished-goods stock contains duplicate rows for SKU ' + sku + '.')
-          const skuMovements = movementRows.filter(function (record) {
-            const itemType = String(record['Item Type'] || '').trim()
-            return keyOf(record.SKU) === skuKey && (!itemType || itemType === 'Finished Goods')
-          })
+          const skuMovements = movementsBySku.get(skuKey) || []
           const referenceId = 'ERP-IMPORT-OPENING-STOCK-' + sku
           const importedMovement = skuMovements.filter(function (record) {
             return String(record['Movement Type'] || '').trim() === 'Opening Stock' &&
@@ -4874,6 +4892,9 @@
           addedFinishedGoods.push({ stock: stockRecord, movement: movement })
         })
 
+        const updatedProductsById = new Map(updatedProducts.map(function (row) {
+          return [keyOf(row['Internal Product ID']), row]
+        }))
         currentProducts.forEach(function (row) {
           const currentSku = String(row['Master SKU'] || '').trim()
           const currentSkuKey = keyOf(currentSku)
@@ -4881,7 +4902,7 @@
           const mrp = skuMrpUpdates.get(keyOf(canonicalSku))
           if (mrp === undefined || mrp === '' || !currentSku) return
           const idKey = keyOf(row['Internal Product ID'])
-          const staged = updatedProducts.find(function (item) { return keyOf(item['Internal Product ID']) === idKey })
+          const staged = updatedProductsById.get(idKey)
           const base = staged || row
           const merged = mergeImportRecord(base, { 'Master SKU': canonicalSku, MRP: mrp })
           if (hasImportChanges(base, merged)) {
@@ -4889,6 +4910,7 @@
             else {
               merged.__importMatchKey = row['Internal Product ID']
               updatedProducts.push(merged)
+              updatedProductsById.set(idKey, merged)
             }
           }
         })
@@ -4897,13 +4919,16 @@
           if (mrp !== undefined && mrp !== '') row.MRP = mrp
         })
 
+        const updatedVariantsById = new Map(updatedVariants.map(function (row) {
+          return [keyOf(row['Variant ID']), row]
+        }))
         currentVariants.forEach(function (row) {
           const existingMaster = String(row['Master SKU'] || '').trim()
           const canonicalMaster = productAliasToMaster.get(keyOf(existingMaster)) || existingMaster
           const sku = String(row['Variant SKU'] || '').trim()
           const mrp = skuMrpUpdates.get(keyOf(sku))
           const idKey = keyOf(row['Variant ID'])
-          const staged = updatedVariants.find(function (item) { return keyOf(item['Variant ID']) === idKey })
+          const staged = updatedVariantsById.get(idKey)
           const base = staged || row
           const patch = { 'Master SKU': canonicalMaster }
           if (mrp !== undefined && mrp !== '') patch.MRP = mrp
@@ -4913,6 +4938,7 @@
             else {
               merged.__importMatchKey = row['Variant ID']
               updatedVariants.push(merged)
+              updatedVariantsById.set(idKey, merged)
             }
           }
         })
@@ -4998,10 +5024,8 @@
         totals.updated.variants = updateImportRows(variantTarget, updatedVariants, 'Variant ID')
         totals.updated.listings = updateImportRows(listingTarget, updatedListings, 'Listing ID')
         if (finishedTarget) updateImportRows(finishedTarget, finishedUpdates, 'Product SKU')
-        addedFinishedGoods.forEach(function (record) {
-          appendStockRow_(finishedTarget.sheet, finishedTarget.headers, record.stock)
-          appendStockRow_(movementTarget.sheet, movementTarget.headers, record.movement)
-        })
+        appendImportRows(finishedTarget, addedFinishedGoods.map(function (record) { return record.stock }))
+        appendImportRows(movementTarget, addedFinishedGoods.map(function (record) { return record.movement }))
         totals.skipped = {
           products: Math.max(0, matched.products - totals.updated.products),
           variants: Math.max(0, matched.variants - totals.updated.variants),

@@ -911,12 +911,10 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'importMarketplaceWorkbook', ...rows }),
     })
-    try {
-      await refreshWorkbook()
-    } catch {
-      notify('Import saved, but the live workbook could not be refreshed. Reload the page before retrying.')
-      throw new Error('Import succeeded, but the live workbook could not be refreshed. Reload the page before retrying.')
-    }
+    void refreshWorkbook().catch(error => {
+      const detail = error instanceof Error ? ` ${error.message}` : ''
+      notify(`Import saved, but the catalog could not refresh automatically.${detail} Do not retry the import.`)
+    })
     notify(`Import complete: ${response.result.added.products + response.result.added.variants + response.result.added.listings} catalog rows and ${response.result.openingStock?.added ?? 0} opening-stock rows added; ${response.result.updated ? response.result.updated.products + response.result.updated.variants + response.result.updated.listings : 0} catalog rows updated; ${response.result.renamedProducts ?? 0} product SKUs renamed.`)
     return response.result
   }
@@ -3147,7 +3145,7 @@ function ModuleView(props: {
           </button>
         </div>}
         {marketplaceImportResult && <div className="panel marketplace-import-panel">
-          <div className="panel-heading"><div><h2>Import complete</h2><p>Rows were merged into the existing connected Google Sheet.</p></div></div>
+          <div className="panel-heading"><div><h2>Import complete</h2><p>Rows were saved to the connected Google Sheet. Catalog refresh runs in the background; do not repeat the import or reload while it syncs.</p></div></div>
           <p className="marketplace-selection-note">
             Added: {marketplaceImportResult.added.products} products, {marketplaceImportResult.added.variants} variants, {marketplaceImportResult.added.listings} listings.
             {marketplaceImportResult.openingStock && <> Added {marketplaceImportResult.openingStock.added} ERP opening-stock rows; {marketplaceImportResult.openingStock.skipped} already imported.</>}
