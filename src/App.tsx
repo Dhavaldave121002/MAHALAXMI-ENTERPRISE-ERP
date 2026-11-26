@@ -3726,10 +3726,6 @@ function ModuleView(props: {
         notify('Assign at least one marketplace platform')
         return
       }
-      if (requestedRole === 'E-commerce Executive' && !requestedManagerId) {
-        notify('Assign the executive to an active E-commerce Manager')
-        return
-      }
       if (!username) return
       try {
         const result = await apiFetch<{ user: UserAccount }>('/api/users', {
@@ -3814,7 +3810,7 @@ function ModuleView(props: {
               <label>Username<input name="username" required autoComplete="off" placeholder="login name" /></label>
               <label>Password<input name="password" type="password" required minLength={10} placeholder="Minimum 10 characters" /></label>
               <label>Role<select name="role" required value={newUserRole} onChange={event => setNewUserRole(event.target.value as Role)}><option>Production Supervisor</option><option>Machine Operator</option><option>Store Manager</option><option>E-commerce Manager</option><option>E-commerce Executive</option><option>Sales Executive</option><option>Graphic Designer</option></select></label>
-              {newUserRole === 'E-commerce Executive' && <label>Reporting manager<select name="managerId" required defaultValue=""><option value="">Choose an active manager</option>{managerAccounts.map(manager => <option key={manager.id} value={manager.id}>{manager.name}</option>)}</select></label>}
+              {newUserRole === 'E-commerce Executive' && <label>Reporting manager<select name="managerId" defaultValue=""><option value="">Leave unassigned (assign later)</option>{managerAccounts.map(manager => <option key={manager.id} value={manager.id}>{manager.name}</option>)}</select></label>}
               {newUserRole === 'E-commerce Executive' && <fieldset className="platform-assignment"><legend>Assigned platform access</legend>{ecommercePlatforms.map(platform => <label key={platform}><input type="checkbox" name="platforms" value={platform} /> {platform}</label>)}</fieldset>}
             </div>
             <button className="primary wide" type="submit"><Plus size={17} /> Create account</button>

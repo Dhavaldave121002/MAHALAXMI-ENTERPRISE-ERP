@@ -822,9 +822,6 @@ export function newUser(input: { id: string; name: string; username: string; rol
   if (input.role === 'E-commerce Executive' && platforms.length === 0) {
     throw new ApiError(400, 'Assign at least one marketplace platform to an E-commerce Executive.')
   }
-  if (input.role === 'E-commerce Executive' && !input.managerId) {
-    throw new ApiError(400, 'Assign the E-commerce Executive to an active E-commerce Manager.')
-  }
   return { ...input, managerId: input.managerId || '', platforms, active: true, createdAt: new Date().toISOString() }
 }
 

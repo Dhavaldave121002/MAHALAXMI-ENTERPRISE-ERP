@@ -2784,11 +2784,15 @@
         const users = readSheetRecords_(spreadsheet, 'Users')
         if (user.Role === 'E-commerce Executive') {
           const managerId = String(user['Manager ID'] || '').trim()
-          const manager = users.find(function (row) {
-            const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
-            return active && String(row['User ID'] || '').trim() === managerId && String(row.Role || '').trim() === 'E-commerce Manager'
-          })
-          if (!managerId || !manager) throw apiError_(400, 'Assign the E-commerce Executive to an active E-commerce Manager.')
+          if (managerId) {
+            const manager = users.find(function (row) {
+              const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+              return active && String(row['User ID'] || '').trim() === managerId && String(row.Role || '').trim() === 'E-commerce Manager'
+            })
+            if (!manager) throw apiError_(400, 'Choose an active E-commerce Manager.')
+          } else if (actorRole !== 'Super Admin') {
+            throw apiError_(400, 'An E-commerce Manager must create executives assigned to their account.')
+          }
           if (actorRole === 'E-commerce Manager' && managerId !== actorId) {
             throw apiError_(403, 'An E-commerce Manager can only create executives who report to them.')
           }

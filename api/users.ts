@@ -55,11 +55,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       }
       let managerId = ''
       if (roleValue === 'E-commerce Executive') {
-        managerId = isManager
-          ? currentUser.id
-          : typeof body.managerId === 'string' ? body.managerId.trim() : ''
-        const manager = users.find(account => account.id === managerId && account.role === 'E-commerce Manager' && account.active)
-        if (!manager) throw new ApiError(400, 'Assign the E-commerce Executive to an active E-commerce Manager.')
+        if (isManager) {
+          managerId = currentUser.id
+        } else {
+          if (body.managerId !== undefined && typeof body.managerId !== 'string') {
+            throw new ApiError(400, 'Choose an active E-commerce Manager or leave the manager unassigned.')
+          }
+          managerId = typeof body.managerId === 'string' ? body.managerId.trim() : ''
+        }
+        if (managerId) {
+          const manager = users.find(account => account.id === managerId && account.role === 'E-commerce Manager' && account.active)
+          if (!manager) throw new ApiError(400, 'Choose an active E-commerce Manager.')
+        } else if (!isAdmin) {
+          throw new ApiError(400, 'An E-commerce Manager must create executives assigned to their account.')
+        }
       } else if (body.managerId !== undefined && body.managerId !== '') {
         throw new ApiError(400, 'Only E-commerce Executives can be assigned to a manager.')
       }
