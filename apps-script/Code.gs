@@ -1,8 +1,8 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms', 'Manager ID']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets', 'Graphic_Design_Tasks', 'Suppliers', 'Accounts_Expenses']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
-    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
     const ERP_AUDIT_HEADERS = ['Event ID', 'Timestamp', 'User ID', 'User Name', 'Role', 'Action', 'Target', 'Outcome']
@@ -357,6 +357,8 @@
           return setUserActive_(spreadsheet, payload)
         case 'setUserManager':
           return setUserManager_(spreadsheet, payload)
+        case 'setUserPassword':
+          return setUserPassword_(spreadsheet, payload)
         case 'updateMarketplaceSku':
         case 'updateMarketplaceListing':
           return updateMarketplaceSku_(spreadsheet, payload)
@@ -882,6 +884,7 @@
         appendUser: 'Created user account',
         setUserActive: payload.active ? 'Activated user account' : 'Deactivated user account',
         setUserManager: 'Assigned E-commerce Manager',
+        setUserPassword: 'Changed account password',
         addMarketplaceListing: 'Created marketplace listing',
         recordProduction: 'Recorded production',
         reviewProductionQuality: 'Reviewed production quality',
@@ -4310,6 +4313,39 @@
         createBackup_(spreadsheet)
         sheet.getRange(targetRow, activeColumn + 1).setValue(active ? 'TRUE' : 'FALSE')
         SpreadsheetApp.flush()
+        return { updated: true }
+      })
+    }
+
+    function setUserPassword_(spreadsheet, payload) {
+      const userId = String(payload.id || '').trim()
+      const actorId = String(payload.sessionUserId || '').trim()
+      const actorRole = String(payload.sessionUserRole || '')
+      const salt = String(payload.salt || '')
+      const passwordHash = String(payload.passwordHash || '')
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(userId)) throw apiError_(400, 'Choose a valid user account.')
+      if (actorRole !== 'Super Admin' && actorId !== userId) {
+        throw apiError_(403, 'You can only change your own password.')
+      }
+      if (!/^[a-f0-9]{32}$/i.test(salt) || !/^[a-f0-9]{64}$/i.test(passwordHash)) {
+        throw apiError_(400, 'The new password credentials are invalid.')
+      }
+      return withWriteLock_(function () {
+        const sheet = spreadsheet.getSheetByName('Users')
+        if (!sheet || sheet.getLastRow() < 2) throw apiError_(404, 'User account sheet was not found.')
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+        const idColumn = headers.indexOf('User ID')
+        const saltColumn = headers.indexOf('Password Salt')
+        const hashColumn = headers.indexOf('Password Hash')
+        if (idColumn < 0 || saltColumn < 0 || hashColumn < 0) throw apiError_(422, 'The Users sheet is missing password columns.')
+        const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues()
+        const rowIndex = values.findIndex(function (row) { return String(row[idColumn] || '').trim() === userId })
+        if (rowIndex < 0) throw apiError_(404, 'User account was not found.')
+        createBackup_(spreadsheet)
+        sheet.getRange(rowIndex + 2, saltColumn + 1).setValue(salt)
+        sheet.getRange(rowIndex + 2, hashColumn + 1).setValue(passwordHash)
+        SpreadsheetApp.flush()
+        invalidateWorkbookCache_(spreadsheet)
         return { updated: true }
       })
     }

@@ -267,6 +267,10 @@ export async function setUserManager(executiveId: string, managerId: string, act
   await callAppsScript('setUserManager', { executiveId, managerId, ...sessionBoundPayload(actor) })
 }
 
+export async function setUserPassword(userId: string, salt: string, passwordHash: string, actor: Pick<PublicUser, 'id' | 'role'>) {
+  await callAppsScript('setUserPassword', { id: userId, salt, passwordHash, ...sessionBoundPayload(actor) })
+}
+
 export async function appendWorkbookRecord(
   sheet: string,
   record: Record<string, unknown>,

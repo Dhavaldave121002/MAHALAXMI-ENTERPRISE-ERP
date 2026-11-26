@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
 import { getSessionUser } from './_lib/session.js'
-import { appendUser, ECOMMERCE_PLATFORMS, isUserRole, listUsers, makePasswordHash, newUser, publicUser, setUserActive, setUserManager, type EcommercePlatform, type UserRole } from './_lib/workbook.js'
+import { appendUser, ECOMMERCE_PLATFORMS, isUserRole, listUsers, makePasswordHash, newUser, publicUser, setUserActive, setUserManager, setUserPassword, verifyPassword, type EcommercePlatform, type UserRole } from './_lib/workbook.js'
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (!['GET', 'POST', 'PATCH'].includes(request.method || '')) {
@@ -89,6 +89,37 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
 
     const id = typeof body.id === 'string' ? body.id : ''
+    if (Object.prototype.hasOwnProperty.call(body, 'newPassword')) {
+      if (typeof body.newPassword !== 'string' || body.newPassword.length < 10) {
+        throw new ApiError(400, 'New password must be at least 10 characters.')
+      }
+      const hasCurrentPassword = Object.prototype.hasOwnProperty.call(body, 'currentPassword')
+      let targetId = ''
+      if (hasCurrentPassword) {
+        if (typeof body.currentPassword !== 'string' || body.id !== undefined) {
+          throw new ApiError(400, 'Enter your current password to change your own password.')
+        }
+        const account = users.find(user => user.id === currentUser.id)
+        if (!account || !await verifyPassword(body.currentPassword, account.salt, account.passwordHash)) {
+          throw new ApiError(400, 'Current password is incorrect.')
+        }
+        targetId = currentUser.id
+      } else {
+        if (currentUser.role !== 'Super Admin') {
+          throw new ApiError(403, 'Only the Super Admin can reset another account password.')
+        }
+        if (!id) throw new ApiError(400, 'Choose an account whose password should be reset.')
+        targetId = id
+      }
+      if (body.managerId !== undefined || body.active !== undefined) {
+        throw new ApiError(400, 'Password changes must be submitted separately from other account updates.')
+      }
+      if (!users.some(user => user.id === targetId)) throw new ApiError(404, 'User account was not found.')
+      const credentials = await makePasswordHash(body.newPassword)
+      await setUserPassword(targetId, credentials.salt, credentials.passwordHash, currentUser)
+      sendJson(response, 200, { ok: true })
+      return
+    }
     if (Object.prototype.hasOwnProperty.call(body, 'managerId')) {
       if (currentUser.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can assign an executive manager.')
       if (!id || typeof body.managerId !== 'string') throw new ApiError(400, 'An executive ID and manager ID are required.')

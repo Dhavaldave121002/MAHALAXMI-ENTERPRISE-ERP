@@ -19,7 +19,7 @@ type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
-  'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring' | 'Chat'
+  'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring' | 'Chat' | 'Change Password'
 
 type AuditEvent = {
   id: string
@@ -221,6 +221,7 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'WORK REPORTS', items: ['Daily Work Report'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Camera Monitoring', 'Settings'] },
+  { label: 'ACCOUNT', items: ['Change Password'] },
 ]
 const settingsModules: Module[] = ['User Management', 'Excel Management', 'Audit Logs']
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
@@ -260,7 +261,7 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   'E-commerce Stock': Boxes, 'E-commerce Orders': Truck, 'Shipping Labels': FileSpreadsheet,
   'Daily Work Report': ClipboardCheck, 'Camera Monitoring': Video,
   'Graphic Design': FileSpreadsheet,
-  Chat: MessageCircle,
+  Chat: MessageCircle, 'Change Password': LockKeyhole,
 } as Record<Module, typeof LayoutDashboard>
 
 function readStored<T>(key: string, fallback: T): T {
@@ -1481,12 +1482,12 @@ export default function App() {
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report' && item !== 'Shipping Labels'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
-    'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat'],
-    'Store Manager': ['Dashboard', 'Chat'],
-    'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat'],
-    'E-commerce Manager': ['E-commerce Workspace', 'Daily Work Report', 'Chat'],
-    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Chat'],
-    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Daily Work Report', 'Chat'],
+    'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat', 'Change Password'],
+    'Store Manager': ['Dashboard', 'Chat', 'Change Password'],
+    'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat', 'Change Password'],
+    'E-commerce Manager': ['E-commerce Workspace', 'Daily Work Report', 'Chat', 'Change Password'],
+    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Chat', 'Change Password'],
+    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Daily Work Report', 'Chat', 'Change Password'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -1637,6 +1638,8 @@ function ModuleView(props: {
   const [resetPanelOpen, setResetPanelOpen] = useState(false)
   const [resetConfirmation, setResetConfirmation] = useState('')
   const [resetBusy, setResetBusy] = useState(false)
+  const [passwordResetSaving, setPasswordResetSaving] = useState(false)
+  const [passwordChangeSaving, setPasswordChangeSaving] = useState(false)
   useEffect(() => {
     if (module !== 'Audit Logs') return
     let active = true
@@ -1943,6 +1946,53 @@ function ModuleView(props: {
             </button>
           })}
         </div>
+      </section>
+    )
+  }
+
+  if (module === 'Change Password') {
+    const changeMyPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      const formElement = event.currentTarget
+      const form = new FormData(formElement)
+      const currentPassword = String(form.get('currentPassword') || '')
+      const newPassword = String(form.get('newPassword') || '')
+      const confirmPassword = String(form.get('confirmPassword') || '')
+      if (newPassword.length < 10) {
+        notify('New password must be at least 10 characters')
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        notify('New password and confirmation do not match')
+        return
+      }
+      setPasswordChangeSaving(true)
+      try {
+        await apiFetch<{ ok: boolean }>('/api/users', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, newPassword }),
+        })
+        notify('Your password has been changed')
+        formElement.reset()
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'Password could not be changed')
+      } finally {
+        setPasswordChangeSaving(false)
+      }
+    }
+    return (
+      <section>
+        <div className="page-heading"><div><p>ACCOUNT SECURITY</p><h1>Change Password</h1><span className="dashboard-description">Verify your current password before setting a new one.</span></div></div>
+        <form className="panel form-card" onSubmit={changeMyPassword}>
+          <div className="panel-heading"><div><h2>Update your password</h2><p>Use at least 10 characters.</p></div></div>
+          <div className="field-grid">
+            <label>Current password<input name="currentPassword" type="password" autoComplete="current-password" required /></label>
+            <label>New password<input name="newPassword" type="password" autoComplete="new-password" minLength={10} required /></label>
+            <label>Confirm new password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={10} required /></label>
+          </div>
+          <button className="primary wide" type="submit" disabled={passwordChangeSaving}>{passwordChangeSaving ? 'Changing password…' : 'Change password'}</button>
+        </form>
       </section>
     )
   }
@@ -3782,6 +3832,36 @@ function ModuleView(props: {
         notify(error instanceof Error ? error.message : 'Manager assignment could not be saved')
       }
     }
+    const resetAccountPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      const formElement = event.currentTarget
+      const form = new FormData(formElement)
+      const userId = String(form.get('userId') || '')
+      const newPassword = String(form.get('newPassword') || '')
+      const confirmPassword = String(form.get('confirmPassword') || '')
+      if (newPassword.length < 10) {
+        notify('New password must be at least 10 characters')
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        notify('New password and confirmation do not match')
+        return
+      }
+      setPasswordResetSaving(true)
+      try {
+        await apiFetch<{ ok: boolean }>('/api/users', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: userId, newPassword }),
+        })
+        notify('Account password has been reset')
+        formElement.reset()
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'Account password could not be reset')
+      } finally {
+        setPasswordResetSaving(false)
+      }
+    }
     const reportRows = ecommerceReports.map(report => <tr key={report.id}><td>{formatIndiaDate(report.date)}</td><td>{formatIndiaDateTime(report.updatedAt)}</td><td>{report.userName}</td><td>{report.platform === 'TEAM' ? 'Team' : report.platform}</td><td className="ecommerce-report-cell">{report.completed}</td><td className="ecommerce-report-cell">{report.pending || '—'}</td><td className="ecommerce-report-cell">{report.issues || '—'}</td></tr>)
     const ecommerceTaskRows = ecommerceTasks.map(task => <tr key={task.id}>
       <td>{formatIndiaDate(task.taskDate)}</td><td>{task.managerName}</td><td>{task.executiveName}</td>
@@ -3814,6 +3894,15 @@ function ModuleView(props: {
               {newUserRole === 'E-commerce Executive' && <fieldset className="platform-assignment"><legend>Assigned platform access</legend>{ecommercePlatforms.map(platform => <label key={platform}><input type="checkbox" name="platforms" value={platform} /> {platform}</label>)}</fieldset>}
             </div>
             <button className="primary wide" type="submit"><Plus size={17} /> Create account</button>
+          </form>
+          <form className="panel form-card" onSubmit={resetAccountPassword}>
+            <div className="panel-heading"><div><h2>Reset account password</h2><p>Set a new password without viewing the current one.</p></div></div>
+            <div className="field-grid">
+              <label>Account<select name="userId" required defaultValue=""><option value="" disabled>Choose an account</option>{users.map(user => <option key={user.id} value={user.id}>{user.name} · {user.username} ({user.role})</option>)}</select></label>
+              <label>New password<input name="newPassword" type="password" autoComplete="new-password" minLength={10} required /></label>
+              <label>Confirm new password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={10} required /></label>
+            </div>
+            <button className="primary wide" type="submit" disabled={passwordResetSaving}>{passwordResetSaving ? 'Resetting password…' : 'Reset password'}</button>
           </form>
         </div>
         <p className="local-storage-note">User accounts and password hashes are stored in the connected workbook. Users can sign in from any device on the deployed site.</p>

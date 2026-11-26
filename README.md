@@ -31,6 +31,7 @@ Never paste either secret into chat, frontend code, or GitHub. The web app endpo
 - The first Admin is created once through the setup link after the Apps Script connection is configured.
 - The `Users` worksheet is added to the Google Sheet when the first Admin is created.
 - Passwords are stored as salted PBKDF2 hashes; raw passwords are never written to the workbook.
+- Users can change their own password from **Change Password** after verifying the current password. The Super Admin can set a new password for any account in **User Management**; the current password is never displayed.
 - The Admin creates non-admin accounts from **Create team login** or **More → User Management**.
 - When creating an E-commerce Executive, the Super Admin can leave the reporting manager unassigned and assign an active E-commerce Manager later in **User Management**. E-commerce Managers creating executives are assigned as their manager automatically.
 - `/admin` is for the single Super Admin; team members use the main login page. Reload restores the signed-in workspace from its HttpOnly session cookie; protected API requests still verify the active account and role against the connected Users sheet.
