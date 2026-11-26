@@ -19,6 +19,8 @@
     const ERP_CHAT_HEADERS = ['Message ID', 'Conversation ID', 'Sender ID', 'Sender Name', 'Sender Role', 'Recipient ID', 'Recipient Name', 'Recipient Role', 'Sent At', 'Message', 'Attachment ID', 'Attachment Name', 'Attachment MIME Type', 'Attachment Size']
     const ERP_CAMERA_RECORDING_FOLDER_PROPERTY = 'ERP_CAMERA_RECORDING_FOLDER_ID'
     const ERP_CAMERA_RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000
+    const ERP_WORKBOOK_BACKUP_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+    const ERP_WORKBOOK_BACKUP_CLEANUP_HANDLER = 'cleanupExpiredWorkbookBackupsScheduled_'
     const ERP_CAMERA_RECORDING_KIND = 'mahalaxmi-erp-camera-recording'
     const ERP_SCREEN_RECORDING_KIND = 'mahalaxmi-erp-screen-recording'
     const ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES = 2 * 1024 * 1024
@@ -3199,27 +3201,17 @@
       }
     }
 
-    function permanentlyDeleteCameraClip_(file) {
-      const response = UrlFetchApp.fetch(
-        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(file.getId()),
-        {
-          method: 'delete',
-          headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
-          muteHttpExceptions: true,
-        }
-      )
-      const status = response.getResponseCode()
-      if (status !== 200 && status !== 204) {
-        Logger.log('Drive API could not permanently delete expired camera clip ' + file.getId() + '; HTTP status ' + status)
-        throw apiError_(500, 'Expired camera clips could not be deleted. Please retry shortly.')
-      }
-    }
-
     function cleanupExpiredCameraClips_() {
       const root = getCameraRecordingFolder_(false)
       if (!root) return 0
       const cutoff = Date.now() - ERP_CAMERA_RECORDING_RETENTION_MS
       const expired = []
+      const rootFiles = root.getFiles()
+      while (rootFiles.hasNext()) {
+        const file = rootFiles.next()
+        const metadata = parseCameraRecordingMetadata_(file)
+        if (metadata && Number(metadata.startedAt) <= cutoff) expired.push(file)
+      }
       const folders = root.getFolders()
       while (folders.hasNext()) {
         const files = folders.next().getFiles()
@@ -3230,8 +3222,90 @@
           expired.push(file)
         }
       }
-      expired.forEach(permanentlyDeleteCameraClip_)
+      expired.forEach(function (file) {
+        try {
+          file.setTrashed(true)
+        } catch (error) {
+          Logger.log('Could not move expired camera clip to Drive Trash ' + file.getId() + ': ' + String(error))
+          throw apiError_(500, 'Expired camera clips could not be moved to Drive Trash. Please retry shortly.')
+        }
+      })
       return expired.length
+    }
+
+    function permanentlyDeleteWorkbookBackup_(file) {
+      const response = UrlFetchApp.fetch(
+        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(file.getId()),
+        {
+          method: 'delete',
+          headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+          muteHttpExceptions: true,
+        }
+      )
+      const status = response.getResponseCode()
+      if (status !== 200 && status !== 204) {
+        Logger.log('Drive API could not permanently delete expired ERP backup ' + file.getId() + '; HTTP status ' + status)
+        throw apiError_(500, 'Expired ERP backups could not be permanently deleted. Please retry shortly.')
+      }
+    }
+
+    function cleanupExpiredWorkbookBackups_() {
+      return withWriteLock_(function () {
+        const spreadsheetId = PropertiesService.getScriptProperties().getProperty('ERP_SPREADSHEET_ID')
+        if (!spreadsheetId) throw apiError_(503, 'Configure ERP API access before cleaning workbook backups.')
+        const masterFile = DriveApp.getFileById(spreadsheetId)
+        const backupPrefix = masterFile.getName() + '-Backup-'
+        const backupById = new Map()
+        const parents = masterFile.getParents()
+        let parentCount = 0
+        while (parents.hasNext()) {
+          parentCount += 1
+          const files = parents.next().getFiles()
+          while (files.hasNext()) {
+            const file = files.next()
+            const name = file.getName()
+            const timestamp = name.slice(backupPrefix.length)
+            if (
+              name.indexOf(backupPrefix) !== 0 ||
+              !/^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/.test(timestamp) ||
+              file.getMimeType() !== MimeType.GOOGLE_SHEETS
+            ) continue
+            backupById.set(file.getId(), { file: file, createdAt: file.getDateCreated().getTime() })
+          }
+        }
+        if (!parentCount) {
+          const files = DriveApp.getRootFolder().getFiles()
+          while (files.hasNext()) {
+            const file = files.next()
+            const name = file.getName()
+            const timestamp = name.slice(backupPrefix.length)
+            if (
+              name.indexOf(backupPrefix) !== 0 ||
+              !/^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/.test(timestamp) ||
+              file.getMimeType() !== MimeType.GOOGLE_SHEETS
+            ) continue
+            backupById.set(file.getId(), { file: file, createdAt: file.getDateCreated().getTime() })
+          }
+        }
+
+        const backups = Array.from(backupById.values())
+        if (!backups.length) return 0
+        const newest = backups.reduce(function (latest, backup) {
+          return backup.createdAt > latest.createdAt ? backup : latest
+        })
+        const cutoff = Date.now() - ERP_WORKBOOK_BACKUP_RETENTION_MS
+        let deleted = 0
+        backups.forEach(function (backup) {
+          if (backup.file.getId() === newest.file.getId() || backup.createdAt >= cutoff) return
+          permanentlyDeleteWorkbookBackup_(backup.file)
+          deleted += 1
+        })
+        return deleted
+      })
+    }
+
+    function cleanupExpiredWorkbookBackupsScheduled_() {
+      return cleanupExpiredWorkbookBackups_()
     }
 
     function getEcommerceLabelFolder_(createIfMissing) {
@@ -3267,7 +3341,11 @@
 
     function ensureEcommerceLabelCleanupTrigger_() {
       return withWriteLock_(function () {
-        const handlers = [ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER, ERP_AUDIT_CLEANUP_HANDLER]
+        const handlers = [
+          ERP_ECOMMERCE_LABEL_CLEANUP_HANDLER,
+          ERP_AUDIT_CLEANUP_HANDLER,
+          ERP_WORKBOOK_BACKUP_CLEANUP_HANDLER,
+        ]
         handlers.forEach(function (handler) {
           const exists = ScriptApp.getProjectTriggers().some(function (trigger) {
             return trigger.getHandlerFunction() === handler
@@ -3286,7 +3364,7 @@
     function installEcommerceLabelCleanupTrigger() {
       verifyCameraDriveUploadAuthorization_()
       ensureEcommerceLabelCleanupTrigger_()
-      return cleanupExpiredEcommerceLabels_()
+      return cleanupExpiredEcommerceLabels_() + cleanupExpiredWorkbookBackups_()
     }
 
     function authorizeCameraClipUploads() {
