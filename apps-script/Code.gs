@@ -1,8 +1,8 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms', 'Manager ID']
-    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets', 'Graphic_Design_Tasks']
+    const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets', 'Graphic_Design_Tasks', 'Suppliers', 'Accounts_Expenses']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
-    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
     const ERP_AUDIT_HEADERS = ['Event ID', 'Timestamp', 'User ID', 'User Name', 'Role', 'Action', 'Target', 'Outcome']
@@ -42,9 +42,11 @@
     const ERP_ECOMMERCE_TASK_HEADERS = ['Task ID', 'Manager ID', 'Manager Name', 'Executive ID', 'Executive Name', 'Task Date', 'Title', 'Description', 'Status', 'Created At', 'Updated At', 'Reviewed By ID', 'Reviewed By', 'Reviewed At', 'Review Note']
     const ERP_WORKBOOK_CACHE_SECONDS = 30
     const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
-    const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
+    const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Supplier ID', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
     const ERP_FINISHED_GOODS_HEADERS = ['Product SKU', 'Product Name', 'Opening Stock', 'Production Received', 'Quality Approved', 'Rejected', 'Reserved Stock', 'Available Stock', 'Dispatched Stock', 'Returned Stock', 'Damaged Stock', 'Last Updated', 'Adjustment In', 'Adjustment Out', 'Status']
-    const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner']
+    const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner', 'Supplier ID', 'Supplier', 'Unit Cost', 'Total Cost', 'Unit Price', 'Total Amount']
+    const ERP_SUPPLIER_HEADERS = ['Supplier ID', 'Supplier Name', 'Contact Person', 'Phone', 'Email', 'Address', 'Notes', 'Status', 'Created At', 'Created By', 'Updated At', 'Updated By']
+    const ERP_ACCOUNT_EXPENSE_HEADERS = ['Expense ID', 'Date', 'Category', 'Description', 'Amount', 'Payment Method', 'Reference ID', 'Created At', 'Created By ID', 'Created By']
     const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At']
     const ERP_SALES_ACTIVITY_HEADERS = ['Activity ID', 'Lead ID', 'Activity Type', 'Outcome', 'Notes', 'Next Follow-Up', 'Created At', 'Created By', 'Created By Name']
     const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes']
@@ -408,6 +410,12 @@
           return cancelSalesOrder_(spreadsheet, payload)
         case 'setSalesTarget':
           return setSalesTarget_(spreadsheet, payload)
+        case 'addSupplier':
+          return addSupplier_(spreadsheet, payload)
+        case 'setSupplierActive':
+          return setSupplierActive_(spreadsheet, payload)
+        case 'recordAccountExpense':
+          return recordAccountExpense_(spreadsheet, payload)
         case 'appendRecord':
           return appendRecord_(spreadsheet, payload)
         case 'addMarketplaceListing':
@@ -903,6 +911,9 @@
         createSalesOrder: 'Created sales order',
         cancelSalesOrder: 'Cancelled sales order',
         setSalesTarget: 'Changed sales target',
+        addSupplier: 'Created supplier',
+        setSupplierActive: payload.active ? 'Activated supplier' : 'Deactivated supplier',
+        recordAccountExpense: 'Recorded account expense',
       }
       if (action === 'appendRecord') {
         const sheet = String(payload.sheet || '')
@@ -934,7 +945,7 @@
       const record = payload.record && typeof payload.record === 'object' ? payload.record : {}
       const user = payload.user && typeof payload.user === 'object' ? payload.user : {}
       const candidates = [
-        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId, payload.executiveId, payload.taskId,
+        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId, payload.supplierId, payload.expenseId, payload.executiveId, payload.taskId,
         payload.sku, user['User ID'], record.id, record['Internal Product ID'],
         record['Variant ID'], record['Machine ID'], record['Production ID'], record['Movement ID'],
       ]
@@ -1155,6 +1166,15 @@
       return String(parent && parent['Product Title'] || masterSku || sku).trim()
     }
 
+    function salesOrderUnitPrice_(spreadsheet, orderId) {
+      const target = String(orderId || '').trim()
+      if (!target) return 0
+      const order = readSheetRecords_(spreadsheet, 'Sales_Orders').find(function (row) {
+        return String(row['Order ID'] || '').trim() === target
+      })
+      return order ? stockNumber_(order['Unit Price'], 'Sales order unit price') : 0
+    }
+
     function readStockRow_(sheet, headers, rowNumber) {
       if (!rowNumber) return null
       const values = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0]
@@ -1200,6 +1220,12 @@
         'Item Type': input.itemType,
         'Sales Channel': input.salesChannel || '',
         'Delivery Partner': input.deliveryPartner || '',
+        'Supplier ID': input.supplierId || '',
+        Supplier: input.supplier || '',
+        'Unit Cost': input.unitCost === undefined ? '' : input.unitCost,
+        'Total Cost': input.totalCost === undefined ? '' : input.totalCost,
+        'Unit Price': input.unitPrice === undefined ? '' : input.unitPrice,
+        'Total Amount': input.totalAmount === undefined ? '' : input.totalAmount,
       }
     }
 
@@ -1239,12 +1265,147 @@
         - stockNumber_(record['Adjustment Out'], 'Adjustment out')
     }
 
+    function requireProductionSupervisor_(payload) {
+      if (String(payload.sessionUserRole || '') !== 'Production Supervisor') {
+        throw apiError_(403, 'Only the Production Supervisor can manage raw materials and finished goods.')
+      }
+    }
+
+    function supplierById_(spreadsheet, supplierId) {
+      const target = String(supplierId || '').trim()
+      if (!target) return null
+      return readSheetRecords_(spreadsheet, 'Suppliers').find(function (row) {
+        return String(row['Supplier ID'] || '').trim() === target
+      }) || null
+    }
+
+    function addSupplier_(spreadsheet, payload) {
+      requireProductionSupervisor_(payload)
+      return withWriteLock_(function () {
+        const input = payload.supplier || {}
+        const name = String(input.name || '').trim()
+        if (!name || name.length > 180) throw apiError_(400, 'Supplier name is required and must be 180 characters or fewer.')
+        const contactPerson = String(input.contactPerson || '').trim()
+        const phone = String(input.phone || '').trim()
+        const email = String(input.email || '').trim()
+        const address = String(input.address || '').trim()
+        const notes = String(input.notes || '').trim()
+        if ([name, contactPerson, phone, email, address, notes].some(function (value) {
+          return /[\u0000-\u001f\u007f]/.test(value)
+        })) throw apiError_(400, 'Supplier details cannot contain control characters.')
+        if (contactPerson.length > 120 || phone.length > 40 || email.length > 180 || address.length > 300 || notes.length > 500) {
+          throw apiError_(400, 'One or more supplier details exceed their supported length.')
+        }
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw apiError_(400, 'Enter a valid supplier email address.')
+        const duplicate = readSheetRecords_(spreadsheet, 'Suppliers').some(function (row) {
+          return String(row['Supplier Name'] || '').trim().toLowerCase() === name.toLowerCase()
+        })
+        if (duplicate) throw apiError_(409, 'A supplier with that name already exists.')
+        const backupState = { created: false }
+        const registry = ensureStockSheet_(spreadsheet, 'Suppliers', ERP_SUPPLIER_HEADERS, backupState)
+        const now = new Date().toISOString()
+        const supplier = {
+          'Supplier ID': 'SUP-' + Utilities.getUuid(),
+          'Supplier Name': name,
+          'Contact Person': contactPerson,
+          Phone: phone,
+          Email: email,
+          Address: address,
+          Notes: notes,
+          Status: 'Active',
+          'Created At': now,
+          'Created By': payload.createdBy || '',
+          'Updated At': now,
+          'Updated By': payload.createdBy || '',
+        }
+        createBackupOnce_(spreadsheet, backupState)
+        appendStockRow_(registry.sheet, registry.headers, supplier)
+        SpreadsheetApp.flush()
+        return { supplier: supplier }
+      })
+    }
+
+    function setSupplierActive_(spreadsheet, payload) {
+      requireProductionSupervisor_(payload)
+      return withWriteLock_(function () {
+        const supplierId = String(payload.supplierId || '').trim()
+        if (!supplierId || typeof payload.active !== 'boolean') throw apiError_(400, 'Choose a supplier and active status.')
+        const sheet = spreadsheet.getSheetByName('Suppliers')
+        if (!sheet || sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) throw apiError_(404, 'Supplier was not found.')
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+        const rowNumber = findStockRow_(sheet, headers, 'Supplier ID', supplierId)
+        if (!rowNumber) throw apiError_(404, 'Supplier was not found.')
+        const supplier = readStockRow_(sheet, headers, rowNumber)
+        const nextStatus = payload.active ? 'Active' : 'Inactive'
+        if (String(supplier.Status || '') === nextStatus) return { supplier: supplier }
+        const backupState = { created: false }
+        createBackupOnce_(spreadsheet, backupState)
+        supplier.Status = nextStatus
+        supplier['Updated At'] = new Date().toISOString()
+        supplier['Updated By'] = payload.createdBy || ''
+        updateStockRow_(sheet, headers, rowNumber, supplier)
+        SpreadsheetApp.flush()
+        return { supplier: supplier }
+      })
+    }
+
+    function recordAccountExpense_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can record account expenses.')
+      }
+      return withWriteLock_(function () {
+        const input = payload.expense || {}
+        const date = String(input.date || '').trim()
+        const parsedDate = Date.parse(date + 'T00:00:00.000Z')
+        const amount = Number(input.amount)
+        const category = String(input.category || '').trim()
+        const description = String(input.description || '').trim()
+        const paymentMethod = String(input.paymentMethod || '').trim()
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(parsedDate) || new Date(parsedDate).toISOString().slice(0, 10) !== date) {
+          throw apiError_(400, 'Enter a valid expense date.')
+        }
+        if (!category || category.length > 80 || !description || description.length > 300 ||
+            /[\u0000-\u001f\u007f]/.test(category) || /[\u0000-\u001f\u007f]/.test(description)) {
+          throw apiError_(400, 'Expense category and description are required and must fit the supported lengths.')
+        }
+        if (!isFinite(amount) || amount <= 0 || amount > 1000000000) throw apiError_(400, 'Enter a valid expense amount greater than zero.')
+        if (['Cash', 'Bank Transfer', 'UPI', 'Card', 'Cheque', 'Other'].indexOf(paymentMethod) < 0) {
+          throw apiError_(400, 'Choose a valid payment method.')
+        }
+        if (String(input.referenceId || '').trim().length > 100) throw apiError_(400, 'Reference ID must be 100 characters or fewer.')
+        const roundedAmount = Math.round(amount * 100) / 100
+        if (roundedAmount <= 0) throw apiError_(400, 'Expense amount must be at least one cent.')
+        const backupState = { created: false }
+        const sheet = ensureStockSheet_(spreadsheet, 'Accounts_Expenses', ERP_ACCOUNT_EXPENSE_HEADERS, backupState)
+        const expense = {
+          'Expense ID': 'EXP-' + Utilities.getUuid(),
+          Date: date,
+          Category: category,
+          Description: description,
+          Amount: roundedAmount,
+          'Payment Method': paymentMethod,
+          'Reference ID': String(input.referenceId || '').trim(),
+          'Created At': new Date().toISOString(),
+          'Created By ID': payload.sessionUserId || '',
+          'Created By': payload.createdBy || '',
+        }
+        createBackupOnce_(spreadsheet, backupState)
+        appendStockRow_(sheet.sheet, sheet.headers, expense)
+        SpreadsheetApp.flush()
+        return { expense: expense }
+      })
+    }
+
     function addRawMaterial_(spreadsheet, payload) {
+      requireProductionSupervisor_(payload)
       return withWriteLock_(function () {
         const sku = String(payload.sku || '').trim()
         const name = String(payload.name || '').trim()
         const unit = String(payload.unit || '').trim()
-        if (!sku || !name || !unit) throw apiError_(400, 'Material SKU, name, and unit are required.')
+        const supplier = supplierById_(spreadsheet, payload.supplierId)
+        if (!sku || !name || !unit || !supplier || String(supplier.Status || '').toLowerCase() !== 'active') {
+          throw apiError_(400, 'Material SKU, name, unit, and an active supplier are required.')
+        }
         const opening = stockNumber_(payload.openingStock, 'Opening stock')
         const reorder = stockNumber_(payload.reorderLevel, 'Reorder level')
         const unitCost = stockNumber_(payload.unitCost, 'Average unit cost')
@@ -1261,7 +1422,8 @@
           Unit: unit,
           'Opening Stock': opening,
           'Purchase Inward': 0,
-          Supplier: String(payload.supplier || '').trim(),
+          Supplier: String(supplier['Supplier Name'] || ''),
+          'Supplier ID': String(supplier['Supplier ID'] || ''),
           'Material Issued': 0,
           'Machine Consumption': 0,
           'Stitching Consumption': 0,
@@ -1282,6 +1444,8 @@
           movement = appendStockMovement_(spreadsheet, stockMovementRecord_({
             sku: sku, type: 'Opening Stock', quantity: opening, opening: 0, closing: opening,
             itemType: 'Raw Material', reason: 'Initial stock balance', createdBy: payload.createdBy,
+            supplierId: supplier['Supplier ID'], supplier: supplier['Supplier Name'],
+            unitCost: unitCost, totalCost: opening * unitCost,
           }), backupState)
         }
         SpreadsheetApp.flush()
@@ -1290,6 +1454,7 @@
     }
 
     function applyStockMovement_(spreadsheet, payload) {
+      requireProductionSupervisor_(payload)
       return withWriteLock_(function () {
         const kind = String(payload.kind || '')
         const sku = String(payload.sku || '').trim()
@@ -1298,6 +1463,8 @@
         const referenceId = String(payload.referenceId || '').trim()
         const salesChannel = String(payload.salesChannel || '').trim()
         const deliveryPartner = String(payload.deliveryPartner || '').trim()
+        const unitPriceInput = payload.unitPrice === undefined || payload.unitPrice === '' ? 0 : stockNumber_(payload.unitPrice, 'Unit sale price')
+        if (unitPriceInput < 0) throw apiError_(400, 'Unit sale price cannot be negative.')
         const linkToDispatch = payload.linkToDispatch === true
         const linkedOrderReturn = linkToDispatch && kind === 'finished' && ['Return', 'Damage'].indexOf(type) >= 0
         const quantity = stockNumber_(payload.quantity, 'Quantity')
@@ -1321,6 +1488,18 @@
 
         const isRaw = kind === 'raw'
         if (!isRaw && kind !== 'finished') throw apiError_(400, 'Choose raw material or finished goods.')
+        const isPurchase = isRaw && type === 'Purchase Inward'
+        const purchaseSupplierId = String(payload.supplierId || '').trim()
+        const purchaseSupplier = isPurchase ? supplierById_(spreadsheet, purchaseSupplierId) : null
+        let purchaseUnitCost = 0
+        if (isPurchase) {
+          if (!purchaseSupplier || String(purchaseSupplier.Status || '').toLowerCase() !== 'active') {
+            throw apiError_(400, 'Choose an active supplier for this purchase.')
+          }
+          if (payload.unitCost === undefined || payload.unitCost === '') throw apiError_(400, 'Enter the purchase unit cost.')
+          purchaseUnitCost = stockNumber_(payload.unitCost, 'Unit cost')
+          if (purchaseUnitCost < 0) throw apiError_(400, 'Unit cost cannot be negative.')
+        }
         const catalogProductName = isRaw ? '' : findCatalogProductName_(spreadsheet, sku)
         if (!isRaw && !catalogProductName) throw apiError_(404, 'Choose an active SKU from the master workbook.')
         const sheetName = isRaw ? 'Raw_Materials' : 'Finished_Goods'
@@ -1336,6 +1515,7 @@
         let salesOrderHeaders = []
         let salesOrderRowNumber = 0
         let linkedSalesOrder = null
+        let linkedDispatch = null
         if (!isRaw && type === 'Dispatch' && referenceId) {
           salesOrderSheet = spreadsheet.getSheetByName('Sales_Orders')
           if (salesOrderSheet && salesOrderSheet.getLastRow() > 1) {
@@ -1370,6 +1550,7 @@
                 && String(row['Sales Channel'] || '') === salesChannel
             })
             if (!dispatch) throw apiError_(404, 'The selected platform order was not found in the dispatch ledger.')
+            linkedDispatch = dispatch
             const alreadyReturnedOrDamaged = matchingReference.filter(function (row) {
               return ['Return', 'Damage'].indexOf(String(row['Movement Type'] || '')) >= 0
                 && (!String(row['Sales Channel'] || '') || String(row['Sales Channel'] || '') === salesChannel)
@@ -1413,11 +1594,12 @@
           closing += direction * quantity
           if (closing < 0) throw apiError_(409, 'This movement would make raw-material stock negative.')
           item[type] = stockNumber_(item[type], type) + quantity
-          if (type === 'Purchase Inward' && payload.unitCost !== undefined && payload.unitCost !== '') {
-            const cost = stockNumber_(payload.unitCost, 'Unit cost')
-            if (cost < 0) throw apiError_(400, 'Unit cost cannot be negative.')
+          if (type === 'Purchase Inward') {
+            const cost = purchaseUnitCost
             const oldCost = stockNumber_(item['Average Unit Cost'], 'Average unit cost')
             item['Average Unit Cost'] = closing === 0 ? cost : ((opening * oldCost) + (quantity * cost)) / closing
+            item.Supplier = String(purchaseSupplier['Supplier Name'] || '')
+            item['Supplier ID'] = String(purchaseSupplier['Supplier ID'] || '')
           }
           item['Closing Stock'] = closing
           item['Stock Value'] = closing * stockNumber_(item['Average Unit Cost'], 'Average unit cost')
@@ -1457,6 +1639,17 @@
         }
         if (item['Available Stock'] !== undefined) closing = stockNumber_(item['Available Stock'], 'Available stock')
 
+        let recordedUnitPrice = unitPriceInput
+        if (type === 'Dispatch') {
+          if (linkedSalesOrder) recordedUnitPrice = stockNumber_(linkedSalesOrder['Unit Price'], 'Sales order unit price')
+        } else if (linkedDispatch && recordedUnitPrice <= 0) {
+          recordedUnitPrice = stockNumber_(linkedDispatch['Unit Price'], 'Dispatch unit price')
+            || salesOrderUnitPrice_(spreadsheet, referenceId)
+        }
+        if (type === 'Dispatch' && recordedUnitPrice <= 0) {
+          throw apiError_(400, 'Enter a positive sale price for this dispatch.')
+        }
+
         createBackupOnce_(spreadsheet, backupState)
         if (rowNumber) updateStockRow_(stockSheet.sheet, stockSheet.headers, rowNumber, item)
         else appendStockRow_(stockSheet.sheet, stockSheet.headers, item)
@@ -1468,6 +1661,12 @@
           machineId: payload.machineId, reason: reason, opening: opening, closing: closing,
           createdBy: payload.createdBy, itemType: itemType,
           salesChannel: salesChannel, deliveryPartner: deliveryPartner,
+          supplierId: isPurchase ? purchaseSupplier['Supplier ID'] : '',
+          supplier: isPurchase ? purchaseSupplier['Supplier Name'] : '',
+          unitCost: isPurchase ? purchaseUnitCost : undefined,
+          totalCost: isPurchase ? Math.round(quantity * purchaseUnitCost * 100) / 100 : undefined,
+          unitPrice: recordedUnitPrice > 0 ? recordedUnitPrice : undefined,
+          totalAmount: recordedUnitPrice > 0 ? Math.round(quantity * recordedUnitPrice * 100) / 100 : undefined,
         })
         appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
         SpreadsheetApp.flush()
@@ -1476,6 +1675,7 @@
     }
 
     function initializeZeroFinishedStock_(spreadsheet, payload) {
+      requireProductionSupervisor_(payload)
       return withWriteLock_(function () {
         const marker = 'ERP_ZERO_FINISHED_STOCK_INITIALIZED_' + spreadsheet.getId()
         const properties = PropertiesService.getScriptProperties()
@@ -1609,6 +1809,7 @@
     }
 
     function archiveStockItem_(spreadsheet, payload) {
+      requireProductionSupervisor_(payload)
       return withWriteLock_(function () {
         const kind = String(payload.kind || '')
         const sku = String(payload.sku || '').trim()
@@ -1639,6 +1840,7 @@
     }
 
     function deleteUnusedStockItem_(spreadsheet, payload) {
+      requireProductionSupervisor_(payload)
       return withWriteLock_(function () {
         const kind = String(payload.kind || '')
         const sku = String(payload.sku || '').trim()

@@ -525,6 +525,18 @@ export async function addWorkbookRawMaterial(input: Record<string, unknown>) {
   return callAppsScript<{ material: Record<string, unknown>; movement: Record<string, unknown> | null }>('addRawMaterial', input)
 }
 
+export async function addWorkbookSupplier(input: Record<string, unknown>) {
+  return callAppsScript<{ supplier: Record<string, unknown> }>('addSupplier', input)
+}
+
+export async function setWorkbookSupplierActive(input: Record<string, unknown>) {
+  return callAppsScript<{ supplier: Record<string, unknown> }>('setSupplierActive', input)
+}
+
+export async function recordWorkbookAccountExpense(input: Record<string, unknown>) {
+  return callAppsScript<{ expense: Record<string, unknown> }>('recordAccountExpense', input)
+}
+
 export async function applyWorkbookStockMovement(input: Record<string, unknown>) {
   return callAppsScript<{ item: Record<string, unknown>; movement: Record<string, unknown> }>('applyStockMovement', input)
 }

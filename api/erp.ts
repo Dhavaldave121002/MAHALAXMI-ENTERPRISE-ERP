@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto'
 import type { ApiRequest, ApiResponse } from './_lib/http.js'
 import { ApiError, handleApiError, readJsonBody, sendJson } from './_lib/http.js'
 import auditHandler from './_lib/auditHandler.js'
-import { getSessionClaims, getSessionUser, refreshSessionCookie, requireAdmin, requireSupervisorOrAdmin } from './_lib/session.js'
+import { getSessionClaims, getSessionUser, refreshSessionCookie, requireAdmin, requireProductionSupervisor, requireSupervisorOrAdmin } from './_lib/session.js'
 import {
   addWorkbookMarketplaceListing,
   addWorkbookRawMaterial,
+  addWorkbookSupplier,
+  setWorkbookSupplierActive,
+  recordWorkbookAccountExpense,
   applyWorkbookStockMovement,
   archiveWorkbookStockItem,
   appendWorkbookRecord,
@@ -125,7 +128,7 @@ type ProductionTarget = {
 }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
-  supplier: string; issued: number; machineConsumption: number; stitchingConsumption: number;
+  supplier: string; supplierId: string; issued: number; machineConsumption: number; stitchingConsumption: number;
   wastage: number; adjustmentIn: number; adjustmentOut: number; closingStock: number;
   reorderLevel: number; averageUnitCost: number; stockValue: number; status: string
 }
@@ -137,7 +140,17 @@ type FinishedGood = {
 type StockMovement = {
   id: string; date: string; sku: string; itemType: string; type: string; quantity: number;
   referenceId: string; machineId: string; reason: string; salesChannel: string; deliveryPartner: string;
+  supplierId: string; supplier: string; unitCost: number; totalCost: number; unitPrice: number; totalAmount: number;
+  hasRecordedCost: boolean; hasRecordedPrice: boolean;
   openingStock: number; closingStock: number; createdBy: string
+}
+type Supplier = {
+  id: string; name: string; contactPerson: string; phone: string; email: string; address: string;
+  notes: string; status: string; createdAt: string; createdBy: string; updatedAt: string; updatedBy: string
+}
+type AccountExpense = {
+  id: string; date: string; category: string; description: string; amount: number;
+  paymentMethod: string; referenceId: string; createdAt: string; createdBy: string
 }
 type SalesLead = {
   id: string; name: string; company: string; phone: string; email: string; productInterest: string;
@@ -167,6 +180,14 @@ function stockMovementFromRecord(row: Record<string, unknown>): StockMovement {
     reason: text(row.Reason),
     salesChannel: text(row['Sales Channel']),
     deliveryPartner: text(row['Delivery Partner']),
+    supplierId: text(row['Supplier ID']),
+    supplier: text(row.Supplier),
+    unitCost: number(row['Unit Cost']),
+    totalCost: number(row['Total Cost']),
+    unitPrice: number(row['Unit Price']),
+    totalAmount: number(row['Total Amount']),
+    hasRecordedCost: row['Total Cost'] !== undefined && row['Total Cost'] !== null && row['Total Cost'] !== '',
+    hasRecordedPrice: row['Total Amount'] !== undefined && row['Total Amount'] !== null && row['Total Amount'] !== '',
     openingStock: number(row['Opening Stock']),
     closingStock: number(row['Closing Stock']),
     createdBy: text(row['Created By']),
@@ -382,6 +403,8 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       rawMaterials: [],
       finishedGoods: [],
       stockMovements: [],
+      suppliers: [],
+      accountExpenses: [],
       salesLeads: [],
       salesActivities: [],
       salesOrders: [],
@@ -412,6 +435,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       openingStock: number(row['Opening Stock']),
       purchaseInward: number(row['Purchase Inward']),
       supplier: text(row.Supplier),
+      supplierId: text(row['Supplier ID']),
       issued: number(row['Material Issued']),
       machineConsumption: number(row['Machine Consumption']),
       stitchingConsumption: number(row['Stitching Consumption']),
@@ -469,6 +493,14 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       reason: text(row.Reason),
       salesChannel: text(row['Sales Channel']),
       deliveryPartner: text(row['Delivery Partner']),
+      supplierId: text(row['Supplier ID']),
+      supplier: text(row.Supplier),
+      unitCost: number(row['Unit Cost']),
+      totalCost: number(row['Total Cost']),
+      unitPrice: number(row['Unit Price']),
+      totalAmount: number(row['Total Amount']),
+      hasRecordedCost: row['Total Cost'] !== undefined && row['Total Cost'] !== null && row['Total Cost'] !== '',
+      hasRecordedPrice: row['Total Amount'] !== undefined && row['Total Amount'] !== null && row['Total Amount'] !== '',
       openingStock: number(row['Opening Stock']),
       closingStock: number(row['Closing Stock']),
       createdBy: text(row['Created By']),
@@ -726,6 +758,45 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       createdAt: text(row['Created At']),
     }]
   })
+  const suppliers: Supplier[] = optionalRecords(data, 'Suppliers').flatMap(row => {
+    const id = text(row['Supplier ID'])
+    const name = text(row['Supplier Name'])
+    if (!id || !name) return []
+    return [{
+      id,
+      name,
+      contactPerson: text(row['Contact Person']),
+      phone: text(row.Phone),
+      email: text(row.Email),
+      address: text(row.Address),
+      notes: text(row.Notes),
+      status: text(row.Status) || 'Active',
+      createdAt: text(row['Created At']),
+      createdBy: text(row['Created By']),
+      updatedAt: text(row['Updated At']),
+      updatedBy: text(row['Updated By']),
+    }]
+  })
+  const accountExpenses: AccountExpense[] = optionalRecords(data, 'Accounts_Expenses').flatMap(row => {
+    const id = text(row['Expense ID'])
+    if (!id) return []
+    const date = dateKey(row.Date)
+    const amount = number(row.Amount)
+    if (!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(date) || !Number.isFinite(amount) || amount <= 0) {
+      throw new ApiError(503, 'The Accounts_Expenses sheet contains an invalid expense record.')
+    }
+    return [{
+      id,
+      date,
+      category: text(row.Category),
+      description: text(row.Description),
+      amount,
+      paymentMethod: text(row['Payment Method']),
+      referenceId: text(row['Reference ID']),
+      createdAt: text(row['Created At']),
+      createdBy: text(row['Created By']),
+    }]
+  })
 
   return {
     products: user.role === 'Production Supervisor' || user.role === 'Super Admin' ? products : products.filter(item => item.status === 'Active'),
@@ -736,6 +807,8 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
     rawMaterials: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? rawMaterials : [],
     finishedGoods: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? finishedGoods : [],
     stockMovements: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? stockMovements.reverse() : [],
+    suppliers: user.role === 'Super Admin' || user.role === 'Production Supervisor' ? suppliers : [],
+    accountExpenses: user.role === 'Super Admin' ? accountExpenses : [],
     salesLeads,
     salesActivities,
     salesOrders,
@@ -1225,9 +1298,9 @@ async function addRawMaterial(user: PublicUser, body: Record<string, unknown>) {
   const openingStock = nonnegativeNumber(body.openingStock, 'Opening stock')
   const reorderLevel = nonnegativeNumber(body.reorderLevel, 'Reorder level')
   const unitCost = nonnegativeNumber(body.unitCost, 'Average unit cost')
-  const supplier = text(body.supplier).slice(0, 180)
+  const supplierId = requiredText(body.supplierId, 'Supplier', 120)
   const result = await addWorkbookRawMaterial({
-    sku, name, unit, openingStock, reorderLevel, unitCost, supplier, createdBy: user.name,
+    sku, name, unit, openingStock, reorderLevel, unitCost, supplierId, createdBy: user.name,
     sessionUserId: user.id, sessionRole: user.role,
   })
   const material = result.material
@@ -1239,6 +1312,7 @@ async function addRawMaterial(user: PublicUser, body: Record<string, unknown>) {
     openingStock: number(material['Opening Stock']),
     purchaseInward: number(material['Purchase Inward']),
     supplier: text(material.Supplier),
+    supplierId: text(material['Supplier ID']),
     issued: number(material['Material Issued']),
     machineConsumption: number(material['Machine Consumption']),
     stitchingConsumption: number(material['Stitching Consumption']),
@@ -1267,6 +1341,9 @@ async function applyStockMovement(user: PublicUser, body: Record<string, unknown
   const referenceId = text(body.referenceId)
   const salesChannel = text(body.salesChannel)
   const deliveryPartner = text(body.deliveryPartner)
+  const supplierId = text(body.supplierId)
+  const unitCost = body.unitCost === undefined || body.unitCost === '' ? undefined : nonnegativeNumber(body.unitCost, 'Unit cost')
+  const unitPrice = body.unitPrice === undefined || body.unitPrice === '' ? undefined : nonnegativeNumber(body.unitPrice, 'Unit sale price')
   const linkToDispatch = body.linkToDispatch === true
   if (reason.length > 300 || referenceId.length > 100) throw new ApiError(400, 'Reason or reference is too long.')
   if (body.linkToDispatch !== undefined && typeof body.linkToDispatch !== 'boolean') {
@@ -1290,6 +1367,9 @@ async function applyStockMovement(user: PublicUser, body: Record<string, unknown
     if (!['Purchase Inward', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Adjustment In', 'Adjustment Out'].includes(type)) {
       throw new ApiError(400, 'Choose a supported raw-material movement type.')
     }
+    if (type === 'Purchase Inward' && (!supplierId || unitCost === undefined)) {
+      throw new ApiError(400, 'Select a supplier and enter the purchase unit cost.')
+    }
   } else if (kind === 'finished') {
     if (!['Opening Stock', 'Dispatch', 'Return', 'Damage', 'Adjustment In', 'Adjustment Out', 'Reserve', 'Release Reservation'].includes(type)) {
       throw new ApiError(400, 'Choose a supported finished-goods movement type.')
@@ -1304,14 +1384,73 @@ async function applyStockMovement(user: PublicUser, body: Record<string, unknown
     referenceId: referenceId.slice(0, 100),
     salesChannel,
     deliveryPartner,
+    supplierId: supplierId.slice(0, 120),
     linkToDispatch,
     machineId: text(body.machineId).slice(0, 100),
-    unitCost: body.unitCost === undefined || body.unitCost === '' ? '' : nonnegativeNumber(body.unitCost, 'Unit cost'),
+    unitCost: unitCost === undefined ? '' : unitCost,
+    unitPrice: unitPrice === undefined ? '' : unitPrice,
     createdBy: user.name,
     sessionUserId: user.id,
     sessionRole: user.role,
   })
   return result
+}
+
+async function addSupplier(user: PublicUser, body: Record<string, unknown>) {
+  requireProductionSupervisor(user)
+  const name = requiredText(body.name, 'Supplier name', 180)
+  const contactPerson = text(body.contactPerson)
+  const phone = text(body.phone)
+  const email = text(body.email)
+  const address = text(body.address)
+  const notes = text(body.notes)
+  if ([contactPerson, phone, email, address, notes].some(value => value.split('').some(character => character.charCodeAt(0) < 32))) {
+    throw new ApiError(400, 'Supplier details cannot contain control characters.')
+  }
+  if (contactPerson.length > 120 || phone.length > 40 || email.length > 180 || address.length > 300 || notes.length > 500) {
+    throw new ApiError(400, 'One or more supplier details exceed their supported length.')
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ApiError(400, 'Enter a valid supplier email address.')
+  return addWorkbookSupplier({
+    name, contactPerson, phone, email, address, notes,
+    createdBy: user.name, sessionUserId: user.id, sessionRole: user.role,
+  })
+}
+
+async function setSupplierActive(user: PublicUser, body: Record<string, unknown>) {
+  requireProductionSupervisor(user)
+  const supplierId = requiredText(body.supplierId, 'Supplier', 120)
+  if (typeof body.active !== 'boolean') throw new ApiError(400, 'Choose whether the supplier is active.')
+  return setWorkbookSupplierActive({
+    supplierId, active: body.active, createdBy: user.name, sessionUserId: user.id, sessionRole: user.role,
+  })
+}
+
+async function recordAccountExpense(user: PublicUser, body: Record<string, unknown>) {
+  requireAdmin(user)
+  if (!body.expense || typeof body.expense !== 'object' || Array.isArray(body.expense)) {
+    throw new ApiError(400, 'Enter a valid expense record.')
+  }
+  const input = body.expense as Record<string, unknown>
+  const date = requiredText(input.date, 'Expense date', 10)
+  const dateValue = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00.000Z`) : Number.NaN
+  if (!Number.isFinite(dateValue) || new Date(dateValue).toISOString().slice(0, 10) !== date) {
+    throw new ApiError(400, 'Enter a valid expense date.')
+  }
+  const category = requiredText(input.category, 'Expense category', 80)
+  const description = requiredText(input.description, 'Description', 300)
+  const amount = nonnegativeNumber(input.amount, 'Amount')
+  if (amount <= 0 || amount > 1_000_000_000) throw new ApiError(400, 'Amount must be greater than zero and within the supported range.')
+  const paymentMethod = requiredText(input.paymentMethod, 'Payment method', 40)
+  if (!['Cash', 'Bank Transfer', 'UPI', 'Card', 'Cheque', 'Other'].includes(paymentMethod)) {
+    throw new ApiError(400, 'Choose a supported payment method.')
+  }
+  const referenceId = text(input.referenceId)
+  if (referenceId.length > 100) throw new ApiError(400, 'Reference ID must be 100 characters or fewer.')
+  return recordWorkbookAccountExpense({
+    expense: { date, category, description, amount, paymentMethod, referenceId },
+    createdBy: user.name, sessionUserId: user.id, sessionRole: user.role,
+  })
 }
 
 async function archiveStockItem(user: PublicUser, body: Record<string, unknown>) {
@@ -1372,6 +1511,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     ]
     const sessionBoundActions = [
       'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData',
+      'addSupplier', 'setSupplierActive', 'recordAccountExpense',
       'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget',
       'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment',
     ]
@@ -1481,31 +1621,46 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return
     }
     if (action === 'addRawMaterial') {
-      requireSupervisorOrAdmin(user)
+      requireProductionSupervisor(user)
       const result = await addRawMaterial(user, body)
       sendJson(response, 201, result)
       return
     }
     if (action === 'applyStockMovement') {
-      requireSupervisorOrAdmin(user)
+      requireProductionSupervisor(user)
       const result = await applyStockMovement(user, body)
       sendJson(response, 200, result)
       return
     }
+    if (action === 'addSupplier') {
+      const result = await addSupplier(user, body)
+      sendJson(response, 201, result)
+      return
+    }
+    if (action === 'setSupplierActive') {
+      const result = await setSupplierActive(user, body)
+      sendJson(response, 200, result)
+      return
+    }
+    if (action === 'recordAccountExpense') {
+      const result = await recordAccountExpense(user, body)
+      sendJson(response, 201, result)
+      return
+    }
     if (action === 'initializeZeroFinishedStock') {
-      requireSupervisorOrAdmin(user)
+      requireProductionSupervisor(user)
       const result = await initializeWorkbookZeroFinishedStock(user)
       sendJson(response, 200, result)
       return
     }
     if (action === 'archiveStockItem') {
-      requireSupervisorOrAdmin(user)
+      requireProductionSupervisor(user)
       const result = await archiveStockItem(user, body)
       sendJson(response, 200, result)
       return
     }
     if (action === 'deleteUnusedStockItem') {
-      requireSupervisorOrAdmin(user)
+      requireProductionSupervisor(user)
       const result = await deleteUnusedStockItem(user, body)
       sendJson(response, 200, result)
       return

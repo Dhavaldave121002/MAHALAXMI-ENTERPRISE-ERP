@@ -153,3 +153,9 @@ export function requireSupervisorOrAdmin(user: PublicUser) {
     throw new ApiError(403, 'Only the Super Admin or Production Supervisor can perform this action.')
   }
 }
+
+export function requireProductionSupervisor(user: PublicUser) {
+  if (user.role !== 'Production Supervisor') {
+    throw new ApiError(403, 'Only the Production Supervisor can manage raw materials and finished goods.')
+  }
+}

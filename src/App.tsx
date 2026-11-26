@@ -148,7 +148,7 @@ type EcommercePlatformSummary = { platform: EcommercePlatform; dispatchedOrders:
 type Machine = { id: string; name: string; type: string; operator: string; status: string }
 type RawMaterial = {
   id: string; sku: string; name: string; unit: string; openingStock: number; purchaseInward: number;
-  supplier: string; issued: number; machineConsumption: number; stitchingConsumption: number;
+  supplier: string; supplierId: string; issued: number; machineConsumption: number; stitchingConsumption: number;
   wastage: number; adjustmentIn: number; adjustmentOut: number; closingStock: number;
   reorderLevel: number; averageUnitCost: number; stockValue: number; status: string
 }
@@ -160,7 +160,17 @@ type FinishedGood = {
 type StockMovement = {
   id: string; date: string; sku: string; itemType: string; type: string; quantity: number;
   referenceId: string; machineId: string; reason: string; salesChannel: string; deliveryPartner: string;
+  supplierId: string; supplier: string; unitCost: number; totalCost: number; unitPrice: number; totalAmount: number;
+  hasRecordedCost: boolean; hasRecordedPrice: boolean;
   openingStock: number; closingStock: number; createdBy: string
+}
+type Supplier = {
+  id: string; name: string; contactPerson: string; phone: string; email: string; address: string;
+  notes: string; status: string; createdAt: string; createdBy: string; updatedAt: string; updatedBy: string
+}
+type AccountExpense = {
+  id: string; date: string; category: string; description: string; amount: number;
+  paymentMethod: string; referenceId: string; createdAt: string; createdBy: string
 }
 type WorkbookSnapshot = {
   products: Product[]
@@ -171,6 +181,8 @@ type WorkbookSnapshot = {
   rawMaterials: RawMaterial[]
   finishedGoods: FinishedGood[]
   stockMovements: StockMovement[]
+  suppliers: Supplier[]
+  accountExpenses: AccountExpense[]
   salesLeads: SalesLead[]
   salesActivities: SalesActivity[]
   salesOrders: SalesOrder[]
@@ -555,6 +567,7 @@ function toRawMaterial(record: Record<string, unknown>): RawMaterial {
     openingStock: recordNumber(record, 'Opening Stock'),
     purchaseInward: recordNumber(record, 'Purchase Inward'),
     supplier: recordText(record, 'Supplier'),
+    supplierId: recordText(record, 'Supplier ID'),
     issued: recordNumber(record, 'Material Issued'),
     machineConsumption: recordNumber(record, 'Machine Consumption'),
     stitchingConsumption: recordNumber(record, 'Stitching Consumption'),
@@ -582,8 +595,47 @@ function toStockMovement(record: Record<string, unknown>): StockMovement {
     reason: recordText(record, 'Reason'),
     salesChannel: recordText(record, 'Sales Channel'),
     deliveryPartner: recordText(record, 'Delivery Partner'),
+    supplierId: recordText(record, 'Supplier ID'),
+    supplier: recordText(record, 'Supplier'),
+    unitCost: recordNumber(record, 'Unit Cost'),
+    totalCost: recordNumber(record, 'Total Cost'),
+    unitPrice: recordNumber(record, 'Unit Price'),
+    totalAmount: recordNumber(record, 'Total Amount'),
+    hasRecordedCost: record['Total Cost'] !== undefined && record['Total Cost'] !== null && record['Total Cost'] !== '',
+    hasRecordedPrice: record['Total Amount'] !== undefined && record['Total Amount'] !== null && record['Total Amount'] !== '',
     openingStock: recordNumber(record, 'Opening Stock'),
     closingStock: recordNumber(record, 'Closing Stock'),
+    createdBy: recordText(record, 'Created By'),
+  }
+}
+
+function toSupplier(record: Record<string, unknown>): Supplier {
+  return {
+    id: recordText(record, 'Supplier ID'),
+    name: recordText(record, 'Supplier Name'),
+    contactPerson: recordText(record, 'Contact Person'),
+    phone: recordText(record, 'Phone'),
+    email: recordText(record, 'Email'),
+    address: recordText(record, 'Address'),
+    notes: recordText(record, 'Notes'),
+    status: recordText(record, 'Status') || 'Active',
+    createdAt: recordText(record, 'Created At'),
+    createdBy: recordText(record, 'Created By'),
+    updatedAt: recordText(record, 'Updated At'),
+    updatedBy: recordText(record, 'Updated By'),
+  }
+}
+
+function toAccountExpense(record: Record<string, unknown>): AccountExpense {
+  return {
+    id: recordText(record, 'Expense ID'),
+    date: recordText(record, 'Date'),
+    category: recordText(record, 'Category'),
+    description: recordText(record, 'Description'),
+    amount: recordNumber(record, 'Amount'),
+    paymentMethod: recordText(record, 'Payment Method'),
+    referenceId: recordText(record, 'Reference ID'),
+    createdAt: recordText(record, 'Created At'),
     createdBy: recordText(record, 'Created By'),
   }
 }
@@ -609,6 +661,8 @@ export default function App() {
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [finishedGoods, setFinishedGoods] = useState<FinishedGood[]>([])
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [accountExpenses, setAccountExpenses] = useState<AccountExpense[]>([])
   const [salesLeads, setSalesLeads] = useState<SalesLead[]>([])
   const [salesActivities, setSalesActivities] = useState<SalesActivity[]>([])
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([])
@@ -634,6 +688,8 @@ export default function App() {
     setRawMaterials(data.rawMaterials)
     setFinishedGoods(data.finishedGoods)
     setStockMovements(data.stockMovements)
+    setSuppliers(data.suppliers)
+    setAccountExpenses(data.accountExpenses)
     setSalesLeads(data.salesLeads)
     setSalesActivities(data.salesActivities)
     setSalesOrders(data.salesOrders)
@@ -1136,7 +1192,7 @@ export default function App() {
     workbookLastRefreshAt.current = Date.now()
   }
 
-  const saveRawMaterial = async (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => {
+  const saveRawMaterial = async (input: { sku: string; name: string; unit: string; supplierId: string; openingStock: number; reorderLevel: number; unitCost: number }) => {
     const result = await apiFetch<{ material: RawMaterial; movement: StockMovement | null }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1152,7 +1208,7 @@ export default function App() {
     return result.material
   }
 
-  const applyStockMovement = async (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string; linkToDispatch?: boolean }) => {
+  const applyStockMovement = async (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; unitPrice?: number; supplierId?: string; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string; linkToDispatch?: boolean }) => {
     const result = await apiFetch<{ item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1175,6 +1231,43 @@ export default function App() {
       await refreshAfterSalesWrite()
     }
     notify('Stock movement saved to the ledger')
+  }
+
+  const saveSupplier = async (input: Omit<Supplier, 'id' | 'status' | 'createdAt' | 'createdBy' | 'updatedAt' | 'updatedBy'>) => {
+    const result = await apiFetch<{ supplier: Record<string, unknown> }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'addSupplier', ...input }),
+    })
+    const supplier = toSupplier(result.supplier)
+    setSuppliers(previous => [supplier, ...previous.filter(item => item.id !== supplier.id)])
+    workbookLastRefreshAt.current = Date.now()
+    notify('Supplier saved to the shared workbook')
+    return supplier
+  }
+
+  const updateSupplierActive = async (supplierId: string, active: boolean) => {
+    const result = await apiFetch<{ supplier: Record<string, unknown> }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'setSupplierActive', supplierId, active }),
+    })
+    const supplier = toSupplier(result.supplier)
+    setSuppliers(previous => previous.map(item => item.id === supplier.id ? supplier : item))
+    workbookLastRefreshAt.current = Date.now()
+  }
+
+  const saveAccountExpense = async (input: Omit<AccountExpense, 'id' | 'createdAt' | 'createdBy'>) => {
+    const result = await apiFetch<{ expense: Record<string, unknown> }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'recordAccountExpense', expense: input }),
+    })
+    const expense = toAccountExpense(result.expense)
+    setAccountExpenses(previous => [expense, ...previous.filter(item => item.id !== expense.id)])
+    workbookLastRefreshAt.current = Date.now()
+    notify('Expense recorded to the shared workbook')
+    return expense
   }
 
   const initializeZeroFinishedStock = async () => {
@@ -1378,7 +1471,7 @@ export default function App() {
     }
   })
   const adminModules = [...navSections.flatMap(section => section.items), ...settingsModules]
-  const adminOnlyModules: Module[] = ['Camera Monitoring', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'User Management', 'Audit Logs']
+  const adminOnlyModules: Module[] = ['Camera Monitoring', 'Employees', 'Accounts', 'Reports', 'User Management', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
@@ -1461,10 +1554,11 @@ export default function App() {
               exportExcel={exportExcel}
             />
           ) : (
-            <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} workbookMeta={workbookMeta}
+            <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} suppliers={suppliers} accountExpenses={accountExpenses} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
               resetErpData={resetErpData}
               saveProduction={saveProduction} reviewProductionQuality={reviewProductionQuality} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
+              saveSupplier={saveSupplier} updateSupplierActive={updateSupplierActive} saveAccountExpense={saveAccountExpense}
               graphicDesignTasks={graphicDesignTasks} submitGraphicDesignTask={submitGraphicDesignTask} updateGraphicDesignProgress={updateGraphicDesignProgress} reviewGraphicDesignTask={reviewGraphicDesignTask}
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} setModule={setModule}
@@ -1485,7 +1579,7 @@ export default function App() {
 
 function ModuleView(props: {
   module: Module; clock: Date; products: Product[]; marketplaceListings: MarketplaceListing[]; production: Production[]; productionTargets: ProductionTarget[];
-  rawMaterials: RawMaterial[]; finishedGoods: FinishedGood[]; stockMovements: StockMovement[]; search: string;
+  rawMaterials: RawMaterial[]; finishedGoods: FinishedGood[]; stockMovements: StockMovement[]; suppliers: Supplier[]; accountExpenses: AccountExpense[]; search: string;
   workbookMeta: { loaded: boolean; name: string; sheetCount: number };
   setSearch: (v: string) => void; exportExcel: () => void;
   saveProduct: (input: { sku: string; name: string; category: string; mrp: number }) => Promise<Product>;
@@ -1500,8 +1594,11 @@ function ModuleView(props: {
   updateGraphicDesignProgress: (input: { taskId: string; shootStatus: GraphicDesignTask['shootStatus']; editStatus: GraphicDesignTask['editStatus'] }) => Promise<GraphicDesignTask>;
   reviewGraphicDesignTask: (input: { taskId: string; decision: 'Approved' | 'Rejected'; reviewNote: string }) => Promise<GraphicDesignTask>;
   saveProductionTarget: (input: { period: ProductionTargetPeriod; date: string; machineId: string; sku: string; productName: string; targetQuantity: number }) => Promise<ProductionTarget>;
-  saveRawMaterial: (input: { sku: string; name: string; unit: string; supplier: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
-  applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string; linkToDispatch?: boolean }) => Promise<void>;
+  saveRawMaterial: (input: { sku: string; name: string; unit: string; supplierId: string; openingStock: number; reorderLevel: number; unitCost: number }) => Promise<RawMaterial>;
+  applyStockMovement: (input: { kind: 'raw' | 'finished'; sku: string; type: string; quantity: number; unitCost?: number; unitPrice?: number; supplierId?: string; referenceId: string; machineId: string; reason: string; salesChannel?: string; deliveryPartner?: string; linkToDispatch?: boolean }) => Promise<void>;
+  saveSupplier: (input: Omit<Supplier, 'id' | 'status' | 'createdAt' | 'createdBy' | 'updatedAt' | 'updatedBy'>) => Promise<Supplier>;
+  updateSupplierActive: (supplierId: string, active: boolean) => Promise<void>;
+  saveAccountExpense: (input: Omit<AccountExpense, 'id' | 'createdAt' | 'createdBy'>) => Promise<AccountExpense>;
   initializeZeroFinishedStock: () => Promise<void>; zeroStockInitializationBusy: boolean;
   archiveStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
   deleteUnusedStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
@@ -1522,11 +1619,13 @@ function ModuleView(props: {
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditLoading, setAuditLoading] = useState(true)
   const [auditError, setAuditError] = useState('')
   const [auditRetentionDays, setAuditRetentionDays] = useState(90)
+  const [employeeDirectoryLoading, setEmployeeDirectoryLoading] = useState(false)
+  const [employeeDirectoryError, setEmployeeDirectoryError] = useState('')
   const [catalogFormOpen, setCatalogFormOpen] = useState<'product' | 'variant' | 'listing' | null>(null)
   const [selectedCatalogMasterSku, setSelectedCatalogMasterSku] = useState('')
   const [resetPanelOpen, setResetPanelOpen] = useState(false)
@@ -1562,6 +1661,10 @@ function ModuleView(props: {
   }, [module, sessionUser.role])
   const [stockFormOpen, setStockFormOpen] = useState(false)
   const [materialFormOpen, setMaterialFormOpen] = useState(false)
+  const [stockMovementType, setStockMovementType] = useState('')
+  const [supplierSaving, setSupplierSaving] = useState(false)
+  const [expenseSaving, setExpenseSaving] = useState(false)
+  const [reportMonth, setReportMonth] = useState(() => indiaMonthKey())
   const [newUserRole, setNewUserRole] = useState<Role>('Production Supervisor')
   const [ecommerceReports, setEcommerceReports] = useState<EcommerceDailyReport[]>([])
   const [ecommerceReportsError, setEcommerceReportsError] = useState('')
@@ -1585,6 +1688,7 @@ function ModuleView(props: {
   const [deliverySalesOrderId, setDeliverySalesOrderId] = useState('')
   const [deliveryReferenceId, setDeliveryReferenceId] = useState('')
   const [deliveryQuantity, setDeliveryQuantity] = useState('')
+  const [deliveryUnitPrice, setDeliveryUnitPrice] = useState('')
   const [returnChannel, setReturnChannel] = useState('')
   const [returnDispatchId, setReturnDispatchId] = useState('')
   const [productionTargetPeriodChoice, setProductionTargetPeriodChoice] = useState<ProductionTargetPeriod>('daily')
@@ -1601,6 +1705,29 @@ function ModuleView(props: {
   const [graphicContentTypeChoice, setGraphicContentTypeChoice] = useState<'Post' | 'Video'>('Post')
   const [graphicProgressDrafts, setGraphicProgressDrafts] = useState<Record<string, { shootStatus: GraphicDesignTask['shootStatus']; editStatus: GraphicDesignTask['editStatus'] }>>({})
   const [graphicReviewDrafts, setGraphicReviewDrafts] = useState<Record<string, string>>({})
+
+  const refreshEmployeeDirectory = useCallback(async () => {
+    const result = await apiFetch<{ users: UserAccount[] }>('/api/users')
+    setUsers(result.users)
+  }, [setUsers])
+
+  useEffect(() => {
+    if (module !== 'Employees' || sessionUser.role !== 'Super Admin') return
+    let active = true
+    void Promise.resolve().then(() => {
+      if (!active) return
+      setEmployeeDirectoryLoading(true)
+      setEmployeeDirectoryError('')
+      return refreshEmployeeDirectory()
+        .catch(error => {
+          if (active) setEmployeeDirectoryError(error instanceof Error ? error.message : 'Employees could not be loaded.')
+        })
+        .finally(() => {
+          if (active) setEmployeeDirectoryLoading(false)
+        })
+    })
+    return () => { active = false }
+  }, [module, refreshEmployeeDirectory, sessionUser.role])
 
   useEffect(() => {
     if (module !== 'User Management' || sessionUser.role !== 'Super Admin') return
@@ -2163,6 +2290,37 @@ function ModuleView(props: {
   }
 
   const canManageInventory = sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor'
+  const canManageStock = sessionUser.role === 'Production Supervisor'
+  const canManageDelivery = sessionUser.role === 'Production Supervisor'
+  const selectedMonthMovements = stockMovements.filter(movement => movement.date.slice(0, 7) === reportMonth)
+  const monthlyDispatches = selectedMonthMovements.filter(movement => movement.itemType === 'Finished Goods' && movement.type === 'Dispatch')
+  const monthlyReturns = selectedMonthMovements.filter(movement => movement.itemType === 'Finished Goods' && movement.type === 'Return')
+  const monthlyDamages = selectedMonthMovements.filter(movement => movement.itemType === 'Finished Goods' && movement.type === 'Damage')
+  const monthlyPurchases = selectedMonthMovements.filter(movement => movement.itemType === 'Raw Material' && movement.type === 'Purchase Inward')
+  const monthlyMaterialIssued = selectedMonthMovements.filter(movement => movement.itemType === 'Raw Material' && movement.type === 'Material Issued')
+  const monthlyMachineConsumption = selectedMonthMovements.filter(movement => movement.itemType === 'Raw Material' && movement.type === 'Machine Consumption')
+  const monthlyStitchingConsumption = selectedMonthMovements.filter(movement => movement.itemType === 'Raw Material' && movement.type === 'Stitching Consumption')
+  const monthlyWastage = selectedMonthMovements.filter(movement => movement.itemType === 'Raw Material' && movement.type === 'Wastage')
+  const monthlyExpenses = accountExpenses.filter(expense => expense.date.slice(0, 7) === reportMonth)
+  const dispatchedRevenue = monthlyDispatches.filter(movement => movement.hasRecordedPrice).reduce((sum, movement) => sum + movement.totalAmount, 0)
+  const returnValue = monthlyReturns.filter(movement => movement.hasRecordedPrice).reduce((sum, movement) => sum + movement.totalAmount, 0)
+  const damagedValue = monthlyDamages.filter(movement => movement.hasRecordedPrice).reduce((sum, movement) => sum + movement.totalAmount, 0)
+  const purchaseSpend = monthlyPurchases.filter(movement => movement.hasRecordedCost).reduce((sum, movement) => sum + movement.totalCost, 0)
+  const expenseSpend = monthlyExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const trackedBalance = dispatchedRevenue - returnValue - damagedValue - purchaseSpend - expenseSpend
+  const supplierPurchaseTotals = monthlyPurchases.filter(movement => movement.hasRecordedCost).reduce<Record<string, { supplier: string; amount: number; purchases: number }>>((totals, movement) => {
+    const supplier = movement.supplier || 'Supplier not recorded'
+    const key = movement.supplierId || supplier
+    const current = totals[key] || { supplier, amount: 0, purchases: 0 }
+    current.amount += movement.totalCost
+    current.purchases += 1
+    totals[key] = current
+    return totals
+  }, {})
+  const monthlyProduction = production.filter(record => record.date.slice(0, 7) === reportMonth)
+  const monthlyProductionUnits = monthlyProduction.reduce((sum, record) => sum + record.actual, 0)
+  const monthlyApprovedUnits = monthlyProduction.reduce((sum, record) => sum + record.qcApproved, 0)
+  const monthlyRejectedUnits = monthlyProduction.reduce((sum, record) => sum + record.qcRejected, 0)
   const hasItemMovement = (kind: 'raw' | 'finished', sku: string) => stockMovements.some(movement =>
     movement.sku.toLowerCase() === sku.toLowerCase() && (!movement.itemType || movement.itemType === (kind === 'raw' ? 'Raw Material' : 'Finished Goods'))
   )
@@ -2176,7 +2334,7 @@ function ModuleView(props: {
         sku: String(form.get('sku')),
         name: String(form.get('name')),
         unit: String(form.get('unit')),
-        supplier: String(form.get('supplier')),
+        supplierId: String(form.get('supplierId')),
         openingStock: Number(form.get('openingStock')),
         reorderLevel: Number(form.get('reorderLevel')),
         unitCost: Number(form.get('unitCost')),
@@ -2200,6 +2358,8 @@ function ModuleView(props: {
         type: String(form.get('type')),
         quantity: Number(form.get('quantity')),
         unitCost: form.get('unitCost') ? Number(form.get('unitCost')) : undefined,
+        supplierId: String(form.get('supplierId') || '') || undefined,
+        unitPrice: form.get('unitPrice') ? Number(form.get('unitPrice')) : undefined,
         referenceId: String(form.get('referenceId') || ''),
         machineId: String(form.get('machineId') || ''),
         reason: String(form.get('reason') || ''),
@@ -2207,6 +2367,93 @@ function ModuleView(props: {
       formElement.reset()
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Stock movement could not be saved')
+    }
+  }
+
+  const submitSupplier = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setSupplierSaving(true)
+    try {
+      await saveSupplier({
+        name: String(form.get('name') || '').trim(),
+        contactPerson: String(form.get('contactPerson') || '').trim(),
+        phone: String(form.get('phone') || '').trim(),
+        email: String(form.get('email') || '').trim(),
+        address: String(form.get('address') || '').trim(),
+        notes: String(form.get('notes') || '').trim(),
+      })
+      formElement.reset()
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Supplier could not be saved')
+    } finally {
+      setSupplierSaving(false)
+    }
+  }
+
+  const submitAccountExpense = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setExpenseSaving(true)
+    try {
+      await saveAccountExpense({
+        date: String(form.get('date') || ''),
+        category: String(form.get('category') || ''),
+        description: String(form.get('description') || '').trim(),
+        amount: Number(form.get('amount')),
+        paymentMethod: String(form.get('paymentMethod') || ''),
+        referenceId: String(form.get('referenceId') || '').trim(),
+      })
+      formElement.reset()
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Expense could not be recorded')
+    } finally {
+      setExpenseSaving(false)
+    }
+  }
+
+  const exportMonthlyReport = () => {
+    try {
+    const workbook = XLSX.utils.book_new()
+    const financialRows = [
+      { Metric: 'Dispatched revenue', Amount: dispatchedRevenue, Notes: 'Only dispatches with a recorded sale price are included.' },
+      { Metric: 'Return value', Amount: returnValue, Notes: 'Recorded order return values; deducted from net sales.' },
+      { Metric: 'Damage value', Amount: damagedValue, Notes: 'Recorded damage values; shown separately and deducted from net sales.' },
+      { Metric: 'Supplier purchases', Amount: purchaseSpend, Notes: 'Only purchase movements with recorded unit cost are included.' },
+      { Metric: 'Manual expenses', Amount: expenseSpend, Notes: 'Expenses entered in Accounts.' },
+      { Metric: 'Net tracked balance', Amount: trackedBalance, Notes: 'Net sales less tracked supplier purchases and expenses; not accounting profit.' },
+      { Metric: 'Dispatches missing sale price', Amount: monthlyDispatches.filter(movement => !movement.hasRecordedPrice).length, Notes: 'Legacy dispatches without a historical sale price are excluded from revenue.' },
+      { Metric: 'Purchases missing cost', Amount: monthlyPurchases.filter(movement => !movement.hasRecordedCost).length, Notes: 'Legacy purchases without recorded cost are excluded from purchase totals.' },
+    ]
+    const operationalRows = [
+      { Metric: 'Production records', Count: monthlyProduction.length, Units: monthlyProductionUnits },
+      { Metric: 'QC-approved units', Count: monthlyProduction.filter(record => record.qcStatus === 'Reviewed').length, Units: monthlyApprovedUnits },
+      { Metric: 'QC-rejected units', Count: monthlyProduction.filter(record => record.qcStatus === 'Reviewed').length, Units: monthlyRejectedUnits },
+      { Metric: 'Dispatched orders / movements', Count: monthlyDispatches.length, Units: monthlyDispatches.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { Metric: 'Returns', Count: monthlyReturns.length, Units: monthlyReturns.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { Metric: 'Damaged units', Count: monthlyDamages.length, Units: monthlyDamages.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { Metric: 'Raw material issued', Count: monthlyMaterialIssued.length, Units: monthlyMaterialIssued.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { Metric: 'Machine consumption', Count: monthlyMachineConsumption.length, Units: monthlyMachineConsumption.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { Metric: 'Stitching consumption', Count: monthlyStitchingConsumption.length, Units: monthlyStitchingConsumption.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { Metric: 'Raw material wastage', Count: monthlyWastage.length, Units: monthlyWastage.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { Metric: 'All stock movements', Count: selectedMonthMovements.length, Units: selectedMonthMovements.reduce((sum, movement) => sum + movement.quantity, 0) },
+    ]
+    const expensesRows = monthlyExpenses.map(expense => ({
+      Date: expense.date, Category: expense.category, Description: expense.description,
+      Amount: expense.amount, 'Payment Method': expense.paymentMethod, Reference: expense.referenceId,
+    }))
+    const purchasesRows = Object.values(supplierPurchaseTotals).map(row => ({
+      Supplier: row.supplier, Purchases: row.purchases, 'Recorded Cost': row.amount,
+    }))
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(financialRows), 'Financial Summary')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(operationalRows), 'Operations')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(purchasesRows), 'Supplier Purchases')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(expensesRows), 'Expenses')
+    XLSX.writeFile(workbook, `ERP-Monthly-Report-${reportMonth}.xlsx`)
+    } catch (error) {
+      notify(error instanceof Error ? `Monthly report could not be exported: ${error.message}` : 'Monthly report could not be exported.')
     }
   }
 
@@ -2254,6 +2501,7 @@ function ModuleView(props: {
         type: 'Dispatch',
         sku: String(form.get('sku') || ''),
         quantity: Number(form.get('quantity')),
+        unitPrice: salesOrders.find(order => order.id === deliverySalesOrderId)?.unitPrice ?? Number(form.get('unitPrice') || 0),
         referenceId: String(form.get('referenceId') || ''),
         machineId: '',
         reason: String(form.get('reason') || ''),
@@ -2268,6 +2516,7 @@ function ModuleView(props: {
       setDeliverySalesOrderId('')
       setDeliveryReferenceId('')
       setDeliveryQuantity('')
+      setDeliveryUnitPrice('')
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Delivery could not be saved')
     }
@@ -2292,6 +2541,7 @@ function ModuleView(props: {
   }
 
   const renderMovementForm = (kind: 'raw' | 'finished', title: string, typeOptions: string[], defaultType: string) => {
+    const currentMovementType = typeOptions.includes(stockMovementType) ? stockMovementType : defaultType
     const itemOptions = kind === 'raw'
       ? rawMaterials.filter(item => item.status.toLowerCase() !== 'archived').map(item => ({ sku: item.sku, name: item.name, unit: item.unit }))
       : products.filter(item => item.status === 'Active').map(item => ({ sku: item.sku, name: item.name, unit: 'units' }))
@@ -2301,17 +2551,22 @@ function ModuleView(props: {
         <div className="panel-heading"><div><h2>{title}</h2><p>Each saved entry records the balance change in the stock ledger.</p></div></div>
         <input type="hidden" name="kind" value={kind} />
         <div className="field-grid">
-          <label>Stock item<select name="sku" required defaultValue={defaultSku} disabled={!canManageInventory || itemOptions.length === 0}><option value="">Select item</option>{itemOptions.map(item => <option key={item.sku} value={item.sku}>{item.name} · {item.sku}</option>)}</select></label>
-          <label>Movement type<select name="type" required defaultValue={defaultType}>{typeOptions.map(type => <option key={type}>{type}</option>)}</select></label>
+          <label>Stock item<select name="sku" required defaultValue={defaultSku} disabled={!canManageStock || itemOptions.length === 0}><option value="">Select item</option>{itemOptions.map(item => <option key={item.sku} value={item.sku}>{item.name} · {item.sku}</option>)}</select></label>
+          <label>Movement type<select name="type" required value={currentMovementType} onChange={event => setStockMovementType(event.target.value)}>{typeOptions.map(type => <option key={type}>{type}</option>)}</select></label>
           <label>Quantity<input name="quantity" type="number" min="0.001" step={kind === 'raw' ? '0.001' : '1'} required /></label>
-          {kind === 'raw' && <label>Unit cost (purchase inward only)<input name="unitCost" type="number" min="0" step="0.01" placeholder="Leave blank to keep average cost" /></label>}
+          {kind === 'raw' && currentMovementType === 'Purchase Inward' && <>
+            <label>Supplier<select name="supplierId" required defaultValue=""><option value="">Select an active supplier</option>{suppliers.filter(supplier => supplier.status.toLowerCase() === 'active').map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
+            <label>Purchase unit cost<input name="unitCost" type="number" min="0" step="0.01" required /></label>
+          </>}
+          {kind === 'finished' && currentMovementType === 'Dispatch' && <label>Unit sale price<input name="unitPrice" type="number" min="0.01" step="0.01" required /></label>}
           <label>Reference ID<input name="referenceId" maxLength={100} placeholder={kind === 'raw' ? 'Purchase / issue reference' : 'Order / return / production reference'} /></label>
           <label>{kind === 'raw' ? 'Machine ID (optional)' : 'Machine ID (optional)'}<input name="machineId" maxLength={100} placeholder="Machine reference" /></label>
           <label className="stock-reason">Reason<input name="reason" maxLength={300} placeholder="Reason / notes" /></label>
         </div>
-        <button className="primary wide" type="submit" disabled={!canManageInventory || itemOptions.length === 0}><Plus size={17} /> Post movement</button>
-        {!canManageInventory && <p className="local-storage-note">This role can view stock but cannot post movements.</p>}
-        {canManageInventory && itemOptions.length === 0 && <p className="local-storage-note">{kind === 'raw' ? 'Add a raw material before posting a movement.' : 'Add a product or SKU before posting finished-goods stock.'}</p>}
+        <button className="primary wide" type="submit" disabled={!canManageStock || itemOptions.length === 0 || (kind === 'raw' && currentMovementType === 'Purchase Inward' && !suppliers.some(supplier => supplier.status.toLowerCase() === 'active'))}><Plus size={17} /> Post movement</button>
+        {!canManageStock && <p className="local-storage-note">Read-only view. Only the Production Supervisor can post stock movements.</p>}
+        {canManageStock && itemOptions.length === 0 && <p className="local-storage-note">{kind === 'raw' ? 'Add a raw material before posting a movement.' : 'Add a product or SKU before posting finished-goods stock.'}</p>}
+        {kind === 'raw' && currentMovementType === 'Purchase Inward' && !suppliers.some(supplier => supplier.status.toLowerCase() === 'active') && <p className="local-storage-note">Add an active supplier before recording a purchase.</p>}
       </form>
     )
   }
@@ -2320,27 +2575,29 @@ function ModuleView(props: {
     const rawMaterialRows = rawMaterials.map(item => {
       const hasHistory = hasItemMovement('raw', item.sku)
       const low = item.closingStock <= item.reorderLevel
-      return <tr key={item.sku}><td><code>{item.sku}</code></td><td>{item.name}</td><td>{item.unit || '—'}</td><td>{item.supplier || '—'}</td><td><b className={low ? 'stock-low' : 'stock-good'}>{item.closingStock.toLocaleString('en-IN')}</b></td><td>{item.reorderLevel.toLocaleString('en-IN')}</td><td>₹{item.stockValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td><span className={`status ${item.status.toLowerCase() === 'active' ? 'active' : 'draft'}`}>{item.status}</span></td><td>{item.status.toLowerCase() === 'archived' ? '—' : item.closingStock === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('raw', item.sku)}>Delete unused</button> : item.closingStock === 0 ? <button className="text-action" onClick={() => void confirmArchive('raw', item.sku)}>Archive</button> : '—'}</td></tr>
+      return <tr key={item.sku}><td><code>{item.sku}</code></td><td>{item.name}</td><td>{item.unit || '—'}</td><td>{item.supplier || '—'}</td><td><b className={low ? 'stock-low' : 'stock-good'}>{item.closingStock.toLocaleString('en-IN')}</b></td><td>{item.reorderLevel.toLocaleString('en-IN')}</td><td>₹{item.stockValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td><span className={`status ${item.status.toLowerCase() === 'active' ? 'active' : 'draft'}`}>{item.status}</span></td><td>{!canManageStock || item.status.toLowerCase() === 'archived' ? '—' : item.closingStock === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('raw', item.sku)}>Delete unused</button> : item.closingStock === 0 ? <button className="text-action" onClick={() => void confirmArchive('raw', item.sku)}>Archive</button> : '—'}</td></tr>
     })
     return (
       <section>
         <div className="page-heading"><div><p>INVENTORY · RAW MATERIAL</p><h1>Raw Materials</h1></div><div className="heading-actions">
-          {canManageInventory && <><button className="secondary" onClick={() => setStockFormOpen(open => !open)}><Plus size={16} /> Stock movement</button><button className="primary" onClick={() => setMaterialFormOpen(open => !open)}><Plus size={16} /> Add material</button></>}
+          {canManageStock && <><button className="secondary" onClick={() => { setStockMovementType('Purchase Inward'); setStockFormOpen(open => !open) }}><Plus size={16} /> Stock movement</button><button className="primary" onClick={() => setMaterialFormOpen(open => !open)}><Plus size={16} /> Add material</button></>}
         </div></div>
-        {materialFormOpen && canManageInventory && <form className="panel form-card" onSubmit={submitRawMaterial}>
+        {!canManageStock && <p className="local-storage-note">Read-only view. The Production Supervisor manages raw-material records and stock.</p>}
+        {materialFormOpen && canManageStock && <form className="panel form-card" onSubmit={submitRawMaterial}>
           <div className="panel-heading"><div><h2>Add raw material</h2><p>Opening quantity and cost are written to the workbook and ledger.</p></div></div>
           <div className="field-grid">
             <label>Material SKU<input name="sku" required maxLength={100} autoComplete="off" placeholder="e.g. FABRIC-COTTON-01" /></label>
             <label>Material name<input name="name" required maxLength={180} placeholder="Material name" /></label>
             <label>Unit<input name="unit" required maxLength={40} placeholder="kg, meter, pcs..." /></label>
-            <label>Supplier<input name="supplier" maxLength={180} placeholder="Supplier name" /></label>
+            <label>Supplier<select name="supplierId" required defaultValue=""><option value="">Select an active supplier</option>{suppliers.filter(supplier => supplier.status.toLowerCase() === 'active').map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
             <label>Opening stock<input name="openingStock" type="number" min="0" step="0.001" required defaultValue="0" /></label>
             <label>Reorder level<input name="reorderLevel" type="number" min="0" step="0.001" required defaultValue="0" /></label>
             <label>Average unit cost<input name="unitCost" type="number" min="0" step="0.01" required defaultValue="0" /></label>
           </div>
-          <button className="primary wide" type="submit"><Plus size={17} /> Save material</button>
+          <button className="primary wide" type="submit" disabled={!suppliers.some(supplier => supplier.status.toLowerCase() === 'active')}><Plus size={17} /> Save material</button>
+          {!suppliers.some(supplier => supplier.status.toLowerCase() === 'active') && <p className="local-storage-note">Add an active supplier before creating raw materials. <button className="text-action" type="button" onClick={() => setModule('Suppliers')}>Open Suppliers</button></p>}
         </form>}
-        {stockFormOpen && canManageInventory && renderMovementForm('raw', 'Post raw-material movement', ['Purchase Inward', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Adjustment In', 'Adjustment Out'], 'Purchase Inward')}
+        {stockFormOpen && canManageStock && renderMovementForm('raw', 'Post raw-material movement', ['Purchase Inward', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Adjustment In', 'Adjustment Out'], 'Purchase Inward')}
         <div className="table-card entries-table inventory-table"><PaginatedTable label="Raw material inventory" resetKey="raw-materials" header={<thead><tr><th>SKU</th><th>Material</th><th>Unit</th><th>Supplier</th><th>On hand</th><th>Reorder at</th><th>Stock value</th><th>Status</th><th>Actions</th></tr></thead>} rows={rawMaterialRows} />
           {rawMaterials.length === 0 && <div className="empty-state"><Boxes size={26} /><strong>No raw materials yet</strong><span>Add an item, then record purchase inward, issue, consumption, wastage or a correction.</span></div>}
         </div>
@@ -2374,12 +2631,13 @@ function ModuleView(props: {
     const finishedTableRows = finishedRows.map(({ product, item }) => {
       const available = item?.availableStock || 0
       const hasHistory = hasItemMovement('finished', product.sku)
-      return <tr key={product.sku}><td><code>{product.sku}</code></td><td>{product.name}</td><td>{item?.productionReceived || 0}</td><td>{item?.qualityApproved || 0}</td><td>{item?.dispatchedStock || 0}</td><td>{item?.returnedStock || 0}</td><td>{item?.damagedStock || 0}</td><td>{item?.reservedStock || 0}</td><td><b className={available < 10 ? 'stock-low' : 'stock-good'}>{available}</b></td><td><span className={`status ${item?.status.toLowerCase() === 'archived' ? 'draft' : 'active'}`}>{item?.status || 'Not initialized'}</span></td><td>{!item || item.status.toLowerCase() === 'archived' ? '—' : available === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('finished', product.sku)}>Delete unused</button> : available === 0 ? <button className="text-action" onClick={() => void confirmArchive('finished', product.sku)}>Archive</button> : '—'}</td></tr>
+      return <tr key={product.sku}><td><code>{product.sku}</code></td><td>{product.name}</td><td>{item?.productionReceived || 0}</td><td>{item?.qualityApproved || 0}</td><td>{item?.dispatchedStock || 0}</td><td>{item?.returnedStock || 0}</td><td>{item?.damagedStock || 0}</td><td>{item?.reservedStock || 0}</td><td><b className={available < 10 ? 'stock-low' : 'stock-good'}>{available}</b></td><td><span className={`status ${item?.status.toLowerCase() === 'archived' ? 'draft' : 'active'}`}>{item?.status || 'Not initialized'}</span></td><td>{!canManageStock || !item || item.status.toLowerCase() === 'archived' ? '—' : available === 0 && !hasHistory ? <button className="text-action danger" onClick={() => void confirmDeleteUnused('finished', product.sku)}>Delete unused</button> : available === 0 ? <button className="text-action" onClick={() => void confirmArchive('finished', product.sku)}>Archive</button> : '—'}</td></tr>
     })
     return (
       <section>
-        <div className="page-heading"><div><p>INVENTORY · FINISHED GOODS</p><h1>Finished Goods</h1></div><div className="heading-actions">{canManageInventory && <><button className="secondary" disabled={zeroStockInitializationBusy} onClick={() => void initializeZeroFinishedStock()}>{zeroStockInitializationBusy ? 'Initializing…' : 'Initialize zero-stock SKUs to 10,000'}</button><button className="primary" onClick={() => setStockFormOpen(open => !open)}><Plus size={16} /> Stock movement</button></>}</div></div>
-        {stockFormOpen && canManageInventory && renderMovementForm('finished', 'Post finished-goods movement', ['Opening Stock', 'Dispatch', 'Return', 'Damage', 'Adjustment In', 'Adjustment Out', 'Reserve', 'Release Reservation'], 'Opening Stock')}
+        <div className="page-heading"><div><p>INVENTORY · FINISHED GOODS</p><h1>Finished Goods</h1></div><div className="heading-actions">{canManageStock && <><button className="secondary" disabled={zeroStockInitializationBusy} onClick={() => void initializeZeroFinishedStock()}>{zeroStockInitializationBusy ? 'Initializing…' : 'Initialize zero-stock SKUs to 10,000'}</button><button className="primary" onClick={() => { setStockMovementType('Opening Stock'); setStockFormOpen(open => !open) }}><Plus size={16} /> Stock movement</button></>}</div></div>
+        {!canManageStock && <p className="local-storage-note">Read-only view. The Production Supervisor manages finished-goods stock.</p>}
+        {stockFormOpen && canManageStock && renderMovementForm('finished', 'Post finished-goods movement', ['Opening Stock', 'Dispatch', 'Return', 'Damage', 'Adjustment In', 'Adjustment Out', 'Reserve', 'Release Reservation'], 'Opening Stock')}
         <div className="table-card entries-table inventory-table"><PaginatedTable label="Finished-goods inventory" resetKey="finished-goods" header={<thead><tr><th>SKU</th><th>Product</th><th>Produced</th><th>Approved</th><th>Dispatched</th><th>Returned</th><th>Damaged</th><th>Reserved</th><th>Available</th><th>Status</th><th>Actions</th></tr></thead>} rows={finishedTableRows} />
           {finishedRows.length === 0 && <div className="empty-state"><Package size={26} /><strong>No active products or SKUs</strong><span>Add products and variants in Product Catalog first.</span></div>}
         </div>
@@ -2471,11 +2729,16 @@ function ModuleView(props: {
       (product.isVariant || !deliveryVariantMasters.has(product.sku.toLowerCase()))
     )
     const selectedDeliveryProduct = deliveryProducts.find(product => product.sku === deliverySku)
+    const selectedDeliveryListing = marketplaceListings.find(listing =>
+      listing.productSku.toLowerCase() === deliverySku.toLowerCase() &&
+      channelPlatforms.includes(listing.platform.trim().toUpperCase()) &&
+      listing.status.toLowerCase() === 'active'
+    )
     const deliveryPartnerReady = Boolean(deliveryPartnerChoice && (deliveryPartnerChoice !== 'Other' || customDeliveryPartner.trim()))
     return (
       <section>
         <div className="page-heading"><div><p>FINISHED GOODS · {isShipping ? 'DISPATCH' : 'RETURNS'}</p><h1>{module}</h1></div></div>
-        {isShipping ? <form className="panel form-card delivery-form" onSubmit={submitDelivery}>
+        {!canManageDelivery ? <p className="local-storage-note">Read-only view. Only the Production Supervisor can record deliveries, returns, or damage; saved records are listed below.</p> : isShipping ? <form className="panel form-card delivery-form" onSubmit={submitDelivery}>
           <div className="panel-heading"><div><h2>Create delivery</h2><p>Dispatch booked sales orders by selecting their order ID; the dispatch consumes reserved stock. Marketplace dispatches use available stock.</p></div></div>
           <div className="field-grid">
             <label>Platform / channel<select name="salesChannel" required value={deliveryChannel} onChange={event => {
@@ -2486,6 +2749,7 @@ function ModuleView(props: {
               setDeliverySalesOrderId('')
               setDeliveryReferenceId('')
               setDeliveryQuantity('')
+              setDeliveryUnitPrice('')
             }}>
               <option value="">Select platform first</option>
               {deliveryChannels.map(channel => <option key={channel} value={channel}>{channel}</option>)}
@@ -2503,23 +2767,34 @@ function ModuleView(props: {
               setDeliverySku(order?.sku || '')
               setDeliveryReferenceId(order?.id || '')
               setDeliveryQuantity(order ? String(order.quantity - order.fulfilledQuantity - order.cancelledQuantity) : '')
+              setDeliveryUnitPrice(order ? String(order.unitPrice) : '')
             }}>
               <option value="">Select a booked sales order</option>
               {pendingSalesOrders.map(order => <option key={order.id} value={order.id}>{order.id} · {order.customerName} · {order.sku} · {order.quantity - order.fulfilledQuantity - order.cancelledQuantity} remaining</option>)}
             </select></label>}
-            <label>Product SKU<select name="sku" required value={deliverySku} onChange={event => { setDeliverySku(event.target.value); setDeliverySalesOrderId('') }} disabled={deliveryProducts.length === 0 || Boolean(selectedBookedOrder)}>
+            <label>Product SKU<select name="sku" required value={deliverySku} onChange={event => {
+              const sku = event.target.value
+              setDeliverySku(sku)
+              setDeliverySalesOrderId('')
+              const listing = marketplaceListings.find(item =>
+                item.productSku.toLowerCase() === sku.toLowerCase() &&
+                channelPlatforms.includes(item.platform.trim().toUpperCase()) &&
+                item.status.toLowerCase() === 'active'
+              )
+              setDeliveryUnitPrice(listing ? String(listing.sellingPrice) : '')
+            }} disabled={deliveryProducts.length === 0 || Boolean(selectedBookedOrder)}>
               <option value="">{deliveryProducts.length ? 'Select platform SKU' : 'No active SKUs for this platform'}</option>
               {deliveryProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku} · Available {product.stock}</option>)}
             </select></label>
             {selectedDeliveryProduct && <div className="delivery-stock"><span>{selectedBookedOrder ? 'Reserved for this order' : 'Available stock'}</span><strong>{selectedBookedOrder ? selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity : selectedDeliveryProduct.stock.toLocaleString('en-IN')} units</strong></div>}
+            {selectedDeliveryProduct && <label>Unit sale price<input name="unitPrice" type="number" min="0.01" step="0.01" required value={selectedBookedOrder ? String(selectedBookedOrder.unitPrice) : deliveryUnitPrice} onChange={event => setDeliveryUnitPrice(event.target.value)} disabled={Boolean(selectedBookedOrder)} />{selectedDeliveryListing && <small>Defaults to the listing price; adjust to the actual dispatch price if needed.</small>}</label>}
             <label>Quantity<input name="quantity" type="number" min="1" max={selectedBookedOrder ? selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity : undefined} step="1" required value={deliveryQuantity} onChange={event => setDeliveryQuantity(event.target.value)} /></label>
             <label>Order / shipment reference<input name="referenceId" maxLength={100} required placeholder={deliveryChannel === 'DIRECT' ? 'Select sales order above' : 'Marketplace order number'} value={deliveryReferenceId} onChange={event => setDeliveryReferenceId(event.target.value)} /></label>
             <label className="delivery-note">Delivery notes<input name="reason" maxLength={300} placeholder="Optional delivery note" /></label>
             </>}
           </div>
-          {deliveryPartnerReady && <button className="primary wide" type="submit" disabled={!canManageInventory || deliveryProducts.length === 0}>Save delivery and dispatch stock</button>}
-          {!canManageInventory && <p className="local-storage-note">Only the Super Admin or Production Supervisor can record deliveries.</p>}
-          {canManageInventory && deliveryPartnerReady && deliveryProducts.length === 0 && <p className="local-storage-note">Add an active {deliveryChannel} marketplace listing in Product Catalog before recording a delivery for this platform.</p>}
+          {deliveryPartnerReady && <button className="primary wide" type="submit" disabled={!canManageDelivery || deliveryProducts.length === 0}>Save delivery and dispatch stock</button>}
+          {canManageDelivery && deliveryPartnerReady && deliveryProducts.length === 0 && <p className="local-storage-note">Add an active {deliveryChannel} marketplace listing in Product Catalog before recording a delivery for this platform.</p>}
         </form> : <>
           <form className="panel form-card return-order-form" onSubmit={event => {
             event.preventDefault()
@@ -2546,9 +2821,8 @@ function ModuleView(props: {
               <label>Quantity<input name="quantity" type="number" min="1" step="1" max={selectedReturnDispatch?.remainingQuantity || undefined} required disabled={!selectedReturnDispatch} /></label>
               <label className="delivery-note">Notes<input name="reason" maxLength={300} placeholder="Optional reason or condition details" /></label>
             </div>
-            <button className="primary wide" type="submit" disabled={!canManageInventory || !selectedReturnDispatch}>Save order return / damage</button>
-            {!canManageInventory && <p className="local-storage-note">Only the Super Admin or Production Supervisor can record returns or damage.</p>}
-            {canManageInventory && returnChannel && platformReturnDispatches.length === 0 && <p className="local-storage-note">No returnable shipped orders are recorded for {returnChannel}. Older deliveries without an order number can still be entered manually below.</p>}
+            <button className="primary wide" type="submit" disabled={!canManageDelivery || !selectedReturnDispatch}>Save order return / damage</button>
+            {canManageDelivery && returnChannel && platformReturnDispatches.length === 0 && <p className="local-storage-note">No returnable shipped orders are recorded for {returnChannel}. Older deliveries without an order number can still be entered manually below.</p>}
           </form>
           <details className="panel return-manual-entry">
             <summary>Use existing manual stock-movement entry</summary>
@@ -3302,6 +3576,49 @@ function ModuleView(props: {
     )
   }
 
+  if (module === 'Employees') {
+    if (sessionUser.role !== 'Super Admin') return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Only the Super Admin can inspect the employee directory.</span></div></section>
+    const reloadEmployees = async () => {
+      setEmployeeDirectoryLoading(true)
+      setEmployeeDirectoryError('')
+      try {
+        await refreshEmployeeDirectory()
+      } catch (error) {
+        setEmployeeDirectoryError(error instanceof Error ? error.message : 'Employees could not be loaded.')
+      } finally {
+        setEmployeeDirectoryLoading(false)
+      }
+    }
+    const employeeAccounts = users.filter(user => user.role !== 'Super Admin')
+    const activeEmployees = employeeAccounts.filter(user => user.active).length
+    const employeeRows = employeeAccounts.map(user => (
+      <tr key={user.id}>
+        <td>{user.name}</td>
+        <td><code>{user.username}</code></td>
+        <td>{user.role}</td>
+        <td><span className={`status ${user.active ? 'active' : 'draft'}`}>{user.active ? 'Active' : 'Inactive'}</span></td>
+      </tr>
+    ))
+    return (
+      <section>
+        <div className="page-heading">
+          <div><p>MANAGEMENT</p><h1>Employees</h1></div>
+          <div className="heading-actions">
+            <span className="status active">{activeEmployees} active · {employeeAccounts.length} total</span>
+            <button className="secondary" onClick={() => void reloadEmployees()} disabled={employeeDirectoryLoading}>
+              <RotateCcw size={16} /> {employeeDirectoryLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+        <p className="local-storage-note">Employee records are linked to user accounts. Newly created accounts appear here automatically.</p>
+        {employeeDirectoryError && <p className="ecommerce-error" role="alert">{employeeDirectoryError}</p>}
+        {employeeDirectoryLoading && employeeAccounts.length === 0 && <div className="empty-state" role="status">Loading employees…</div>}
+        {!employeeDirectoryLoading && !employeeDirectoryError && employeeAccounts.length === 0 && <div className="empty-state"><Users size={24} /><strong>No employees yet</strong><span>Create a team account in User Management to add an employee here.</span></div>}
+        {employeeAccounts.length > 0 && <div className="table-card entries-table"><PaginatedTable label="Employees" resetKey={employeeAccounts.map(user => `${user.id}:${user.active}`).join('|')} header={<thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th></tr></thead>} rows={employeeRows} /></div>}
+      </section>
+    )
+  }
+
   if (module === 'User Management') {
     if (sessionUser.role !== 'Super Admin') return <section><div className="empty-state"><LockKeyhole size={28} /><strong>Access restricted</strong><span>Only the Super Admin can manage users.</span></div></section>
     const refreshUsers = async () => {
@@ -3473,6 +3790,118 @@ function ModuleView(props: {
         </div>
       </section>
     )
+  }
+
+  if (module === 'Suppliers') {
+    const canManageSuppliers = sessionUser.role === 'Production Supervisor'
+    const supplierRows = suppliers.map(supplier => <tr key={supplier.id}>
+      <td><strong>{supplier.name}</strong><small>{supplier.contactPerson || 'No contact person'}</small></td>
+      <td>{supplier.phone || '—'}</td>
+      <td>{supplier.email || '—'}</td>
+      <td>{supplier.address || '—'}</td>
+      <td><span className={`status ${supplier.status.toLowerCase() === 'active' ? 'active' : 'draft'}`}>{supplier.status}</span></td>
+      <td>{canManageSuppliers ? <button className="text-action" type="button" onClick={() => void updateSupplierActive(supplier.id, supplier.status.toLowerCase() !== 'active').catch(error => notify(error instanceof Error ? error.message : 'Supplier status could not be updated'))}>{supplier.status.toLowerCase() === 'active' ? 'Deactivate' : 'Activate'}</button> : '—'}</td>
+    </tr>)
+    return <section>
+      <div className="page-heading"><div><p>PROCUREMENT · DIRECTORY</p><h1>Suppliers</h1></div><span className="status active">{suppliers.filter(supplier => supplier.status.toLowerCase() === 'active').length} active · {suppliers.length} total</span></div>
+      {!canManageSuppliers && <p className="local-storage-note">Read-only supplier directory. The Production Supervisor manages supplier records.</p>}
+      {canManageSuppliers && <form className="panel form-card" onSubmit={event => void submitSupplier(event)}>
+        <div className="panel-heading"><div><h2>Add supplier</h2><p>Active suppliers are available when creating raw materials and recording purchases.</p></div></div>
+        <div className="field-grid">
+          <label>Supplier name<input name="name" required maxLength={180} placeholder="Registered supplier name" /></label>
+          <label>Contact person<input name="contactPerson" maxLength={120} /></label>
+          <label>Phone<input name="phone" type="tel" maxLength={40} /></label>
+          <label>Email<input name="email" type="email" maxLength={180} /></label>
+          <label>Address<input name="address" maxLength={300} /></label>
+          <label>Notes<input name="notes" maxLength={500} /></label>
+        </div>
+        <button className="primary wide" type="submit" disabled={supplierSaving}><Plus size={17} /> {supplierSaving ? 'Saving…' : 'Save supplier'}</button>
+      </form>}
+      <div className="table-card entries-table inventory-table">
+        <PaginatedTable label="Supplier directory" resetKey={suppliers.map(supplier => `${supplier.id}:${supplier.status}`).join('|')} header={<thead><tr><th>Supplier</th><th>Phone</th><th>Email</th><th>Address</th><th>Status</th><th>Actions</th></tr></thead>} rows={supplierRows} />
+        {suppliers.length === 0 && <div className="empty-state"><Building2 size={24} /><strong>No suppliers yet</strong><span>Add a supplier before entering raw materials or purchases.</span></div>}
+      </div>
+    </section>
+  }
+
+  if (module === 'Accounts') {
+    const expenseRows = [...monthlyExpenses].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)).map(expense => <tr key={expense.id}>
+      <td>{formatIndiaDate(expense.date)}</td><td>{expense.category}</td><td>{expense.description}</td><td>₹{expense.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>{expense.paymentMethod}</td><td>{expense.referenceId || '—'}</td><td>{expense.createdBy || '—'}</td>
+    </tr>)
+    return <section>
+      <div className="page-heading"><div><p>FINANCE · EXPENSE LEDGER</p><h1>Accounts</h1></div><label className="month-selector">Month<input type="month" value={reportMonth} onChange={event => setReportMonth(event.target.value)} /></label></div>
+      <div className="stats-grid inventory-stats">
+        <div className="stat-card"><div className="stat-body"><span>Dispatched revenue</span><strong>₹{dispatchedRevenue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>Fulfilled dispatches in {reportMonth}</small></div></div>
+        <div className="stat-card"><div className="stat-body"><span>Recorded purchases</span><strong>₹{purchaseSpend.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>{monthlyPurchases.filter(movement => movement.hasRecordedCost).length} costed purchases</small></div></div>
+        <div className="stat-card"><div className="stat-body"><span>Manual expenses</span><strong>₹{expenseSpend.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>{monthlyExpenses.length} expense records</small></div></div>
+        <div className="stat-card"><div className="stat-body"><span>Net tracked balance</span><strong>₹{trackedBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>Net sales less recorded purchases and expenses; not accounting profit</small></div></div>
+      </div>
+      {(monthlyDispatches.some(movement => !movement.hasRecordedPrice) || monthlyPurchases.some(movement => !movement.hasRecordedCost)) && <p className="local-storage-note">Some older dispatches or purchases have no historical price/cost. They are excluded from these totals rather than estimated.</p>}
+      <form className="panel form-card" onSubmit={event => void submitAccountExpense(event)}>
+        <div className="panel-heading"><div><h2>Record an expense</h2><p>Manual operating expenses are saved to the shared financial ledger.</p></div></div>
+        <div className="field-grid">
+          <label>Date<input name="date" type="date" required defaultValue={indiaDateKey(clock)} /></label>
+          <label>Category<select name="category" required defaultValue=""><option value="" disabled>Choose category</option>{['Utilities', 'Rent', 'Salaries', 'Transport', 'Repairs', 'Office Supplies', 'Other'].map(category => <option key={category}>{category}</option>)}</select></label>
+          <label>Description<input name="description" required maxLength={300} placeholder="What was this expense for?" /></label>
+          <label>Amount<input name="amount" type="number" min="0.01" max="1000000000" step="0.01" required /></label>
+          <label>Payment method<select name="paymentMethod" required defaultValue=""><option value="" disabled>Choose method</option>{['Cash', 'Bank Transfer', 'UPI', 'Card', 'Cheque', 'Other'].map(method => <option key={method}>{method}</option>)}</select></label>
+          <label>Reference ID<input name="referenceId" maxLength={100} placeholder="Optional invoice / transaction number" /></label>
+        </div>
+        <button className="primary wide" type="submit" disabled={expenseSaving}><Plus size={17} /> {expenseSaving ? 'Saving…' : 'Record expense'}</button>
+      </form>
+      <section className="panel">
+        <div className="panel-heading"><div><h2>Expenses · {reportMonth}</h2><p>{monthlyExpenses.length} recorded expenses</p></div></div>
+        {monthlyExpenses.length === 0 ? <div className="empty-state"><CircleDollarSign size={24} /><strong>No expenses recorded for this month</strong></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${reportMonth} expense ledger`} resetKey={reportMonth} header={<thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Payment method</th><th>Reference</th><th>Entered by</th></tr></thead>} rows={expenseRows} /></div>}
+      </section>
+    </section>
+  }
+
+  if (module === 'Reports') {
+    const operationalRows = [
+      { label: 'Production records', count: monthlyProduction.length, quantity: monthlyProductionUnits },
+      { label: 'QC-approved units', count: monthlyProduction.filter(record => record.qcStatus === 'Reviewed').length, quantity: monthlyApprovedUnits },
+      { label: 'QC-rejected units', count: monthlyProduction.filter(record => record.qcStatus === 'Reviewed').length, quantity: monthlyRejectedUnits },
+      { label: 'Dispatched orders / movements', count: monthlyDispatches.length, quantity: monthlyDispatches.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { label: 'Returns', count: monthlyReturns.length, quantity: monthlyReturns.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { label: 'Damaged units', count: monthlyDamages.length, quantity: monthlyDamages.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { label: 'Raw material issued', count: monthlyMaterialIssued.length, quantity: monthlyMaterialIssued.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { label: 'Machine consumption', count: monthlyMachineConsumption.length, quantity: monthlyMachineConsumption.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { label: 'Stitching consumption', count: monthlyStitchingConsumption.length, quantity: monthlyStitchingConsumption.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { label: 'Raw material wastage', count: monthlyWastage.length, quantity: monthlyWastage.reduce((sum, movement) => sum + movement.quantity, 0) },
+      { label: 'All stock movements', count: selectedMonthMovements.length, quantity: selectedMonthMovements.reduce((sum, movement) => sum + movement.quantity, 0) },
+    ]
+    const supplierRows = Object.entries(supplierPurchaseTotals).map(([id, summary]) => <tr key={id}><td>{summary.supplier}</td><td>{summary.purchases}</td><td>₹{summary.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td></tr>)
+    const reportExpenseRows = monthlyExpenses.map(expense => <tr key={expense.id}>
+      <td>{formatIndiaDate(expense.date)}</td><td>{expense.category}</td><td>{expense.description}</td>
+      <td>₹{expense.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td><td>{expense.paymentMethod}</td><td>{expense.referenceId || '—'}</td>
+    </tr>)
+    return <section>
+      <div className="page-heading"><div><p>MANAGEMENT · MONTHLY PERFORMANCE</p><h1>Reports</h1></div><div className="heading-actions"><label className="month-selector">Month<input type="month" value={reportMonth} onChange={event => setReportMonth(event.target.value)} /></label><button className="primary" type="button" onClick={exportMonthlyReport}><Download size={16} /> Export Excel</button></div></div>
+      <div className="stats-grid inventory-stats">
+        <div className="stat-card"><div className="stat-body"><span>Dispatched revenue</span><strong>₹{dispatchedRevenue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>{monthlyDispatches.reduce((sum, movement) => sum + movement.quantity, 0)} units dispatched</small></div></div>
+        <div className="stat-card"><div className="stat-body"><span>Return value</span><strong>₹{returnValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>{monthlyReturns.reduce((sum, movement) => sum + movement.quantity, 0)} units returned</small></div></div>
+        <div className="stat-card"><div className="stat-body"><span>Damaged value</span><strong>₹{damagedValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>{monthlyDamages.reduce((sum, movement) => sum + movement.quantity, 0)} units damaged</small></div></div>
+        <div className="stat-card"><div className="stat-body"><span>Supplier purchases</span><strong>₹{purchaseSpend.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>{monthlyPurchases.length} purchase movements</small></div></div>
+        <div className="stat-card"><div className="stat-body"><span>Manual expenses</span><strong>₹{expenseSpend.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>{monthlyExpenses.length} entries</small></div></div>
+        <div className="stat-card"><div className="stat-body"><span>Net tracked balance</span><strong>₹{trackedBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong><small>Net sales less tracked purchases and expenses; not accounting profit</small></div></div>
+      </div>
+      <p className="local-storage-note">Revenue is recognized when finished goods are dispatched. Historical transactions without a saved unit price or purchase cost are excluded, not estimated. Net tracked balance is an operational summary, not a complete accounting profit calculation.</p>
+      <div className="management-report-grid">
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Operations · {reportMonth}</h2><p>Production, quality, dispatch, returns, damage, and inventory activity</p></div></div>
+          <div className="ecommerce-table-wrap"><table><thead><tr><th>Measure</th><th>Records</th><th>Units / quantity</th></tr></thead><tbody>{operationalRows.map(row => <tr key={row.label}><td>{row.label}</td><td>{row.count}</td><td>{row.quantity.toLocaleString('en-IN')}</td></tr>)}</tbody></table></div>
+        </section>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Purchases by supplier · {reportMonth}</h2><p>Purchase Inward entries with a recorded unit cost</p></div></div>
+          {supplierRows.length === 0 ? <div className="empty-state"><Building2 size={22} /><strong>No costed supplier purchases this month</strong></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${reportMonth} supplier purchases`} resetKey={reportMonth} header={<thead><tr><th>Supplier</th><th>Purchases</th><th>Recorded cost</th></tr></thead>} rows={supplierRows} /></div>}
+          {monthlyPurchases.some(movement => !movement.hasRecordedCost) && <p className="local-storage-note">{monthlyPurchases.filter(movement => !movement.hasRecordedCost).length} older purchase movements have no recorded cost and are omitted.</p>}
+        </section>
+      </div>
+      <section className="panel">
+        <div className="panel-heading"><div><h2>Recorded expenses · {reportMonth}</h2><p>Manually entered finance ledger entries</p></div><button className="text-button" type="button" onClick={() => setModule('Accounts')}>Open Accounts</button></div>
+        {monthlyExpenses.length === 0 ? <div className="empty-state"><CircleDollarSign size={22} /><strong>No expenses recorded this month</strong></div> : <div className="ecommerce-table-wrap"><PaginatedTable label={`${reportMonth} report expenses`} resetKey={reportMonth} header={<thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th>Payment</th><th>Reference</th></tr></thead>} rows={reportExpenseRows} /></div>}
+      </section>
+    </section>
   }
 
   const Icon = moduleIcons[module] || Package
@@ -4292,7 +4721,7 @@ function EcommerceWorkspace({
 }
 
 function MovementTable({ movements, showDeliveryDetails = false, resetKey = '' }: { movements: StockMovement[]; showDeliveryDetails?: boolean; resetKey?: string }) {
-  const headers = <thead><tr><th>Date / time</th><th>Item</th><th>SKU</th><th>Movement</th><th>Quantity</th><th>Balance</th>{showDeliveryDetails && <><th>Channel</th><th>Delivery partner</th></>}<th>Reference</th><th>Reason</th><th>Entered by</th></tr></thead>
+  const headers = <thead><tr><th>Date / time</th><th>Item</th><th>SKU</th><th>Movement</th><th>Quantity</th><th>Balance</th><th>Supplier</th><th>Unit cost / price</th><th>Transaction value</th>{showDeliveryDetails && <><th>Channel</th><th>Delivery partner</th></>}<th>Reference</th><th>Reason</th><th>Entered by</th></tr></thead>
   const rows = movements.map(movement => <tr key={movement.id}>
     <td>{formatIndiaDateTime(movement.date)}</td>
     <td>{movement.itemType || '—'}</td>
@@ -4300,6 +4729,9 @@ function MovementTable({ movements, showDeliveryDetails = false, resetKey = '' }
     <td>{movement.type}</td>
     <td>{movement.quantity.toLocaleString('en-IN')}</td>
     <td>{movement.openingStock.toLocaleString('en-IN')} → {movement.closingStock.toLocaleString('en-IN')}</td>
+    <td>{movement.supplier || '—'}</td>
+    <td>{movement.hasRecordedCost ? `₹${movement.unitCost.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : movement.hasRecordedPrice ? `₹${movement.unitPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}</td>
+    <td>{movement.hasRecordedCost ? `₹${movement.totalCost.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : movement.hasRecordedPrice ? `₹${movement.totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}</td>
     {showDeliveryDetails && <><td>{movement.salesChannel || '—'}</td><td>{movement.deliveryPartner || '—'}</td></>}
     <td>{movement.referenceId || '—'}</td>
     <td>{movement.reason || '—'}</td>
