@@ -1890,12 +1890,13 @@ function ModuleView(props: {
       setMarketplaceImportBusy(false)
     }
   }
+  const resetConfirmationMatches = resetConfirmation.trim().toUpperCase() === 'RESET ERP'
   const submitErpReset = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (resetConfirmation !== 'RESET ERP') return
+    if (!resetConfirmationMatches) return
     setResetBusy(true)
     try {
-      await resetErpData(resetConfirmation)
+      await resetErpData('RESET ERP')
     } catch (error) {
       notify(error instanceof Error ? error.message : 'ERP reset failed. No success was reported.')
       setResetBusy(false)
@@ -3574,14 +3575,22 @@ function ModuleView(props: {
                 id="erp-reset-confirmation"
                 value={resetConfirmation}
                 onChange={event => setResetConfirmation(event.target.value)}
+                placeholder="RESET ERP"
                 autoComplete="off"
                 spellCheck={false}
                 aria-describedby="erp-reset-hint"
               />
-              <span id="erp-reset-hint">This action cannot be undone from the ERP. The backup will be stored in a private Drive folder.</span>
+              <span id="erp-reset-hint" aria-live="polite">
+                {!workbookMeta.loaded
+                  ? 'The master workbook is not connected yet, so reset is disabled. '
+                  : resetConfirmationMatches
+                    ? 'Confirmation accepted. '
+                    : 'Type RESET ERP (any letter case) to enable reset. '}
+                This action cannot be undone from the ERP. The backup will be stored in a private Drive folder.
+              </span>
               <div className="erp-reset-actions">
                 <button className="secondary" type="button" onClick={() => { setResetPanelOpen(false); setResetConfirmation('') }} disabled={resetBusy}>Cancel</button>
-                <button className="erp-reset-submit" type="submit" disabled={!workbookMeta.loaded || resetBusy || resetConfirmation !== 'RESET ERP'}>
+                <button className="erp-reset-submit" type="submit" disabled={!workbookMeta.loaded || resetBusy || !resetConfirmationMatches}>
                   {resetBusy ? 'Backing up and resetting…' : 'Back up and reset ERP'}
                 </button>
               </div>
