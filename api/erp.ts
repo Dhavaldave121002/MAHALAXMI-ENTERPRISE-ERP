@@ -8,6 +8,7 @@ import {
   addWorkbookRawMaterial,
   addWorkbookSupplier,
   setWorkbookSupplierActive,
+  setWorkbookMachineStatus,
   recordWorkbookAccountExpense,
   applyWorkbookStockMovement,
   archiveWorkbookStockItem,
@@ -1030,6 +1031,17 @@ async function addMachine(data: WorkbookData, user: PublicUser, body: Record<str
   return machine
 }
 
+async function setMachineStatus(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
+  requireSupervisorOrAdmin(user)
+  const machineId = requiredText(body.machineId, 'Machine ID', 100)
+  const status = requiredText(body.status, 'Machine status', 20)
+  if (!['Idle', 'Running', 'Maintenance'].includes(status)) throw new ApiError(400, 'Choose a valid machine status.')
+  const row = records(data, 'Machines').find(item => text(item['Machine ID']).toLowerCase() === machineId.toLowerCase())
+  if (!row) throw new ApiError(404, 'Machine was not found.')
+  const result = await setWorkbookMachineStatus({ id: user.id, role: user.role, machineId, status })
+  return result.machine
+}
+
 async function setProductionTarget(data: WorkbookData, user: PublicUser, body: Record<string, unknown>) {
   if (user.role !== 'Super Admin') throw new ApiError(403, 'Only the Super Admin can assign production targets.')
   const period = text(body.period).toLowerCase()
@@ -1510,7 +1522,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const body = await readJsonBody(request)
     const action = text(body.action)
     const snapshotActions = [
-      'addProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine', 'setProductionTarget',
+      'addProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine', 'setMachineStatus', 'setProductionTarget',
     ]
     const sessionBoundActions = [
       'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData',
@@ -1818,6 +1830,12 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for machine validation.')
       const machine = await addMachine(data, user, body)
       sendJson(response, 201, { machine })
+      return
+    }
+    if (action === 'setMachineStatus') {
+      if (!data) throw new ApiError(500, 'Workbook data is unavailable for machine validation.')
+      const machine = await setMachineStatus(data, user, body)
+      sendJson(response, 200, { machine })
       return
     }
     throw new ApiError(400, 'Choose a valid workbook operation.')

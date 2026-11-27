@@ -3,6 +3,8 @@
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
     const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
     const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    ERP_SESSION_BOUND_ACTIONS.push('setMachineStatus')
+    ERP_AUDIT_ACTIONS.push('setMachineStatus')
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
     const ERP_AUDIT_HEADERS = ['Event ID', 'Timestamp', 'User ID', 'User Name', 'Role', 'Action', 'Target', 'Outcome']
@@ -418,6 +420,8 @@
           return addSupplier_(spreadsheet, payload)
         case 'setSupplierActive':
           return setSupplierActive_(spreadsheet, payload)
+        case 'setMachineStatus':
+          return setMachineStatus_(spreadsheet, payload)
         case 'recordAccountExpense':
           return recordAccountExpense_(spreadsheet, payload)
         case 'appendRecord':
@@ -918,6 +922,7 @@
         setSalesTarget: 'Changed sales target',
         addSupplier: 'Created supplier',
         setSupplierActive: payload.active ? 'Activated supplier' : 'Deactivated supplier',
+        setMachineStatus: 'Changed machine status',
         recordAccountExpense: 'Recorded account expense',
       }
       if (action === 'appendRecord') {
@@ -950,7 +955,7 @@
       const record = payload.record && typeof payload.record === 'object' ? payload.record : {}
       const user = payload.user && typeof payload.user === 'object' ? payload.user : {}
       const candidates = [
-        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId, payload.supplierId, payload.expenseId, payload.executiveId, payload.taskId,
+        payload.id, payload.listingId, payload.orderId, payload.leadId, payload.materialId, payload.supplierId, payload.expenseId, payload.executiveId, payload.taskId, payload.machineId,
         payload.sku, user['User ID'], record.id, record['Internal Product ID'],
         record['Variant ID'], record['Machine ID'], record['Production ID'], record['Movement ID'],
       ]
@@ -1353,6 +1358,45 @@
         updateStockRow_(sheet, headers, rowNumber, supplier)
         SpreadsheetApp.flush()
         return { supplier: supplier }
+      })
+    }
+
+    function setMachineStatus_(spreadsheet, payload) {
+      const role = String(payload.sessionUserRole || '')
+      if (role !== 'Super Admin' && role !== 'Production Supervisor') {
+        throw apiError_(403, 'Only the Super Admin or Production Supervisor can change machine status.')
+      }
+      return withWriteLock_(function () {
+        const machineId = String(payload.machineId || '').trim()
+        const status = String(payload.status || '').trim()
+        if (!machineId || machineId.length > 100 || ['Idle', 'Running', 'Maintenance'].indexOf(status) < 0) {
+          throw apiError_(400, 'Choose a valid machine and status.')
+        }
+        const sheet = spreadsheet.getSheetByName('Machines')
+        if (!sheet || sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) throw apiError_(404, 'Machine was not found.')
+        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+        if (headers.indexOf('Machine ID') < 0 || headers.indexOf('Status') < 0) {
+          throw apiError_(422, 'The Machines sheet is missing the Machine ID or Status column.')
+        }
+        const rowNumber = findStockRow_(sheet, headers, 'Machine ID', machineId)
+        if (!rowNumber) throw apiError_(404, 'Machine was not found.')
+        const record = readStockRow_(sheet, headers, rowNumber)
+        if (String(record.Status || '') !== status) {
+          const backupState = { created: false }
+          createBackupOnce_(spreadsheet, backupState)
+          record.Status = status
+          updateStockRow_(sheet, headers, rowNumber, record)
+          SpreadsheetApp.flush()
+        }
+        return {
+          machine: {
+            id: String(record['Machine ID'] || ''),
+            name: String(record['Machine Name'] || ''),
+            type: String(record['Machine Type'] || ''),
+            operator: String(record.Operator || ''),
+            status: String(record.Status || ''),
+          },
+        }
       })
     }
 

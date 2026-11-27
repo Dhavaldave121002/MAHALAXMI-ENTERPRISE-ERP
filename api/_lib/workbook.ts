@@ -291,6 +291,13 @@ function sessionBoundPayload(user: SessionBoundInput) {
   return { sessionUserId: user.id, sessionRole: user.role }
 }
 
+export async function setWorkbookMachineStatus(input: SessionBoundInput & { machineId: string; status: string }) {
+  return callAppsScript<{ machine: { id: string; name: string; type: string; operator: string; status: string } }>(
+    'setMachineStatus',
+    { ...input, ...sessionBoundPayload(input) },
+  )
+}
+
 export async function resetWorkbookData(input: SessionBoundInput & { confirmation: string }) {
   return callAppsScript<{
     backupFolderName: string

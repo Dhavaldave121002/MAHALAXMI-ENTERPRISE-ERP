@@ -953,6 +953,18 @@ export default function App() {
     return result.machine
   }
 
+  const saveMachineStatus = async (machineId: string, status: Machine['status']) => {
+    const result = await apiFetch<{ machine: Machine }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'setMachineStatus', machineId, status }),
+    })
+    setMachines(prev => prev.map(machine => machine.id === result.machine.id ? result.machine : machine))
+    workbookLastRefreshAt.current = Date.now()
+    notify(`${result.machine.id} status updated to ${result.machine.status}`)
+    return result.machine
+  }
+
   const saveProduction = async (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => {
     const result = await apiFetch<{ record: Production & { finishedGood?: FinishedGood; stockMovement?: StockMovement | null } }>('/api/erp', {
       method: 'POST',
@@ -1481,7 +1493,7 @@ export default function App() {
   const adminOnlyModules: Module[] = ['Camera Monitoring', 'Employees', 'Accounts', 'Reports', 'User Management', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report' && item !== 'Shipping Labels'),
-    'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && item !== 'Daily Work Report'),
+    'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && !['Daily Work Report', 'Graphic Design', 'Suppliers', 'Sales Dashboard', 'Sales Daily Report', 'Leads'].includes(item)),
     'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat', 'Change Password'],
     'Store Manager': ['Dashboard', 'Chat', 'Change Password'],
     'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat', 'Change Password'],
@@ -1564,7 +1576,7 @@ export default function App() {
             <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} suppliers={suppliers} accountExpenses={accountExpenses} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
               resetErpData={resetErpData}
-              saveProduction={saveProduction} reviewProductionQuality={reviewProductionQuality} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
+              saveProduction={saveProduction} reviewProductionQuality={reviewProductionQuality} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveMachineStatus={saveMachineStatus} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
               saveSupplier={saveSupplier} updateSupplierActive={updateSupplierActive} saveAccountExpense={saveAccountExpense}
               graphicDesignTasks={graphicDesignTasks} submitGraphicDesignTask={submitGraphicDesignTask} updateGraphicDesignProgress={updateGraphicDesignProgress} reviewGraphicDesignTask={reviewGraphicDesignTask}
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
@@ -1610,6 +1622,7 @@ function ModuleView(props: {
   archiveStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
   deleteUnusedStockItem: (kind: 'raw' | 'finished', sku: string) => Promise<void>;
   saveMachine: (input: Omit<Machine, 'id'>) => Promise<Machine>;
+  saveMachineStatus: (machineId: string, status: Machine['status']) => Promise<Machine>;
   fileRef: React.RefObject<HTMLInputElement | null>; importExcel: (f: File) => void;
   notify: (v: string) => void
   setModule: (v: Module) => void
@@ -1626,7 +1639,7 @@ function ModuleView(props: {
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, saveMachineStatus, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditLoading, setAuditLoading] = useState(true)
   const [auditError, setAuditError] = useState('')
@@ -1640,6 +1653,8 @@ function ModuleView(props: {
   const [resetBusy, setResetBusy] = useState(false)
   const [passwordResetSaving, setPasswordResetSaving] = useState(false)
   const [passwordChangeSaving, setPasswordChangeSaving] = useState(false)
+  const [machineStatusSaving, setMachineStatusSaving] = useState<Set<string>>(() => new Set())
+  const [machineStatusDrafts, setMachineStatusDrafts] = useState<Record<string, Machine['status']>>({})
   useEffect(() => {
     if (module !== 'Audit Logs') return
     let active = true
@@ -2897,13 +2912,38 @@ function ModuleView(props: {
   }
 
   if (module === 'Machines') {
+    const canManageMachineStatus = sessionUser.role === 'Super Admin' || sessionUser.role === 'Production Supervisor'
     const machineTypeOptions = [...new Set([
       'Production Machine',
       'Stitching Machine',
       'Cutting Machine',
       ...machines.map(machine => machine.type.trim()).filter(Boolean),
     ])]
-    const machineRows = machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.operator || '—'}</td><td><span className="status active">{machine.status}</span></td></tr>)
+    const updateMachineStatus = async (machineId: string, status: Machine['status']) => {
+      setMachineStatusDrafts(prev => ({ ...prev, [machineId]: status }))
+      setMachineStatusSaving(prev => new Set(prev).add(machineId))
+      try {
+        await saveMachineStatus(machineId, status)
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'Machine status could not be updated')
+      } finally {
+        setMachineStatusDrafts(prev => {
+          const next = { ...prev }
+          delete next[machineId]
+          return next
+        })
+        setMachineStatusSaving(prev => {
+          const next = new Set(prev)
+          next.delete(machineId)
+          return next
+        })
+      }
+    }
+    const machineRows = machines.map(machine => <tr key={machine.id}><td><code>{machine.id}</code></td><td>{machine.name || '—'}</td><td>{machine.type || '—'}</td><td>{machine.operator || '—'}</td><td>{canManageMachineStatus
+      ? <select aria-label={`Status for ${machine.id}`} className="machine-status-select" value={machineStatusDrafts[machine.id] ?? machine.status} disabled={machineStatusSaving.has(machine.id)} onChange={event => void updateMachineStatus(machine.id, event.target.value)}>
+        {['Idle', 'Running', 'Maintenance'].map(status => <option key={status} value={status}>{status}</option>)}
+      </select>
+      : <span className="status active">{machine.status}</span>}</td></tr>)
     const exportMachines = () => {
       const rows = machines.map(({ id, name, type, operator, status }) => ({ id, name, type, operator, status }))
       const workbook = XLSX.utils.book_new()
