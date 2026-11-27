@@ -4,6 +4,7 @@ export type SalesTargetPeriod = 'monthly' | 'yearly'
 
 export type SalesLead = {
   id: string
+  enquiryDate: string
   name: string
   company: string
   phone: string
@@ -108,6 +109,7 @@ export type SalesAccount = {
 }
 
 export type SalesLeadImportRow = {
+  enquiryDate?: string
   name: string
   company: string
   phone: string

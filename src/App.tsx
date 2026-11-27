@@ -470,6 +470,7 @@ function toSalesLead(record: Record<string, unknown>): SalesLead {
   }
   return {
     id: recordText(record, 'Lead ID'),
+    enquiryDate: recordText(record, 'Enquiry Date'),
     name: recordText(record, 'Name'),
     company: recordText(record, 'Company'),
     phone: recordText(record, 'Phone'),
@@ -2125,6 +2126,7 @@ function ModuleView(props: {
       leads={salesLeads}
       activities={salesActivities}
       orders={salesOrders}
+      addLead={addSalesLead}
     />
   }
   if (module === 'Leads') {

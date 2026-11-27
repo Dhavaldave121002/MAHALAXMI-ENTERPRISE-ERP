@@ -15,14 +15,17 @@ export function SalesDailyReportView(props: {
   leads: SalesLead[]
   activities: SalesActivity[]
   orders: SalesOrder[]
+  addLead: (lead: Omit<SalesLeadImportRow, 'assignedUserId'> & { assignedUserId: string }) => Promise<void>
 }) {
-  const { role, currentUser, leads, activities, orders } = props
+  const { role, currentUser, leads, activities, orders, addLead } = props
   const [dailyReportDate, setDailyReportDate] = useState(() => currentIndiaDate())
   const [dailyWorkReports, setDailyWorkReports] = useState<SalesDailyReport[]>([])
   const [dailyWorkReportsLoading, setDailyWorkReportsLoading] = useState(true)
   const [dailyWorkReportsError, setDailyWorkReportsError] = useState('')
   const [dailyWorkReportMessage, setDailyWorkReportMessage] = useState('')
   const [savingDailyWorkReport, setSavingDailyWorkReport] = useState(false)
+  const [dailyEnquiryMessage, setDailyEnquiryMessage] = useState('')
+  const [savingDailyEnquiry, setSavingDailyEnquiry] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -52,7 +55,7 @@ export function SalesDailyReportView(props: {
     .filter(order => dailyReportDate && dateForSales(order.createdAt) === dailyReportDate)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const dailyReportLeads = leads
-    .filter(lead => dailyReportDate && dateForSales(lead.createdAt) === dailyReportDate &&
+    .filter(lead => dailyReportDate && (lead.enquiryDate || dateForSales(lead.createdAt)) === dailyReportDate &&
       (role !== 'Sales Executive' || lead.assignedUserId === currentUser.id))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const dailyReportActivities = activities
@@ -95,6 +98,34 @@ export function SalesDailyReportView(props: {
     }
   }
 
+  const submitDailyEnquiry = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    const values = new FormData(form)
+    setSavingDailyEnquiry(true)
+    setDailyEnquiryMessage('')
+    try {
+      await addLead({
+        enquiryDate: String(values.get('enquiryDate') || dailyReportDate),
+        name: String(values.get('name') || '').trim(),
+        company: String(values.get('company') || '').trim(),
+        phone: String(values.get('phone') || '').trim(),
+        location: String(values.get('location') || '').trim(),
+        email: String(values.get('email') || '').trim(),
+        productInterest: String(values.get('productInterest') || '').trim(),
+        notes: String(values.get('notes') || '').trim(),
+        referenceUrl: '',
+        assignedUserId: currentUser.id,
+      })
+      form.reset()
+      setDailyEnquiryMessage('Enquiry saved and added to today’s report.')
+    } catch (error) {
+      setDailyEnquiryMessage(error instanceof Error ? error.message : 'Enquiry could not be saved.')
+    } finally {
+      setSavingDailyEnquiry(false)
+    }
+  }
+
   const exportDailyReport = () => {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
@@ -119,7 +150,7 @@ export function SalesDailyReportView(props: {
       Status: order.status,
     }))), 'Orders')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportLeads.map(lead => ({
-      Date: dateForSales(lead.createdAt),
+      Date: lead.enquiryDate || dateForSales(lead.createdAt),
       Phone: lead.phone,
       Name: lead.name,
       Product: lead.productInterest,
@@ -161,6 +192,22 @@ export function SalesDailyReportView(props: {
             <button className="secondary" disabled={!dailyReportDate} onClick={exportDailyReport}><Download size={16} /> Export daily report</button>
           </div>
         </div>
+        {role === 'Sales Executive' && <div className="sales-daily-entry">
+          <div className="sales-daily-table-heading"><h3>Enter daily enquiry</h3><span>Saved to Leads and this report</span></div>
+          <form key={dailyReportDate} className="field-grid" onSubmit={event => void submitDailyEnquiry(event)}>
+            <label>Date<input name="enquiryDate" type="date" value={dailyReportDate} readOnly /></label>
+            <label>Phone<input name="phone" required maxLength={40} /></label>
+            <label>Name<input name="name" required maxLength={150} /></label>
+            <label>Product<input name="productInterest" maxLength={180} /></label>
+            <label>Location<input name="location" maxLength={240} placeholder="City, State, Country" /></label>
+            <label>Company<input name="company" maxLength={180} /></label>
+            <label>Email<input name="email" type="email" maxLength={180} /></label>
+            <label>Notes<input name="notes" maxLength={1000} /></label>
+            <button className="primary" type="submit" disabled={savingDailyEnquiry}><Plus size={15} /> {savingDailyEnquiry ? 'Saving…' : 'Save enquiry'}</button>
+          </form>
+          <p className="sales-readonly-note">Existing phone numbers are already tracked in Leads and cannot be added twice.</p>
+          <p className="sales-message" role="status" aria-live="polite">{dailyEnquiryMessage}</p>
+        </div>}
         <div className="sales-daily-summary">
           <article><span>Orders booked</span><strong>{dailyReportOrders.length}</strong></article>
           <article><span>New enquiries</span><strong>{dailyReportLeads.length}</strong></article>
@@ -172,7 +219,7 @@ export function SalesDailyReportView(props: {
           <div>
             <div className="sales-daily-table-heading"><h3>Daily enquiries</h3><span>{dailyReportLeads.length}</span></div>
             {dailyReportLeads.length ? <div className="table-card entries-table"><table><thead><tr><th>Date</th><th>Phone</th><th>Name</th><th>Product</th><th>Location</th><th>Company</th><th>Email</th><th>Notes</th></tr></thead><tbody>
-              {dailyReportLeads.map(lead => <tr key={lead.id}><td>{dateForSales(lead.createdAt)}</td><td>{lead.phone}</td><td>{lead.name}</td><td>{lead.productInterest || '—'}</td><td>{lead.location || '—'}</td><td>{lead.company || '—'}</td><td>{lead.email || '—'}</td><td className="sales-report-cell">{lead.notes || '—'}</td></tr>)}
+              {dailyReportLeads.map(lead => <tr key={lead.id}><td>{lead.enquiryDate || dateForSales(lead.createdAt)}</td><td>{lead.phone}</td><td>{lead.name}</td><td>{lead.productInterest || '—'}</td><td>{lead.location || '—'}</td><td>{lead.company || '—'}</td><td>{lead.email || '—'}</td><td className="sales-report-cell">{lead.notes || '—'}</td></tr>)}
             </tbody></table></div> : <div className="sales-daily-empty">No enquiries were added on this date.</div>}
           </div>
         </div>
@@ -191,8 +238,9 @@ export function SalesDailyReportView(props: {
           </div>
         </div>
       </section>
-      <section className="panel sales-work-report">
-        <div className="panel-heading"><div><h2>Daily work report</h2><p>One report per Sales Executive each day; submitting again updates today’s report.</p></div></div>
+      <details className="panel sales-work-report">
+        <summary className="sales-work-report-toggle">Optional daily work summary · completed / pending / issues</summary>
+        <p className="sales-readonly-note">Separate from the enquiry table above; one work summary per Sales Executive each day.</p>
         {role === 'Sales Executive' && <form key={todayWorkReport?.updatedAt || 'new'} className="ecommerce-form" onSubmit={event => void submitDailyWorkReport(event)}>
           <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} defaultValue={todayWorkReport?.completed || ''} /></label>
           <label>Pending work<textarea name="pending" maxLength={3000} rows={3} defaultValue={todayWorkReport?.pending || ''} /></label>
@@ -207,7 +255,7 @@ export function SalesDailyReportView(props: {
           </tbody></table></div>
             : <div className="sales-daily-empty">{dailyWorkReportsError ? 'Saved reports could not be loaded.' : `No work reports were submitted for ${dailyReportDate}.`}</div>}
         <p className="sales-message" role="status" aria-live="polite">{dailyWorkReportMessage}</p>
-      </section>
+      </details>
     </section>
   )
 }
@@ -256,6 +304,39 @@ function achievement(actual: number, target: number) {
   return target > 0 ? `${Math.min(999, Math.round(actual / target * 100))}%` : '—'
 }
 
+function importedEnquiryDate(value: string, rowIndex: number) {
+  if (!value) return undefined
+  let year = 0
+  let month = 0
+  let day = 0
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  const numeric = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
+  const named = value.match(/^(\d{1,2})[-\s]([A-Za-z]{3,})[-\s](\d{4})$/)
+  if (iso) {
+    year = Number(iso[1])
+    month = Number(iso[2])
+    day = Number(iso[3])
+  } else if (numeric) {
+    day = Number(numeric[1])
+    month = Number(numeric[2])
+    year = Number(numeric[3])
+  } else if (named) {
+    const monthIndex = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+      .indexOf(named[2].slice(0, 3).toLowerCase())
+    day = Number(named[1])
+    month = monthIndex + 1
+    year = Number(named[3])
+  } else {
+    throw new Error(`Row ${rowIndex} has an invalid Date. Use YYYY-MM-DD or DD/MM/YYYY.`)
+  }
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  if (month < 1 || month > 12 || parsed.getUTCFullYear() !== year ||
+      parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new Error(`Row ${rowIndex} has an invalid Date.`)
+  }
+  return `${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+}
+
 function leadRowFromImport(row: Record<string, unknown>, rowIndex: number, salesUsers: SalesAccount[], defaultUserId: string): SalesLeadImportRow {
   const values = new Map(Object.entries(row).map(([key, value]) => [key.toLowerCase().replace(/[^a-z0-9]/g, ''), String(value ?? '').trim()]))
   const get = (...keys: string[]) => keys.map(key => values.get(key)).find(value => value) || ''
@@ -272,6 +353,7 @@ function leadRowFromImport(row: Record<string, unknown>, rowIndex: number, sales
     : undefined
   if (assignedValue && !assignedUser) throw new Error(`Row ${rowIndex} has an unknown Sales Executive: ${assignedValue}.`)
   return {
+    enquiryDate: importedEnquiryDate(get('enquirydate', 'inquirydate', 'date'), rowIndex),
     name,
     company: get('company', 'companyname', 'business'),
     phone,
@@ -709,6 +791,7 @@ export function SalesDashboardView(props: {
       })), 'IndiaMART P&L')
     }
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(leads.map(lead => ({
+      Date: lead.enquiryDate || dateForSales(lead.createdAt),
       Lead: lead.name,
       Company: lead.company,
       Phone: lead.phone,
@@ -909,6 +992,7 @@ export function SalesLeadsView(props: {
   const downloadTemplate = () => {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
+      Date: '2026-11-27',
       'Contact Name': 'Example Customer',
       Company: 'Example Company',
       Phone: '+91 9876543210',

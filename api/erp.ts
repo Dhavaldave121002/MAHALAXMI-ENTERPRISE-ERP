@@ -156,7 +156,7 @@ type AccountExpense = {
   paymentMethod: string; referenceId: string; createdAt: string; createdBy: string
 }
 type SalesLead = {
-  id: string; name: string; company: string; phone: string; location: string; email: string; productInterest: string;
+  id: string; enquiryDate: string; name: string; company: string; phone: string; location: string; email: string; productInterest: string;
   notes: string; referenceUrl: string; assignedUserId: string; assignedUserName: string;
   status: string; nextFollowUp: string; createdAt: string; createdBy: string; updatedAt: string
 }
@@ -524,6 +524,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
     }
     return [{
       id,
+      enquiryDate: text(row['Enquiry Date']),
       name: text(row.Name),
       company: text(row.Company),
       phone: text(row.Phone),
@@ -1904,10 +1905,15 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return
     }
     if (action === 'addSalesLead') {
-      requireAdmin(user)
+      if (!['Super Admin', 'Sales Executive'].includes(user.role)) {
+        throw new ApiError(403, 'Only Sales Executives and the Super Admin can create sales leads.')
+      }
       if (!body.lead || typeof body.lead !== 'object' || Array.isArray(body.lead)) throw new ApiError(400, 'Enter lead details.')
       const lead = body.lead as Record<string, unknown>
-      requiredText(lead.assignedUserId, 'Sales Executive', 120)
+      const assignedUserId = requiredText(lead.assignedUserId, 'Sales Executive', 120)
+      if (user.role === 'Sales Executive' && assignedUserId !== user.id) {
+        throw new ApiError(403, 'A Sales Executive can only create an enquiry assigned to their own account.')
+      }
       const result = await addWorkbookSalesLead({ id: user.id, role: user.role, lead })
       sendJson(response, 201, result)
       return

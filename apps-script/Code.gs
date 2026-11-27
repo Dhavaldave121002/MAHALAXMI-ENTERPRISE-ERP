@@ -54,7 +54,7 @@
     const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner', 'Supplier ID', 'Supplier', 'Unit Cost', 'Total Cost', 'Unit Price', 'Total Amount']
     const ERP_SUPPLIER_HEADERS = ['Supplier ID', 'Supplier Name', 'Contact Person', 'Phone', 'Email', 'Address', 'Notes', 'Status', 'Created At', 'Created By', 'Updated At', 'Updated By']
     const ERP_ACCOUNT_EXPENSE_HEADERS = ['Expense ID', 'Date', 'Category', 'Description', 'Amount', 'Payment Method', 'Reference ID', 'Created At', 'Created By ID', 'Created By']
-    const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Location', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At']
+    const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Location', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At', 'Enquiry Date']
     const ERP_SALES_ACTIVITY_HEADERS = ['Activity ID', 'Lead ID', 'Activity Type', 'Outcome', 'Notes', 'Next Follow-Up', 'Created At', 'Created By', 'Created By Name']
     const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes', 'Sales Channel', 'IndiaMART Listing ID', 'IndiaMART SKU', 'Unit Cost']
     const ERP_INDIAMART_LISTING_HEADERS = ['Listing ID', 'Product SKU', 'IndiaMART SKU', 'Product Name', 'Listed Price', 'Unit Cost', 'Source URL', 'Image URL', 'Status', 'Updated At', 'Updated By']
@@ -2438,6 +2438,7 @@
     }
 
     function salesLeadInput_(input, assignedUserId) {
+      const enquiryDate = String(input.enquiryDate || Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')).trim()
       const name = String(input.name || '').trim()
       const company = String(input.company || '').trim()
       const phone = String(input.phone || '').trim()
@@ -2456,7 +2457,13 @@
         throw apiError_(400, 'Reference must be a valid HTTPS PDF or form link.')
       }
       if (!assignedUserId) throw apiError_(400, 'Assign the lead to an active Sales Executive.')
+      const parsedEnquiryDate = new Date(enquiryDate + 'T00:00:00.000Z')
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(enquiryDate) || Number.isNaN(parsedEnquiryDate.getTime()) ||
+          parsedEnquiryDate.toISOString().slice(0, 10) !== enquiryDate) {
+        throw apiError_(400, 'Enter a valid enquiry date.')
+      }
       return {
+        enquiryDate: enquiryDate,
         name: name,
         company: company,
         phone: phone,
@@ -2487,6 +2494,7 @@
         'Created At': now,
         'Created By': String(payload.createdBy || ''),
         'Updated At': now,
+        'Enquiry Date': input.enquiryDate,
       }
     }
 
@@ -2528,10 +2536,15 @@
     }
 
     function addSalesLead_(spreadsheet, payload) {
-      if (String(payload.sessionUserRole || '') !== 'Super Admin') throw apiError_(403, 'Only the Super Admin can create sales leads.')
+      const role = String(payload.sessionUserRole || '')
+      const actorId = String(payload.sessionUserId || '').trim()
+      if (['Super Admin', 'Sales Executive'].indexOf(role) < 0) throw apiError_(403, 'Only Sales Executives and the Super Admin can create sales leads.')
       return withWriteLock_(function () {
         const source = payload.lead
         if (!source || typeof source !== 'object' || Array.isArray(source)) throw apiError_(400, 'Enter lead details.')
+        if (role === 'Sales Executive' && String(source.assignedUserId || '').trim() !== actorId) {
+          throw apiError_(403, 'A Sales Executive can only create an enquiry assigned to their own account.')
+        }
         const executive = assertSalesExecutive_(spreadsheet, source.assignedUserId)
         const input = salesLeadInput_(source, String(executive['User ID'] || ''))
         const backupState = { created: false, backupName: '' }

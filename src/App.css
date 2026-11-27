@@ -237,6 +237,12 @@ main { min-width: 0; }.topbar { height: 72px; background: #fff; border-bottom: 1
 .sales-daily-table-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .sales-daily-table-heading h3{margin:0;color:#263147;font-size:12px}
 .sales-daily-table-heading span{color:#929aaa;font-size:10px}
+.sales-daily-entry{padding:0 14px 12px;border-bottom:1px solid #f0f3f7}
+.sales-daily-entry>.sales-daily-table-heading{margin-bottom:0}
+.sales-daily-entry .field-grid{padding:8px 0}
+.sales-daily-entry .sales-message{margin:0}
+.sales-work-report-toggle{padding:14px;color:#263147;font-size:12px;font-weight:700;cursor:pointer}
+.sales-work-report>.sales-readonly-note{margin:0 14px 10px}
 .sales-daily-tables .table-card{overflow-x:auto;border:1px solid #edf1f6;border-radius:8px}
 .sales-daily-tables td small{display:block;margin-top:4px;color:#929aaa;font-size:9px}
 .sales-daily-tables>div:first-child table{min-width:540px}
