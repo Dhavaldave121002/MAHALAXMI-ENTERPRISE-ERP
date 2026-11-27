@@ -14,6 +14,11 @@ const ERP_ASSISTANT_FAQS: AssistantFaqEntry[] = [
     keywords: ['saathi', 'assistant', 'ai', 'ai helper', 'what can ai do', 'what can the ai do', 'what can it do', 'read only', 'change records', 'edit data', 'સહાયક', 'રેકોર્ડ બદલો'],
   },
   {
+    question: 'How does the ERP system work, and what are its benefits?',
+    answer: 'Mahalaxmi ERP keeps business work in one role-based system. Admins set up users, products, listings, targets, and tasks. Sales Executives follow up on assigned leads and book orders against available active stock. The Production Supervisor records production and quality checks; only QC-passed units increase finished-goods stock, and dispatches are linked to orders. E-commerce teams work with their assigned platforms, while Managers review their own teams. Reports summarize recorded ERP activity. This helps teams use shared records, trace stock and work, clarify responsibilities, and follow up more easily. It does not automatically sync marketplace data, and reports can be incomplete if source records are missing. Saathi is read-only and cannot perform ERP actions.',
+    keywords: ['how does erp work', 'how does this erp work', 'how this erp works', 'how work this erp system', 'how work th this erp system', 'erp system overview', 'erp overview', 'what does erp do', 'what is erp', 'erp workflow', 'erp system benefit', 'erp system benefits', 'benefit of this system', 'benefits of erp', 'benofitt', 'benofit', 'benifit', 'benifits', 'erp kem chale', 'system su kare', 'shu faydo', 'ફાયદા'],
+  },
+  {
     question: 'How do I complete a Daily Task?',
     answer: 'The Super Admin assigns dated work in Daily Tasks. The employee updates progress and submits completed, pending, and issue notes. The Super Admin then approves the work or requests changes. Non-admin users can ask Saathi about their own assigned tasks.',
     keywords: ['daily task', 'daily tasks', 'my task', 'my tasks', 'pending task', 'pending tasks', 'task status', 'assign task', 'assign tasks', 'task complete', 'complete task', 'complete tasks', 'submit task', 'task approval', 'baki task', 'baki kaam', 'kaam', 'મારું કામ', 'બાકી કામ', 'દૈનિક કાર્ય'],
