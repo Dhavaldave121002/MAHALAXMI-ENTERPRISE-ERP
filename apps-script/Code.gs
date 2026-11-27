@@ -11,6 +11,14 @@
     ERP_AUDIT_ACTIONS.push('saveIndiaMartListings')
     ERP_SESSION_BOUND_ACTIONS.push('setMachineStatus')
     ERP_AUDIT_ACTIONS.push('setMachineStatus')
+    ERP_SESSION_BOUND_ACTIONS.push('listDailyTasks')
+    ERP_SESSION_BOUND_ACTIONS.push('downloadDailyTaskAttachment')
+    ERP_SESSION_BOUND_ACTIONS.push('createDailyTask')
+    ERP_SESSION_BOUND_ACTIONS.push('updateDailyTask')
+    ERP_SESSION_BOUND_ACTIONS.push('reviewDailyTask')
+    ERP_AUDIT_ACTIONS.push('createDailyTask')
+    ERP_AUDIT_ACTIONS.push('updateDailyTask')
+    ERP_AUDIT_ACTIONS.push('reviewDailyTask')
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
     const ERP_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
     const ERP_AUDIT_HEADERS = ['Event ID', 'Timestamp', 'User ID', 'User Name', 'Role', 'Action', 'Target', 'Outcome']
@@ -34,6 +42,8 @@
     const ERP_CAMERA_UPLOAD_CHUNK_MAX_BYTES = 2 * 1024 * 1024
     const ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY = 'ERP_ECOMMERCE_REPORT_FOLDER_ID'
     const ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY = 'ERP_GRAPHIC_DESIGN_REPORT_FOLDER_ID'
+    const ERP_DAILY_TASK_ATTACHMENT_FOLDER_PROPERTY = 'ERP_DAILY_TASK_ATTACHMENT_FOLDER_ID'
+    const ERP_DAILY_TASK_ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024
     const ERP_GRAPHIC_DESIGN_REPORT_KIND = 'mahalaxmi-erp-graphic-design-daily-report'
     const ERP_SALES_REPORT_FOLDER_PROPERTY = 'ERP_SALES_REPORT_FOLDER_ID'
     const ERP_CAMERA_USER_FOLDER_PREFIX = 'ERP_CAMERA_RECORDING_USER_FOLDER_'
@@ -43,6 +53,7 @@
       { property: ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private Graphic Design Daily Reports', category: 'graphicDesign' },
       { property: ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private E-commerce Labels', category: 'ecommerce' },
       { property: ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private E-commerce Daily Reports', category: 'ecommerce' },
+      { property: ERP_DAILY_TASK_ATTACHMENT_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private Daily Task Attachments', category: 'dailyTasks' },
       { property: ERP_SALES_REPORT_FOLDER_PROPERTY, name: 'Mahalaxmi ERP Private Sales Daily Reports', category: 'sales' },
     ]
     const ERP_ECOMMERCE_EXEC_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_EXEC_DAILY_TARGET_'
@@ -50,6 +61,7 @@
     const ERP_ECOMMERCE_MANAGER_DAILY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_DAILY_TARGET_'
     const ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_PREFIX = 'ERP_ECOMMERCE_MANAGER_MONTHLY_TARGET_'
     const ERP_ECOMMERCE_TASK_HEADERS = ['Task ID', 'Manager ID', 'Manager Name', 'Executive ID', 'Executive Name', 'Task Date', 'Title', 'Description', 'Status', 'Created At', 'Updated At', 'Reviewed By ID', 'Reviewed By', 'Reviewed At', 'Review Note']
+    const ERP_DAILY_TASK_HEADERS = ['Task ID', 'Task Date', 'Title', 'Description', 'Attachment ID', 'Attachment Name', 'Attachment MIME Type', 'Assigned To ID', 'Assigned To Name', 'Assigned To Role', 'Created By ID', 'Created By', 'Created At', 'Updated At', 'Status', 'Completed Work', 'Pending Work', 'Issues', 'Reviewed By ID', 'Reviewed By', 'Reviewed At', 'Review Note']
     const ERP_WORKBOOK_CACHE_SECONDS = 30
     const ERP_WORKBOOK_CACHE_MAX_BYTES = 90000
     const ERP_RAW_MATERIAL_HEADERS = ['Material ID', 'Material Name', 'Material SKU', 'Unit', 'Opening Stock', 'Purchase Inward', 'Supplier', 'Supplier ID', 'Material Issued', 'Machine Consumption', 'Stitching Consumption', 'Wastage', 'Closing Stock', 'Reorder Level', 'Average Unit Cost', 'Stock Value', 'Updated Date', 'Status']
@@ -72,6 +84,7 @@
       graphicDesign: '05 Graphic Design',
       ecommerce: '06 E-commerce',
       sales: '07 Sales',
+      dailyTasks: '08 Daily Tasks',
     }
 
     function onOpen(event) {
@@ -219,6 +232,7 @@
       addFolder(configuredDriveFolder_(ERP_GRAPHIC_DESIGN_REPORT_FOLDER_PROPERTY, 'Mahalaxmi ERP Private Graphic Design Daily Reports'), 'graphicDesign')
       addFolder(configuredDriveFolder_(ERP_ECOMMERCE_LABEL_FOLDER_PROPERTY, 'Mahalaxmi ERP Private E-commerce Labels'), 'ecommerce')
       addFolder(configuredDriveFolder_(ERP_ECOMMERCE_REPORT_FOLDER_PROPERTY, 'Mahalaxmi ERP Private E-commerce Daily Reports'), 'ecommerce')
+      addFolder(configuredDriveFolder_(ERP_DAILY_TASK_ATTACHMENT_FOLDER_PROPERTY, 'Mahalaxmi ERP Private Daily Task Attachments'), 'dailyTasks')
       addFolder(configuredDriveFolder_(ERP_SALES_REPORT_FOLDER_PROPERTY, 'Mahalaxmi ERP Private Sales Daily Reports'), 'sales')
 
       let moved = 0
@@ -293,7 +307,7 @@
             Logger.log('ERP action succeeded but its audit status remains Started: ' + String(auditError))
           }
         }
-        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget'].indexOf(request.action) < 0) {
+        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'listDailyTasks', 'downloadDailyTaskAttachment'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -403,6 +417,16 @@
           return updateEcommerceTask_(spreadsheet, payload)
         case 'reviewEcommerceTask':
           return reviewEcommerceTask_(spreadsheet, payload)
+        case 'listDailyTasks':
+          return listDailyTasks_(spreadsheet, payload)
+        case 'createDailyTask':
+          return createDailyTask_(spreadsheet, payload)
+        case 'updateDailyTask':
+          return updateDailyTask_(spreadsheet, payload)
+        case 'reviewDailyTask':
+          return reviewDailyTask_(spreadsheet, payload)
+        case 'downloadDailyTaskAttachment':
+          return downloadDailyTaskAttachment_(spreadsheet, payload)
         case 'submitSalesReport':
           return submitSalesReport_(payload)
         case 'listSalesReports':
@@ -923,6 +947,9 @@
         createEcommerceTask: 'Created e-commerce daily task',
         updateEcommerceTask: 'Updated e-commerce task status',
         reviewEcommerceTask: 'Reviewed e-commerce daily task',
+        createDailyTask: 'Assigned company daily task',
+        updateDailyTask: 'Submitted company daily task progress',
+        reviewDailyTask: 'Reviewed company daily task',
         submitSalesReport: 'Submitted sales report',
         setEcommerceTarget: 'Changed e-commerce target',
         setProductionTarget: 'Changed production target',
@@ -1009,7 +1036,7 @@
       if (!user.id || !user.name || roles.indexOf(user.role) < 0) throw apiError_(400, 'Audit actor details are invalid.')
       let target = ''
       if (eventType === 'module_view') {
-        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'IndiaMART', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Marketplace Reconciliation', 'Daily Work Report', 'Machines', 'Quality Control', 'Graphic Design', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat']
+        const modules = ['Dashboard', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'Production', 'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog', 'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'IndiaMART', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Marketplace Reconciliation', 'Daily Tasks', 'Daily Work Report', 'Machines', 'Quality Control', 'Graphic Design', 'Employees', 'Suppliers', 'Accounts', 'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat']
         target = String(payload.module || '')
         if (modules.indexOf(target) < 0) throw apiError_(400, 'ERP module is invalid.')
       }
@@ -4166,6 +4193,284 @@
         SpreadsheetApp.flush()
         return { task: task, backupName: backupState.backupName }
       })
+    }
+
+    function dailyTaskPublicRecord_(task) {
+      return {
+        id: String(task['Task ID'] || ''),
+        taskDate: String(task['Task Date'] || ''),
+        title: String(task.Title || ''),
+        description: String(task.Description || ''),
+        attachmentName: String(task['Attachment Name'] || ''),
+        assigneeId: String(task['Assigned To ID'] || ''),
+        assigneeName: String(task['Assigned To Name'] || ''),
+        assigneeRole: String(task['Assigned To Role'] || ''),
+        createdBy: String(task['Created By'] || ''),
+        createdAt: String(task['Created At'] || ''),
+        updatedAt: String(task['Updated At'] || ''),
+        status: String(task.Status || ''),
+        completed: String(task['Completed Work'] || ''),
+        pending: String(task['Pending Work'] || ''),
+        issues: String(task.Issues || ''),
+        reviewedBy: String(task['Reviewed By'] || ''),
+        reviewedAt: String(task['Reviewed At'] || ''),
+        reviewNote: String(task['Review Note'] || ''),
+      }
+    }
+
+    function listDailyTasks_(spreadsheet, payload) {
+      const role = String(payload.sessionUserRole || '')
+      const userId = String(payload.sessionUserId || '').trim()
+      const validRoles = ['Super Admin', 'Production Supervisor', 'Machine Operator', 'Store Manager', 'E-commerce Manager', 'E-commerce Executive', 'Sales Executive', 'Graphic Designer']
+      if (!userId || validRoles.indexOf(role) < 0) throw apiError_(403, 'This account cannot view company daily tasks.')
+      const tasks = readSheetRecords_(spreadsheet, 'Daily_Tasks').filter(function (task) {
+        return role === 'Super Admin' || String(task['Assigned To ID'] || '').trim() === userId
+      }).map(function (task) {
+        const status = String(task.Status || '')
+        if (['Assigned', 'In Progress', 'Submitted', 'Needs Changes', 'Approved'].indexOf(status) < 0) {
+          throw apiError_(500, 'The Daily_Tasks sheet contains an invalid task status.')
+        }
+        return dailyTaskPublicRecord_(task)
+      })
+      tasks.sort(function (a, b) {
+        return String(b.taskDate).localeCompare(String(a.taskDate)) || String(b.createdAt).localeCompare(String(a.createdAt))
+      })
+      return { tasks: tasks }
+    }
+
+    function getDailyTaskAttachmentFolder_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      const folderId = properties.getProperty(ERP_DAILY_TASK_ATTACHMENT_FOLDER_PROPERTY)
+      if (folderId) return DriveApp.getFolderById(folderId)
+      if (!createIfMissing) return null
+      const folder = getErpStorageCategoryFolder_('dailyTasks', true).createFolder('Mahalaxmi ERP Private Daily Task Attachments')
+      folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      properties.setProperty(ERP_DAILY_TASK_ATTACHMENT_FOLDER_PROPERTY, folder.getId())
+      return folder
+    }
+
+    function createDailyTask_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can assign company daily tasks.')
+      }
+      const taskDate = String(payload.taskDate || '').trim()
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(taskDate) ? new Date(taskDate + 'T00:00:00Z') : null
+      const title = String(payload.title || '').trim()
+      const description = String(payload.description || '').replace(/\r\n?/g, '\n').trim()
+      const recipientIds = Array.isArray(payload.recipientIds) ? payload.recipientIds : []
+      if (!date || isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== taskDate ||
+          !title || title.length > 200 || ecommerceTaskHasControlCharacters_(title, false) ||
+          !description || description.length > 3000 || ecommerceTaskHasControlCharacters_(description, true) ||
+          recipientIds.length === 0 || recipientIds.length > 500) {
+        throw apiError_(400, 'Enter a valid task date, title, instructions, and at least one employee.')
+      }
+      const uniqueRecipientIds = Array.from(new Set(recipientIds.map(function (value) { return String(value || '').trim() })))
+      if (uniqueRecipientIds.length !== recipientIds.length || uniqueRecipientIds.some(function (id) {
+        return !/^[A-Za-z0-9._:-]{1,120}$/.test(id)
+      })) {
+        throw apiError_(400, 'Choose valid employee accounts for this task.')
+      }
+      const users = readSheetRecords_(spreadsheet, 'Users')
+      const employees = uniqueRecipientIds.map(function (id) {
+        const user = users.find(function (row) {
+          const active = row.Active === true || ['true', '1', 'yes'].indexOf(String(row.Active || '').toLowerCase()) >= 0
+          return active && String(row['User ID'] || '').trim() === id &&
+            String(row.Role || '').trim() !== 'Super Admin'
+        })
+        if (!user) throw apiError_(400, 'Tasks can only be assigned to active non-admin employee accounts.')
+        return user
+      })
+      let attachment = null
+      if (payload.attachment !== undefined && payload.attachment !== null) {
+        if (!payload.attachment || typeof payload.attachment !== 'object' || Array.isArray(payload.attachment)) {
+          throw apiError_(400, 'Choose a valid PDF or TXT attachment.')
+        }
+        const fileName = String(payload.attachment.fileName || '').trim()
+        const mimeType = String(payload.attachment.mimeType || '').trim().toLowerCase()
+        const base64 = String(payload.attachment.base64 || '')
+        const isPdf = /\.pdf$/i.test(fileName) && mimeType === 'application/pdf'
+        const isText = /\.txt$/i.test(fileName) && mimeType === 'text/plain'
+        if (!fileName || fileName.length > 180 || /[\\/:*?"<>|\r\n]/.test(fileName) ||
+            (!isPdf && !isText) || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64) ||
+            base64.length > 4200000) {
+          throw apiError_(400, 'Attach a PDF or TXT file up to 3 MB.')
+        }
+        const bytes = Utilities.base64Decode(base64)
+        if (bytes.length === 0 || bytes.length > ERP_DAILY_TASK_ATTACHMENT_MAX_BYTES ||
+            (isPdf && (bytes.length < 5 || bytes[0] !== 37 || bytes[1] !== 80 || bytes[2] !== 68 || bytes[3] !== 70 || bytes[4] !== 45)) ||
+            (isText && bytes.indexOf(0) >= 0)) {
+          throw apiError_(400, 'The attachment must be a valid PDF or text file up to 3 MB.')
+        }
+        attachment = { fileName: fileName, mimeType: mimeType, bytes: bytes }
+      }
+
+      return withWriteLock_(function () {
+        const backupState = { created: false, backupName: '' }
+        const sheet = ensureStockSheet_(spreadsheet, 'Daily_Tasks', ERP_DAILY_TASK_HEADERS, backupState)
+        createBackupOnce_(spreadsheet, backupState)
+        let attachmentFile = null
+        if (attachment) {
+          const folder = getDailyTaskAttachmentFolder_(true)
+          attachmentFile = folder.createFile(Utilities.newBlob(attachment.bytes, attachment.mimeType, attachment.fileName))
+          try {
+            attachmentFile.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+            attachmentFile.setDescription(JSON.stringify({ kind: 'mahalaxmi-erp-daily-task-attachment' }))
+          } catch (error) {
+            attachmentFile.setTrashed(true)
+            throw error
+          }
+        }
+        const now = new Date().toISOString()
+        const records = employees.map(function (employee) {
+          return {
+            'Task ID': Utilities.getUuid(),
+            'Task Date': taskDate,
+            Title: title,
+            Description: description,
+            'Attachment ID': attachmentFile ? attachmentFile.getId() : '',
+            'Attachment Name': attachmentFile ? attachment.fileName : '',
+            'Attachment MIME Type': attachmentFile ? attachment.mimeType : '',
+            'Assigned To ID': String(employee['User ID'] || ''),
+            'Assigned To Name': String(employee.Name || ''),
+            'Assigned To Role': String(employee.Role || ''),
+            'Created By ID': String(payload.sessionUserId || ''),
+            'Created By': String(payload.createdBy || ''),
+            'Created At': now,
+            'Updated At': now,
+            Status: 'Assigned',
+            'Completed Work': '',
+            'Pending Work': '',
+            Issues: '',
+            'Reviewed By ID': '',
+            'Reviewed By': '',
+            'Reviewed At': '',
+            'Review Note': '',
+          }
+        })
+        try {
+          const startRow = sheet.sheet.getLastRow() + 1
+          sheet.sheet.getRange(startRow, 1, records.length, sheet.headers.length).setValues(records.map(function (record) {
+            return sheet.headers.map(function (header) {
+              return safeCellValue_(record[header] === undefined ? '' : record[header])
+            })
+          }))
+          SpreadsheetApp.flush()
+        } catch (error) {
+          if (attachmentFile) attachmentFile.setTrashed(true)
+          throw error
+        }
+        return { tasks: records.map(dailyTaskPublicRecord_), backupName: backupState.backupName }
+      })
+    }
+
+    function updateDailyTask_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') === 'Super Admin') {
+        throw apiError_(403, 'Super Admin reviews employee submissions instead of reporting on assigned tasks.')
+      }
+      const taskId = String(payload.taskId || '').trim()
+      const status = String(payload.status || '').trim()
+      const completed = String(payload.completed || '').replace(/\r\n?/g, '\n').trim()
+      const pending = String(payload.pending || '').replace(/\r\n?/g, '\n').trim()
+      const issues = String(payload.issues || '').replace(/\r\n?/g, '\n').trim()
+      if (!/^[A-Za-z0-9._:-]{1,120}$/.test(taskId) || ['In Progress', 'Submitted'].indexOf(status) < 0 ||
+          [completed, pending, issues].some(function (value) { return value.length > 3000 || ecommerceTaskHasControlCharacters_(value, true) }) ||
+          (status === 'Submitted' && !completed)) {
+        throw apiError_(400, 'Enter a completed-work summary up to 3,000 characters before submitting.')
+      }
+      return withWriteLock_(function () {
+        if (!spreadsheet.getSheetByName('Daily_Tasks')) throw apiError_(404, 'The assigned daily task was not found.')
+        const backupState = { created: false, backupName: '' }
+        const sheet = ensureStockSheet_(spreadsheet, 'Daily_Tasks', ERP_DAILY_TASK_HEADERS, backupState)
+        const rowNumber = findStockRow_(sheet.sheet, sheet.headers, 'Task ID', taskId)
+        if (!rowNumber) throw apiError_(404, 'The assigned daily task was not found.')
+        const task = readStockRow_(sheet.sheet, sheet.headers, rowNumber)
+        if (String(task['Assigned To ID'] || '').trim() !== String(payload.sessionUserId || '').trim()) {
+          throw apiError_(403, 'You can only update tasks assigned to your account.')
+        }
+        if (['Assigned', 'In Progress', 'Needs Changes'].indexOf(String(task.Status || '')) < 0) {
+          throw apiError_(409, 'This task is already awaiting review or has been approved.')
+        }
+        createBackupOnce_(spreadsheet, backupState)
+        task.Status = status
+        task['Completed Work'] = completed
+        task['Pending Work'] = pending
+        task.Issues = issues
+        task['Updated At'] = new Date().toISOString()
+        if (status === 'Submitted') {
+          task['Reviewed By ID'] = ''
+          task['Reviewed By'] = ''
+          task['Reviewed At'] = ''
+          task['Review Note'] = ''
+        }
+        updateStockRow_(sheet.sheet, sheet.headers, rowNumber, task)
+        SpreadsheetApp.flush()
+        return { task: dailyTaskPublicRecord_(task), backupName: backupState.backupName }
+      })
+    }
+
+    function reviewDailyTask_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can review company daily tasks.')
+      }
+      const taskId = String(payload.taskId || '').trim()
+      const decision = String(payload.decision || '').trim()
+      const reviewNote = String(payload.reviewNote || '').trim()
+      if (!/^[A-Za-z0-9._:-]{1,120}$/.test(taskId) || ['Approved', 'Needs Changes'].indexOf(decision) < 0 ||
+          reviewNote.length > 1000 || ecommerceTaskHasControlCharacters_(reviewNote, true) ||
+          (decision === 'Needs Changes' && !reviewNote)) {
+        throw apiError_(400, 'Choose a valid review decision; a note is required when requesting changes.')
+      }
+      return withWriteLock_(function () {
+        if (!spreadsheet.getSheetByName('Daily_Tasks')) throw apiError_(404, 'The daily task was not found.')
+        const backupState = { created: false, backupName: '' }
+        const sheet = ensureStockSheet_(spreadsheet, 'Daily_Tasks', ERP_DAILY_TASK_HEADERS, backupState)
+        const rowNumber = findStockRow_(sheet.sheet, sheet.headers, 'Task ID', taskId)
+        if (!rowNumber) throw apiError_(404, 'The daily task was not found.')
+        const task = readStockRow_(sheet.sheet, sheet.headers, rowNumber)
+        if (String(task.Status || '') !== 'Submitted') throw apiError_(409, 'Only submitted tasks can be reviewed.')
+        createBackupOnce_(spreadsheet, backupState)
+        task.Status = decision
+        task['Updated At'] = new Date().toISOString()
+        task['Reviewed By ID'] = String(payload.sessionUserId || '')
+        task['Reviewed By'] = String(payload.createdBy || '')
+        task['Reviewed At'] = task['Updated At']
+        task['Review Note'] = reviewNote
+        updateStockRow_(sheet.sheet, sheet.headers, rowNumber, task)
+        SpreadsheetApp.flush()
+        return { task: dailyTaskPublicRecord_(task), backupName: backupState.backupName }
+      })
+    }
+
+    function downloadDailyTaskAttachment_(spreadsheet, payload) {
+      const taskId = String(payload.taskId || '').trim()
+      const userId = String(payload.sessionUserId || '').trim()
+      const role = String(payload.sessionUserRole || '')
+      if (!taskId || !userId) throw apiError_(400, 'A valid daily task is required.')
+      const task = readSheetRecords_(spreadsheet, 'Daily_Tasks').find(function (record) {
+        return String(record['Task ID'] || '').trim() === taskId
+      })
+      if (!task || (role !== 'Super Admin' && String(task['Assigned To ID'] || '').trim() !== userId)) {
+        throw apiError_(404, 'The task attachment was not found.')
+      }
+      const fileId = String(task['Attachment ID'] || '').trim()
+      if (!fileId) throw apiError_(404, 'This task has no attachment.')
+      const folder = getDailyTaskAttachmentFolder_(false)
+      if (!folder) throw apiError_(404, 'The task attachment was not found.')
+      const file = DriveApp.getFileById(fileId)
+      const parents = file.getParents()
+      let belongsToTaskFolder = false
+      while (parents.hasNext()) {
+        if (parents.next().getId() === folder.getId()) belongsToTaskFolder = true
+      }
+      if (!belongsToTaskFolder || file.getSharingAccess() !== DriveApp.Access.PRIVATE ||
+          file.getDescription() !== JSON.stringify({ kind: 'mahalaxmi-erp-daily-task-attachment' })) {
+        throw apiError_(404, 'The task attachment was not found.')
+      }
+      return {
+        fileName: String(task['Attachment Name'] || file.getName()),
+        mimeType: String(task['Attachment MIME Type'] || file.getMimeType()),
+        base64: Utilities.base64Encode(file.getBlob().getBytes()),
+      }
     }
 
     function getSalesReportFolder_(createIfMissing) {

@@ -77,6 +77,8 @@ const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'listGraphicDesignReports',
   'listSalesReports',
   'getEcommerceTargets',
+  'listDailyTasks',
+  'downloadDailyTaskAttachment',
 ])
 let workbookDataCache: { data: WorkbookData; expiresAt: number } | null = null
 let workbookDataRequest: Promise<WorkbookData> | null = null
@@ -498,6 +500,54 @@ export async function reviewWorkbookEcommerceTask(input: SessionBoundInput & {
   return callAppsScript<{ task: Record<string, unknown> }>('reviewEcommerceTask', {
     ...input,
     ...sessionBoundPayload(input),
+  })
+}
+
+export async function listWorkbookDailyTasks(user: SessionBoundInput) {
+  return callAppsScript<{ tasks: Record<string, unknown>[] }>('listDailyTasks', sessionBoundPayload(user))
+}
+
+export async function createWorkbookDailyTask(input: SessionBoundInput & {
+  taskDate: string
+  title: string
+  description: string
+  recipientIds: string[]
+  attachment?: { fileName: string; mimeType: string; base64: string }
+}) {
+  return callAppsScript<{ tasks: Record<string, unknown>[] }>('createDailyTask', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function updateWorkbookDailyTask(input: SessionBoundInput & {
+  taskId: string
+  status: 'In Progress' | 'Submitted'
+  completed: string
+  pending: string
+  issues: string
+}) {
+  return callAppsScript<{ task: Record<string, unknown> }>('updateDailyTask', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function reviewWorkbookDailyTask(input: SessionBoundInput & {
+  taskId: string
+  decision: 'Approved' | 'Needs Changes'
+  reviewNote: string
+}) {
+  return callAppsScript<{ task: Record<string, unknown> }>('reviewDailyTask', {
+    ...input,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function downloadWorkbookDailyTaskAttachment(user: SessionBoundInput, taskId: string) {
+  return callAppsScript<{ fileName: string; mimeType: string; base64: string }>('downloadDailyTaskAttachment', {
+    ...sessionBoundPayload(user),
+    taskId,
   })
 }
 

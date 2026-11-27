@@ -8,7 +8,7 @@ const ERP_MODULES = new Set([
   'Production Targets', 'Stitching', 'Raw Material', 'Finished Goods', 'Product Catalog',
   'Orders', 'Inventory', 'Stock Movement', 'Shipping & Delivery', 'Returns & RTO', 'IndiaMART',
   'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels',
-  'Marketplace Reconciliation', 'Daily Work Report', 'Machines', 'Quality Control', 'Graphic Design', 'Employees', 'Suppliers', 'Accounts',
+  'Marketplace Reconciliation', 'Daily Tasks', 'Daily Work Report', 'Machines', 'Quality Control', 'Graphic Design', 'Employees', 'Suppliers', 'Accounts',
   'Reports', 'Excel Management', 'User Management', 'Settings', 'Audit Logs', 'Camera Monitoring', 'Chat',
 ])
 
@@ -20,12 +20,12 @@ const ADMIN_ONLY_MODULES = new Set([
 const ROLE_MODULES: Record<UserRole, Set<string>> = {
   'Super Admin': new Set([...ERP_MODULES].filter(module => module !== 'Daily Work Report' && module !== 'Shipping Labels')),
   'Production Supervisor': new Set([...ERP_MODULES].filter(module => module !== 'Daily Work Report' && module !== 'IndiaMART' && !ADMIN_ONLY_MODULES.has(module))),
-  'Machine Operator': new Set(['Dashboard', 'Production', 'Production Targets', 'Chat']),
-  'Store Manager': new Set(['Dashboard', 'Chat']),
-  'E-commerce Executive': new Set(['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Marketplace Reconciliation', 'Daily Work Report', 'Chat']),
-  'E-commerce Manager': new Set(['E-commerce Workspace', 'Chat']),
-  'Sales Executive': new Set(['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Chat']),
-  'Graphic Designer': new Set(['Dashboard', 'Graphic Design', 'Chat']),
+  'Machine Operator': new Set(['Dashboard', 'Production', 'Production Targets', 'Daily Tasks', 'Chat']),
+  'Store Manager': new Set(['Dashboard', 'Daily Tasks', 'Chat']),
+  'E-commerce Executive': new Set(['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Marketplace Reconciliation', 'Daily Tasks', 'Daily Work Report', 'Chat']),
+  'E-commerce Manager': new Set(['E-commerce Workspace', 'Daily Tasks', 'Chat']),
+  'Sales Executive': new Set(['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Daily Tasks', 'Chat']),
+  'Graphic Designer': new Set(['Dashboard', 'Graphic Design', 'Daily Tasks', 'Chat']),
 }
 
 export default async function auditHandler(request: ApiRequest, response: ApiResponse) {

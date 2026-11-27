@@ -10,6 +10,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import * as XLSX from 'xlsx'
 import { IndiaMartView, SalesDailyReportView, SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
 import { MarketplaceReconciliationView } from './MarketplaceReconciliation'
+import { DailyTasksView } from './DailyTasks'
 import { ScreenRecordingControl, type ScreenRecordingController } from './ScreenRecording'
 const CameraMonitoringView = lazy(() => import('./ScreenMonitoring').then(module => ({ default: module.ScreenMonitoringView })))
 const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.ChatView })))
@@ -19,7 +20,7 @@ import './App.css'
 type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'IndiaMART' | 'Production' | 'Production Targets' | 'Stitching' | 'Graphic Design' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
-  'E-commerce Orders' | 'Shipping Labels' | 'Marketplace Reconciliation' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
+  'E-commerce Orders' | 'Shipping Labels' | 'Marketplace Reconciliation' | 'Daily Tasks' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
   'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring' | 'Chat' | 'Change Password'
 
 type AuditEvent = {
@@ -220,7 +221,7 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'SALES', items: ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
   { label: 'E-COMMERCE', items: ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Marketplace Reconciliation'] },
   { label: 'CREATIVE', items: ['Graphic Design'] },
-  { label: 'WORK REPORTS', items: ['Daily Work Report'] },
+  { label: 'WORK REPORTS', items: ['Daily Tasks', 'Daily Work Report'] },
   { label: 'MANAGEMENT', items: ['Employees', 'Suppliers', 'Accounts', 'Reports'] },
   { label: 'ADMIN', items: ['Camera Monitoring', 'Settings'] },
   { label: 'ACCOUNT', items: ['Change Password'] },
@@ -264,6 +265,7 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   'User Management': UserCog, Settings, 'Audit Logs': Archive, 'E-commerce Workspace': ShoppingCart,
   'E-commerce Stock': Boxes, 'E-commerce Orders': Truck, 'Shipping Labels': FileSpreadsheet,
   'Marketplace Reconciliation': FileSpreadsheet,
+  'Daily Tasks': ClipboardCheck,
   'Daily Work Report': ClipboardCheck, 'Camera Monitoring': Video,
   'Graphic Design': FileSpreadsheet,
   Chat: MessageCircle, 'Change Password': LockKeyhole,
@@ -1537,12 +1539,12 @@ export default function App() {
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report' && item !== 'Shipping Labels'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && !['Daily Work Report', 'Graphic Design', 'Suppliers', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART'].includes(item)),
-    'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat', 'Change Password'],
-    'Store Manager': ['Dashboard', 'Chat', 'Change Password'],
-    'E-commerce Executive': ['Marketplace Reconciliation', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat', 'Change Password'],
-    'E-commerce Manager': ['E-commerce Workspace', 'Daily Work Report', 'Chat', 'Change Password'],
-    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Chat', 'Change Password'],
-    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Daily Work Report', 'Chat', 'Change Password'],
+    'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Daily Tasks', 'Chat', 'Change Password'],
+    'Store Manager': ['Dashboard', 'Daily Tasks', 'Chat', 'Change Password'],
+    'E-commerce Executive': ['Marketplace Reconciliation', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Tasks', 'Daily Work Report', 'Chat', 'Change Password'],
+    'E-commerce Manager': ['E-commerce Workspace', 'Daily Tasks', 'Daily Work Report', 'Chat', 'Change Password'],
+    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Daily Tasks', 'Chat', 'Change Password'],
+    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Daily Tasks', 'Daily Work Report', 'Chat', 'Change Password'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -2085,6 +2087,11 @@ function ModuleView(props: {
     </section>
   }
 
+  if (
+    module === 'Daily Tasks'
+  ) {
+    return <DailyTasksView user={sessionUser} />
+  }
   if (
     module === 'Marketplace Reconciliation'
   ) {
