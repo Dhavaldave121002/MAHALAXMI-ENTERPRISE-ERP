@@ -370,6 +370,7 @@ const INDIA_MART_LISTING_HEADERS = [
   'Product Name',
   'IndiaMART SKU',
   'ERP SKU',
+  'Listing Inventory',
   'Listing Price (INR)',
   'Unit Cost (INR)',
   'Status',
@@ -395,6 +396,15 @@ function parseListingImportAmount(value: string, label: string, rowNumber: numbe
     throw new Error(`Row ${rowNumber} has an invalid ${label}.`)
   }
   return amount
+}
+
+function parseListingInventory(value: string, rowNumber: number) {
+  if (!value) return null
+  const inventory = Number(value.replace(/,/g, '').trim())
+  if (!Number.isSafeInteger(inventory) || inventory < 0 || inventory > 1000000) {
+    throw new Error(`Row ${rowNumber} has an invalid Listing Inventory. Use a whole number from 0 to 1,000,000.`)
+  }
+  return inventory
 }
 
 async function importedListingId(productName: string, listingSku: string, sourceUrl: string) {
@@ -424,8 +434,11 @@ export function IndiaMartView(props: {
   const canEdit = role === 'Super Admin'
   const activeListings = draftListings.filter(listing => listing.status === 'Active')
   const canSave = draftListings.every(listing =>
-    listing.status !== 'Active' ||
-    Boolean(listing.listingSku && listing.productSku && listing.listedPrice !== null && listing.listedPrice > 0 && listing.unitCost !== null && listing.unitCost >= 0),
+    (listing.listingInventory === null ||
+      Number.isSafeInteger(listing.listingInventory) && listing.listingInventory >= 0 && listing.listingInventory <= 1000000) &&
+    (listing.status !== 'Active' ||
+      Boolean(listing.listingSku && listing.productSku && listing.listedPrice !== null && listing.listedPrice > 0 &&
+        listing.unitCost !== null && listing.unitCost >= 0 && listing.listingInventory !== null && listing.listingInventory > 0)),
   )
 
   const downloadTemplate = () => {
@@ -434,10 +447,10 @@ export function IndiaMartView(props: {
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
       ['IndiaMART listing import instructions'],
       ['Required: Product Name. Use Status=Draft while reviewing new listings.'],
-      ['Optional: IndiaMART SKU, ERP SKU, Listing Price (INR), Unit Cost (INR), Product URL, Image URL, Listing ID.'],
+      ['Optional: IndiaMART SKU, ERP SKU, Listing Inventory, Listing Price (INR), Unit Cost (INR), Product URL, Image URL, Listing ID.'],
       ['Product URL must use https://www.mahalaxmienterprise.in.net; Image URL, if provided, must use imimg.com.'],
-      ['Inventory is read from the mapped ERP SKU. Import does not set or overwrite inventory to 1,000.'],
-      ['After importing, review the rows and click Save listing changes. Active listings require a mapped active ERP SKU, price, listing SKU, and unit cost.'],
+      ['Listing Inventory is a separate IndiaMART quantity; it never changes actual ERP stock. Enter 1,000 if that is the listing quantity you want.'],
+      ['After importing, review the rows and click Save listing changes. Active listings require a mapped active ERP SKU, price, listing SKU, unit cost, and listing inventory.'],
     ]), 'Instructions')
     XLSX.writeFile(workbook, 'Mahalaxmi-IndiaMART-Listings-Template.xlsx')
   }
@@ -473,6 +486,7 @@ export function IndiaMartView(props: {
         const suppliedId = listingImportValue(row, ['listingid', 'id'])
         const priceValue = listingImportValue(row, ['listingpriceinr', 'listedpriceinr', 'listingprice', 'listedprice', 'priceinr', 'price'])
         const costValue = listingImportValue(row, ['unitcostinr', 'unitcost', 'cost'])
+        const inventoryValue = listingImportValue(row, ['listinginventory', 'listingquantity', 'availablequantity', 'quantity'])
         const suppliedStatus = listingImportValue(row, ['status']).toLowerCase()
         if (listingSku.length > 100 || productSku.length > 100) throw new Error(`Row ${rowNumber} has an SKU longer than 100 characters.`)
         if (suppliedId.length > 100) throw new Error(`Row ${rowNumber} has a Listing ID longer than 100 characters.`)
@@ -505,6 +519,7 @@ export function IndiaMartView(props: {
 
         const listedPrice = parseListingImportAmount(priceValue, 'Listing Price', rowNumber)
         const unitCost = parseListingImportAmount(costValue, 'Unit Cost', rowNumber)
+        const listingInventory = parseListingInventory(inventoryValue, rowNumber)
         const matched = (suppliedId && next.get(suppliedId.toLowerCase())) ||
           (listingSku ? bySku.get(listingSku.toLowerCase()) : byName.get(normalizedListingName(productName)))
         const id = suppliedId || matched?.id || await importedListingId(productName, listingSku, sourceUrl)
@@ -521,6 +536,7 @@ export function IndiaMartView(props: {
           productName,
           listingSku: listingSku || matched?.listingSku || '',
           productSku: productSku || matched?.productSku || '',
+          listingInventory: listingInventory ?? matched?.listingInventory ?? null,
           listedPrice: listedPrice ?? matched?.listedPrice ?? null,
           unitCost: unitCost ?? matched?.unitCost ?? null,
           sourceUrl: sourceUrl || matched?.sourceUrl || '',
@@ -562,6 +578,7 @@ export function IndiaMartView(props: {
           imageUrl: candidate.imageUrl,
           listingSku: `IM-${candidate.id.slice(-8)}`,
           productSku: '',
+          listingInventory: null,
           listedPrice: candidate.suggestedPrice,
           unitCost: null,
           status: 'Draft' as const,
@@ -599,7 +616,7 @@ export function IndiaMartView(props: {
   return (
     <section>
       <div className="page-heading">
-        <div><p>SALES CHANNEL</p><h1>IndiaMART</h1><span className="dashboard-description">IndiaMART listings use shared ERP finished-goods stock. Admin approves the imported catalog, maps ERP SKUs, sets listing SKUs, prices, and unit costs.</span></div>
+        <div><p>SALES CHANNEL</p><h1>IndiaMART</h1><span className="dashboard-description">Admin maps ERP SKUs, sets IndiaMART listing quantity, price, unit cost, and status.</span></div>
         {canEdit && <div className="heading-actions">
           <label className="secondary sales-upload-button"><Upload size={16} /> Import Excel / CSV<input type="file" accept=".xlsx,.xls,.csv" disabled={busy} onChange={event => { void importListingsFile(event.target.files?.[0]); event.currentTarget.value = '' }} /></label>
           <button className="secondary" disabled={busy} onClick={downloadTemplate}><Download size={16} /> Template</button>
@@ -608,13 +625,13 @@ export function IndiaMartView(props: {
         </div>}
       </div>
       {message && <p className="sales-message" role="status">{message}</p>}
-      {canEdit && <p className="sales-readonly-note">Inventory comes from the mapped ERP SKU and is shared with other channels. Excel import does not set stock to 1,000.</p>}
+      {canEdit && <p className="sales-readonly-note">IndiaMART listing inventory is separate from actual ERP stock. Enter 1,000 here if needed; sales orders still reserve only real ERP stock.</p>}
       {!canEdit && <div className="stats-grid sales-stats">
         <article className="stat-card"><div className="stat-icon blue"><Store size={20} /></div><div className="stat-body"><span>Active IndiaMART listings</span><strong>{activeListings.length.toLocaleString('en-IN')}</strong><small>Admin-managed products</small></div></article>
-        <article className="stat-card"><div className="stat-icon green"><Boxes size={20} /></div><div className="stat-body"><span>Mapped ERP SKUs in stock</span><strong>{activeListings.filter(listing => (productBySku.get(listing.productSku.toLowerCase())?.stock || 0) > 0).length.toLocaleString('en-IN')}</strong><small>Stock is shared with other sales channels</small></div></article>
+        <article className="stat-card"><div className="stat-icon green"><Boxes size={20} /></div><div className="stat-body"><span>Mapped ERP SKUs in stock</span><strong>{activeListings.filter(listing => (productBySku.get(listing.productSku.toLowerCase())?.stock || 0) > 0).length.toLocaleString('en-IN')}</strong><small>Actual ERP stock available for orders</small></div></article>
       </div>}
       {draftListings.length ? <div className="table-card entries-table india-mart-table"><table>
-        <thead><tr><th>Storefront product</th><th>IndiaMART SKU</th><th>ERP stock SKU</th><th>Available stock</th><th>Listing price (INR)</th>{canEdit && <th>Unit cost (INR)</th>}<th>Status</th></tr></thead>
+        <thead><tr><th>Storefront product</th><th>IndiaMART SKU</th><th>ERP stock SKU</th><th>ERP stock available</th><th>IndiaMART listing inventory</th><th>Listing price (INR)</th>{canEdit && <th>Unit cost (INR)</th>}<th>Status</th></tr></thead>
         <tbody>{draftListings.map(listing => {
           const product = productBySku.get(listing.productSku.toLowerCase())
           return <tr key={listing.id}>
@@ -627,17 +644,21 @@ export function IndiaMartView(props: {
               : <code>{listing.productSku || 'Not mapped'}</code>}</td>
             <td>{product ? product.stock.toLocaleString('en-IN') : '—'}</td>
             <td>{canEdit
+              ? <input aria-label={`${listing.productName} IndiaMART listing inventory`} type="number" min="0" max="1000000" step="1" value={listing.listingInventory ?? ''} onChange={event => updateListing(listing.id, { listingInventory: event.target.value === '' ? null : Number(event.target.value) })} />
+              : listing.listingInventory === null ? '—' : listing.listingInventory.toLocaleString('en-IN')}</td>
+            <td>{canEdit
               ? <input aria-label={`${listing.productName} IndiaMART listed price`} type="number" min="0" step="0.01" value={listing.listedPrice ?? ''} onChange={event => updateListing(listing.id, { listedPrice: event.target.value === '' ? null : Number(event.target.value) })} />
               : listing.listedPrice === null ? '—' : money(listing.listedPrice)}</td>
             {canEdit && <td><input aria-label={`${listing.productName} unit cost`} type="number" min="0" step="0.01" value={listing.unitCost ?? ''} onChange={event => updateListing(listing.id, { unitCost: event.target.value === '' ? null : Number(event.target.value) })} /></td>}
             <td>{canEdit
               ? <select aria-label={`${listing.productName} listing status`} value={listing.status} onChange={event => updateListing(listing.id, { status: event.target.value as IndiaMartListing['status'] })}>
-                <option value="Draft">Draft</option><option value="Active" disabled={!listing.listingSku || !listing.productSku || listing.listedPrice === null || listing.listedPrice <= 0 || listing.unitCost === null}>Active</option><option value="Inactive">Inactive</option>
+                <option value="Draft">Draft</option><option value="Active" disabled={!listing.listingSku || !listing.productSku || listing.listedPrice === null || listing.listedPrice <= 0 || listing.unitCost === null || listing.listingInventory === null || listing.listingInventory < 1}>Active</option><option value="Inactive">Inactive</option>
               </select>
               : <span className={`status ${listing.status === 'Active' ? 'active' : 'pending'}`}>{listing.status}</span>}</td>
           </tr>
         })}</tbody>
       </table></div> : <div className="empty-state"><Store size={22} /><strong>No IndiaMART products yet</strong><span>Admin can preview the public storefront catalog and approve products here.</span></div>}
+      {canEdit && draftListings.some(listing => listing.status === 'Active' && (listing.listingInventory === null || listing.listingInventory < 1)) && <p className="sales-readonly-note">Enter a positive IndiaMART listing inventory before saving an Active listing.</p>}
       {canEdit && draftListings.some(listing => listing.status === 'Active' && listing.unitCost === null) && <p className="sales-readonly-note">Enter an Admin unit cost for every active listing so IndiaMART gross profit can be reported.</p>}
     </section>
   )
@@ -1188,7 +1209,7 @@ export function SalesOrdersView(props: {
             {salesChannel === 'INDIAMART'
               ? activeIndiaMartListings.map(listing => {
                   const product = activeProducts.find(item => item.sku === listing.productSku)
-                  return <option key={listing.id} value={listing.id} disabled={!product || product.stock <= 0 || !listing.listedPrice}>{listing.productName} · {listing.listingSku} · Available {product?.stock ?? 0}</option>
+                  return <option key={listing.id} value={listing.id} disabled={!product || product.stock <= 0 || !listing.listedPrice}>{listing.productName} · {listing.listingSku} · IndiaMART {listing.listingInventory ?? '—'} · ERP available {product?.stock ?? 0}</option>
                 })
               : activeProducts.map(product => <option key={product.sku} value={product.sku} disabled={product.stock <= 0}>{product.name} · {product.sku} · Available {product.stock}</option>)}
           </select></label>

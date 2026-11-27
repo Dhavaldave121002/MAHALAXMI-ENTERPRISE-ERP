@@ -620,9 +620,13 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
     const unitCost = row['Unit Cost'] === undefined || row['Unit Cost'] === null || row['Unit Cost'] === ''
       ? null
       : Number(row['Unit Cost'])
+    const listingInventory = row['Listing Inventory'] === undefined || row['Listing Inventory'] === null || row['Listing Inventory'] === ''
+      ? null
+      : Number(row['Listing Inventory'])
     if (listedPrice !== null && (!Number.isFinite(listedPrice) || listedPrice < 0) ||
-        unitCost !== null && (!Number.isFinite(unitCost) || unitCost < 0)) {
-      throw new ApiError(503, 'The IndiaMART_Listings sheet contains an invalid price or unit cost.')
+        unitCost !== null && (!Number.isFinite(unitCost) || unitCost < 0) ||
+        listingInventory !== null && (!Number.isSafeInteger(listingInventory) || listingInventory < 0 || listingInventory > 1000000)) {
+      throw new ApiError(503, 'The IndiaMART_Listings sheet contains an invalid price, unit cost, or listing inventory.')
     }
     if (status === 'Active') {
       const key = listingSku.toLowerCase()
@@ -637,6 +641,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       productSku,
       listingSku,
       productName,
+      listingInventory,
       listedPrice,
       unitCost: user.role === 'Super Admin' ? unitCost : null,
       sourceUrl: text(row['Source URL']),
@@ -1673,19 +1678,25 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         const unitCost = row.unitCost === '' || row.unitCost === null || row.unitCost === undefined
           ? null
           : Number(row.unitCost)
+        const listingInventory = row.listingInventory === '' || row.listingInventory === null || row.listingInventory === undefined
+          ? null
+          : Number(row.listingInventory)
         if (listedPrice !== null && (!Number.isFinite(listedPrice) || listedPrice < 0 || listedPrice > 100000000)) {
           throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid listed price.`)
         }
         if (unitCost !== null && (!Number.isFinite(unitCost) || unitCost < 0 || unitCost > 100000000)) {
           throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid unit cost.`)
         }
-        if (status === 'Active' && (!listingSku || !productSku || !listedPrice || unitCost === null)) {
-          throw new ApiError(400, `IndiaMART listing ${index + 1} needs an IndiaMART SKU, mapped ERP SKU, positive price, and unit cost before activation.`)
+        if (listingInventory !== null && (!Number.isSafeInteger(listingInventory) || listingInventory < 0 || listingInventory > 1000000)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid listing inventory.`)
+        }
+        if (status === 'Active' && (!listingSku || !productSku || !listedPrice || unitCost === null || listingInventory === null || listingInventory < 1)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} needs an IndiaMART SKU, mapped ERP SKU, positive price, unit cost, and listing inventory before activation.`)
         }
         if (status === 'Active' && (!activeSkus.has(productSku.toLowerCase()) || !finishedStockSkus.has(productSku.toLowerCase()))) {
           throw new ApiError(400, `IndiaMART listing ${index + 1} must map to an active ERP SKU with a finished-goods stock record.`)
         }
-        return { id, productSku, listingSku, productName, listedPrice, unitCost, sourceUrl, imageUrl, status }
+        return { id, productSku, listingSku, productName, listingInventory, listedPrice, unitCost, sourceUrl, imageUrl, status }
       })
       const listingIds = new Set<string>()
       const listingSkus = new Set<string>()
@@ -1724,6 +1735,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
           productSku: text(row['Product SKU']),
           listingSku: text(row['IndiaMART SKU']),
           productName: text(row['Product Name']),
+          listingInventory: row['Listing Inventory'] === '' || row['Listing Inventory'] === null || row['Listing Inventory'] === undefined ? null : number(row['Listing Inventory']),
           listedPrice: row['Listed Price'] === '' || row['Listed Price'] === null || row['Listed Price'] === undefined ? null : number(row['Listed Price']),
           unitCost: row['Unit Cost'] === '' || row['Unit Cost'] === null || row['Unit Cost'] === undefined ? null : number(row['Unit Cost']),
           sourceUrl: text(row['Source URL']),

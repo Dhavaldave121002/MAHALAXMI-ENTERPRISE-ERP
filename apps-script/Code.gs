@@ -57,7 +57,7 @@
     const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Location', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At', 'Enquiry Date']
     const ERP_SALES_ACTIVITY_HEADERS = ['Activity ID', 'Lead ID', 'Activity Type', 'Outcome', 'Notes', 'Next Follow-Up', 'Created At', 'Created By', 'Created By Name']
     const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes', 'Sales Channel', 'IndiaMART Listing ID', 'IndiaMART SKU', 'Unit Cost']
-    const ERP_INDIAMART_LISTING_HEADERS = ['Listing ID', 'Product SKU', 'IndiaMART SKU', 'Product Name', 'Listed Price', 'Unit Cost', 'Source URL', 'Image URL', 'Status', 'Updated At', 'Updated By']
+    const ERP_INDIAMART_LISTING_HEADERS = ['Listing ID', 'Product SKU', 'IndiaMART SKU', 'Product Name', 'Listed Price', 'Unit Cost', 'Source URL', 'Image URL', 'Status', 'Updated At', 'Updated By', 'Listing Inventory']
     const ERP_SALES_TARGET_HEADERS = ['Target ID', 'Sales User ID', 'Sales User Name', 'Period', 'Period Key', 'Target Amount', 'Updated At', 'Updated By']
     const ERP_GRAPHIC_DESIGN_HEADERS = ['Task ID', 'Planned Date', 'Month', 'Product SKU', 'Product Name', 'Platforms', 'Content Type', 'Brief', 'Caption', 'Script', 'Shoot Status', 'Edit Status', 'Review Status', 'Review Note', 'Created By ID', 'Created By', 'Created At', 'Reviewed By', 'Reviewed At']
     const ERP_STORAGE_ROOT_PROPERTY = 'ERP_STORAGE_ROOT_FOLDER_ID'
@@ -2680,20 +2680,24 @@
           const unitCost = entry.unitCost === '' || entry.unitCost === null || entry.unitCost === undefined
             ? ''
             : stockNumber_(entry.unitCost, 'IndiaMART unit cost')
+          const listingInventory = entry.listingInventory === '' || entry.listingInventory === null || entry.listingInventory === undefined
+            ? ''
+            : Number(entry.listingInventory)
           if (!id || id.length > 100 || !productName || productName.length > 300 ||
               sourceUrl && !/^https:\/\/www\.mahalaxmienterprise\.in\.net(?:\/|$)/i.test(sourceUrl) ||
               imageUrl && !/^https:\/\/(?:[a-z0-9-]+\.)*imimg\.com\//i.test(imageUrl) ||
               ['Draft', 'Active', 'Inactive'].indexOf(status) < 0 ||
               listingSku && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(listingSku) ||
               listedPrice !== '' && (listedPrice < 0 || listedPrice > 100000000) ||
-              unitCost !== '' && (unitCost < 0 || unitCost > 100000000)) {
+              unitCost !== '' && (unitCost < 0 || unitCost > 100000000) ||
+              listingInventory !== '' && (!Number.isSafeInteger(listingInventory) || listingInventory < 0 || listingInventory > 1000000)) {
             throw apiError_(400, 'IndiaMART listing ' + (index + 1) + ' contains invalid data.')
           }
           if (ids[id.toLowerCase()]) throw apiError_(400, 'Duplicate IndiaMART listing ID: ' + id + '.')
           ids[id.toLowerCase()] = true
           if (status === 'Active') {
-            if (!listingSku || !productSku || !listedPrice || unitCost === '') {
-              throw apiError_(400, 'Active IndiaMART listings require a listing SKU, mapped ERP SKU, positive price, and unit cost.')
+            if (!listingSku || !productSku || !listedPrice || unitCost === '' || listingInventory === '' || listingInventory < 1) {
+              throw apiError_(400, 'Active IndiaMART listings require a listing SKU, mapped ERP SKU, positive price, unit cost, and listing inventory.')
             }
             const skuKey = listingSku.toLowerCase()
             if (activeSkus[skuKey]) throw apiError_(409, 'IndiaMART SKU ' + listingSku + ' is already in use.')
@@ -2716,6 +2720,7 @@
             'Unit Cost': unitCost,
             'Source URL': sourceUrl,
             'Image URL': imageUrl,
+            'Listing Inventory': listingInventory,
             Status: status,
             'Updated At': new Date().toISOString(),
             'Updated By': String(payload.createdBy || ''),

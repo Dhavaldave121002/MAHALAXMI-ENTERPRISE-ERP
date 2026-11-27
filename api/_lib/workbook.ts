@@ -796,6 +796,7 @@ export async function saveWorkbookIndiaMartListings(input: SessionBoundInput & {
     productSku: string
     listingSku: string
     productName: string
+    listingInventory: number | null
     listedPrice: number | null
     unitCost: number | null
     sourceUrl: string
