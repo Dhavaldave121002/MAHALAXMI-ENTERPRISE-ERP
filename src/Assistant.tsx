@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { AlertCircle, RefreshCw, Send, Sparkles, Trash2 } from 'lucide-react'
 import './Assistant.css'
 
@@ -197,7 +197,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
       {!modelReady && (
         <div className="assistant-setup-note" role="status">
           <AlertCircle size={18} />
-          <span>Private AI is not connected. You can still ask documented FAQs; live ERP lookups and unmatched questions need the company model server.</span>
+          <span>Private AI is not connected. You can ask documented FAQs, but full multilingual answers and live ERP lookups need the company model server.</span>
         </div>
       )}
       {error && <div className="assistant-error" role="alert"><AlertCircle size={17} />{error}</div>}
@@ -247,6 +247,11 @@ export function AssistantView({ user }: { user: AssistantUser }) {
             id="assistant-message"
             value={message}
             onChange={event => setMessage(event.target.value)}
+            onKeyDown={(event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }}
             placeholder={modelReady ? 'Ask about ERP work or your assigned tasks…' : 'Ask a documented ERP workflow FAQ…'}
             maxLength={3000}
             rows={2}
@@ -256,7 +261,10 @@ export function AssistantView({ user }: { user: AssistantUser }) {
             <Send size={16} /> {sending ? 'Sending…' : 'Send'}
           </button>
         </form>
-        <div className="assistant-composer-note">Answers can be wrong. Check important decisions in the ERP or with your supervisor.</div>
+        <div className="assistant-composer-note">
+          Enter sends; Shift+Enter starts a new line. {modelReady ? 'Ask in any language.' : 'Full multilingual answers need the private AI server.'}
+          {' '}Answers can be wrong; verify important decisions in the ERP or with your supervisor.
+        </div>
       </div>
     </section>
   )
