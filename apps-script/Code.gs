@@ -3,6 +3,9 @@
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
     const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
     const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    ERP_SESSION_BOUND_ACTIONS.push('importMarketplaceReconciliation')
+    ERP_SESSION_BOUND_ACTIONS.push('listMarketplaceReconciliation')
+    ERP_AUDIT_ACTIONS.push('importMarketplaceReconciliation')
     ERP_DATA_SHEETS.push('IndiaMART_Listings')
     ERP_SESSION_BOUND_ACTIONS.push('saveIndiaMartListings')
     ERP_AUDIT_ACTIONS.push('saveIndiaMartListings')
@@ -388,6 +391,10 @@
           return submitEcommerceReport_(spreadsheet, payload)
         case 'listEcommerceReports':
           return listEcommerceReports_(spreadsheet, payload)
+        case 'importMarketplaceReconciliation':
+          return importMarketplaceReconciliation_(spreadsheet, payload)
+        case 'listMarketplaceReconciliation':
+          return listMarketplaceReconciliation_(spreadsheet, payload)
         case 'listEcommerceTasks':
           return listEcommerceTasks_(spreadsheet, payload)
         case 'createEcommerceTask':
@@ -3869,6 +3876,111 @@
       }
       reports.sort(function (a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) })
       return { reports: reports }
+    }
+
+    function importMarketplaceReconciliation_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'E-commerce Executive') {
+        throw apiError_(403, 'Only an E-commerce Executive can import marketplace reports.')
+      }
+      if (!Array.isArray(payload.rows) || payload.rows.length < 1 || payload.rows.length > 1000) {
+        throw apiError_(400, 'Import between 1 and 1,000 report rows at a time.')
+      }
+      const headers = [
+        'Record ID', 'Record Type', 'Platform', 'Transaction Date', 'Order ID', 'Settlement ID',
+        'Platform SKU', 'ERP SKU', 'Quantity', 'Gross Sales', 'Refunds', 'Marketplace Fees',
+        'Shipping Fees', 'Advertising Fees', 'Other Charges', 'Tax Withheld', 'Product Cost',
+        'Expected Settlement', 'Bank Credit', 'Imported By', 'Imported At',
+      ]
+      return withWriteLock_(function () {
+        const target = ensureStockSheet_(spreadsheet, 'Marketplace_Reconciliation', headers)
+        const existing = readSheetRecords_(spreadsheet, 'Marketplace_Reconciliation')
+        const seen = {}
+        existing.forEach(function (record) {
+          const key = [record.Platform, record['Record Type'], record['Record ID']].join('|').toUpperCase()
+          seen[key] = true
+        })
+        let imported = 0
+        let duplicates = 0
+        payload.rows.forEach(function (source, index) {
+          if (!source || typeof source !== 'object' || Array.isArray(source)) {
+            throw apiError_(400, 'Marketplace report row ' + (index + 2) + ' is invalid.')
+          }
+          const recordType = String(source.recordType || '').trim().toUpperCase()
+          if (recordType !== 'ORDER' && recordType !== 'SETTLEMENT') {
+            throw apiError_(400, 'Marketplace report row ' + (index + 2) + ' must be ORDER or SETTLEMENT.')
+          }
+          const platform = assertEcommercePlatformAccess_(payload, source.platform, spreadsheet)
+          const recordId = String(source.recordId || '').trim()
+          const transactionDate = String(source.transactionDate || '').trim()
+          const orderId = String(source.orderId || '').trim()
+          const settlementId = String(source.settlementId || '').trim()
+          const platformSku = String(source.platformSku || '').trim()
+          const erpSku = String(source.erpSku || '').trim()
+          const quantity = Number(source.quantity || 0)
+          if (!recordId || recordId.length > 200 ||
+              !/^\d{4}-\d{2}-\d{2}$/.test(transactionDate) ||
+              !Number.isInteger(quantity) || quantity < 0 ||
+              (recordType === 'ORDER' && (!orderId || (!platformSku && !erpSku) || quantity < 1)) ||
+              (recordType === 'SETTLEMENT' && !settlementId)) {
+            throw apiError_(400, 'Marketplace report row ' + (index + 2) + ' is missing required fields or has invalid values.')
+          }
+          const key = [platform, recordType, recordId].join('|').toUpperCase()
+          if (seen[key]) {
+            duplicates += 1
+            return
+          }
+          const numericFields = [
+            ['grossSales', 'Gross Sales'], ['refunds', 'Refunds'], ['marketplaceFees', 'Marketplace Fees'],
+            ['shippingFees', 'Shipping Fees'], ['advertisingFees', 'Advertising Fees'],
+            ['otherCharges', 'Other Charges'], ['taxWithheld', 'Tax Withheld'],
+            ['expectedSettlement', 'Expected Settlement'],
+          ]
+          const record = {
+            'Record ID': recordId,
+            'Record Type': recordType,
+            Platform: platform,
+            'Transaction Date': transactionDate,
+            'Order ID': orderId,
+            'Settlement ID': settlementId,
+            'Platform SKU': platformSku,
+            'ERP SKU': erpSku,
+            Quantity: quantity,
+            'Product Cost': source.productCost === null || source.productCost === '' ? '' : Number(source.productCost),
+            'Bank Credit': source.bankCredit === null || source.bankCredit === '' ? '' : Number(source.bankCredit),
+            'Imported By': String(payload.createdBy || ''),
+            'Imported At': new Date().toISOString(),
+          }
+          numericFields.forEach(function (field) {
+            const value = Number(source[field[0]] || 0)
+            if (!Number.isFinite(value) || Math.abs(value) > 1000000000000) {
+              throw apiError_(400, 'Marketplace report row ' + (index + 2) + ' has an invalid ' + field[1] + '.')
+            }
+            record[field[1]] = value
+          })
+          ;['Product Cost', 'Bank Credit'].forEach(function (field) {
+            const value = record[field]
+            if (value !== '' && (!Number.isFinite(value) || Math.abs(value) > 1000000000000)) {
+              throw apiError_(400, 'Marketplace report row ' + (index + 2) + ' has an invalid ' + field + '.')
+            }
+          })
+          appendStockRow_(target.sheet, target.headers, record)
+          seen[key] = true
+          imported += 1
+        })
+        return { imported: imported, duplicates: duplicates }
+      })
+    }
+
+    function listMarketplaceReconciliation_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can view marketplace reconciliation.')
+      }
+      return {
+        records: readSheetRecords_(spreadsheet, 'Marketplace_Reconciliation'),
+        expenses: readSheetRecords_(spreadsheet, 'Accounts_Expenses').map(function (record) {
+          return { Date: record.Date, Amount: record.Amount }
+        }),
+      }
     }
 
     function listEcommerceTasks_(spreadsheet, payload) {

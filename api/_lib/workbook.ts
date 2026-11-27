@@ -71,6 +71,7 @@ const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'readCameraClipRange',
   'cleanupExpiredCameraClips',
   'listEcommerceReports',
+  'listMarketplaceReconciliation',
   'listEcommerceTasks',
   'submitGraphicDesignReport',
   'listGraphicDesignReports',
@@ -442,6 +443,25 @@ export async function submitWorkbookEcommerceReport(input: SessionBoundInput & {
 
 export async function listWorkbookEcommerceReports(user: SessionBoundInput) {
   return callAppsScript<{ reports: Record<string, unknown>[] }>('listEcommerceReports', sessionBoundPayload(user))
+}
+
+export async function importWorkbookMarketplaceRows(input: SessionBoundInput & {
+  rows: Record<string, unknown>[]
+}) {
+  return callAppsScript<{ imported: number; duplicates: number }>('importMarketplaceReconciliation', {
+    rows: input.rows,
+    ...sessionBoundPayload(input),
+  })
+}
+
+export async function listWorkbookMarketplaceRows(user: SessionBoundInput) {
+  return callAppsScript<{
+    records: Record<string, unknown>[]
+    expenses: Record<string, unknown>[]
+  }>(
+    'listMarketplaceReconciliation',
+    sessionBoundPayload(user),
+  )
 }
 
 export async function listWorkbookEcommerceTasks(user: SessionBoundInput) {
