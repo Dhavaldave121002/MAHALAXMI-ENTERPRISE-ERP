@@ -55,6 +55,7 @@ import {
   isPrivateAssistantConfigured,
   type AssistantRecordContext,
 } from './_lib/assistant.js'
+import { findRelevantAssistantFaqs } from './_lib/assistantFaq.js'
 
 type CatalogItem = {
   id: string
@@ -1786,6 +1787,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         question,
         memory: state.memory,
         history: state.messages,
+        faqs: findRelevantAssistantFaqs(question),
         tasks,
         liveRecords,
       })
