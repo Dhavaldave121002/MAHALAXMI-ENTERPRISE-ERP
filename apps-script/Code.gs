@@ -2665,8 +2665,8 @@
             ? ''
             : stockNumber_(entry.unitCost, 'IndiaMART unit cost')
           if (!id || id.length > 100 || !productName || productName.length > 300 ||
-              !/^https:\/\/www\.mahalaxmienterprise\.in\.net(?:\/|$)/i.test(sourceUrl) ||
-              !/^https:\/\/(?:[a-z0-9-]+\.)*imimg\.com\//i.test(imageUrl) ||
+              sourceUrl && !/^https:\/\/www\.mahalaxmienterprise\.in\.net(?:\/|$)/i.test(sourceUrl) ||
+              imageUrl && !/^https:\/\/(?:[a-z0-9-]+\.)*imimg\.com\//i.test(imageUrl) ||
               ['Draft', 'Active', 'Inactive'].indexOf(status) < 0 ||
               listingSku && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(listingSku) ||
               listedPrice !== '' && (listedPrice < 0 || listedPrice > 100000000) ||

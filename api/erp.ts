@@ -1632,19 +1632,32 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         const listingSku = text(row.listingSku)
         const productSku = text(row.productSku)
         const status = text(row.status)
-        const sourceUrl = requiredText(row.sourceUrl, 'Source URL', 2000)
-        const imageUrl = requiredText(row.imageUrl, 'Image URL', 2000)
-        let parsedSourceUrl: URL
-        let parsedImageUrl: URL
-        try {
-          parsedSourceUrl = new URL(sourceUrl)
-          parsedImageUrl = new URL(imageUrl)
-        } catch {
+        const sourceUrl = text(row.sourceUrl)
+        const imageUrl = text(row.imageUrl)
+        if (sourceUrl.length > 2000 || imageUrl.length > 2000) {
           throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid source or image URL.`)
         }
-        if (parsedSourceUrl.protocol !== 'https:' || parsedSourceUrl.origin !== 'https://www.mahalaxmienterprise.in.net' ||
-            parsedImageUrl.protocol !== 'https:' || !/(^|\.)imimg\.com$/i.test(parsedImageUrl.hostname)) {
-          throw new ApiError(400, `IndiaMART listing ${index + 1} must use the approved storefront and product-image hosts.`)
+        if (sourceUrl) {
+          let parsedSourceUrl: URL
+          try {
+            parsedSourceUrl = new URL(sourceUrl)
+          } catch {
+            throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid source URL.`)
+          }
+          if (parsedSourceUrl.protocol !== 'https:' || parsedSourceUrl.origin !== 'https://www.mahalaxmienterprise.in.net') {
+            throw new ApiError(400, `IndiaMART listing ${index + 1} must use the approved storefront host.`)
+          }
+        }
+        if (imageUrl) {
+          let parsedImageUrl: URL
+          try {
+            parsedImageUrl = new URL(imageUrl)
+          } catch {
+            throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid image URL.`)
+          }
+          if (parsedImageUrl.protocol !== 'https:' || !/(^|\.)imimg\.com$/i.test(parsedImageUrl.hostname)) {
+            throw new ApiError(400, `IndiaMART listing ${index + 1} must use an approved product-image host.`)
+          }
         }
         if (listingSku && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(listingSku)) {
           throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid SKU. Use letters, numbers, dot, underscore, or hyphen.`)

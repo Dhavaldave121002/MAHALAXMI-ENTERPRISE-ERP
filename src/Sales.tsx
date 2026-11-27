@@ -259,6 +259,48 @@ function leadRowFromImport(row: Record<string, unknown>, rowIndex: number, sales
   }
 }
 
+const INDIA_MART_LISTING_HEADERS = [
+  'Product Name',
+  'IndiaMART SKU',
+  'ERP SKU',
+  'Listing Price (INR)',
+  'Unit Cost (INR)',
+  'Status',
+  'Product URL',
+  'Image URL',
+  'Listing ID',
+]
+
+function normalizedListingHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function listingImportValue(row: Record<string, unknown>, aliases: string[]) {
+  const keys = new Map(Object.keys(row).map(key => [normalizedListingHeader(key), key]))
+  const key = aliases.map(alias => keys.get(alias)).find(Boolean)
+  return key ? String(row[key] ?? '').trim() : ''
+}
+
+function parseListingImportAmount(value: string, label: string, rowNumber: number) {
+  if (!value) return null
+  const amount = Number(value.replace(/(?:₹|INR|Rs\.?)/gi, '').replace(/[,\s]/g, ''))
+  if (!Number.isFinite(amount) || amount < 0 || amount > 100000000) {
+    throw new Error(`Row ${rowNumber} has an invalid ${label}.`)
+  }
+  return amount
+}
+
+async function importedListingId(productName: string, listingSku: string, sourceUrl: string) {
+  const identity = [productName, listingSku, sourceUrl].map(value => value.trim().toLowerCase()).join('|')
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity))
+  const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+  return `IMX-${hash.slice(0, 24)}`
+}
+
+function normalizedListingName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
 export function IndiaMartView(props: {
   role: SalesRole
   listings: IndiaMartListing[]
@@ -278,6 +320,122 @@ export function IndiaMartView(props: {
     listing.status !== 'Active' ||
     Boolean(listing.listingSku && listing.productSku && listing.listedPrice !== null && listing.listedPrice > 0 && listing.unitCost !== null && listing.unitCost >= 0),
   )
+
+  const downloadTemplate = () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([INDIA_MART_LISTING_HEADERS]), 'IndiaMART Listings')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['IndiaMART listing import instructions'],
+      ['Required: Product Name. Use Status=Draft while reviewing new listings.'],
+      ['Optional: IndiaMART SKU, ERP SKU, Listing Price (INR), Unit Cost (INR), Product URL, Image URL, Listing ID.'],
+      ['Product URL must use https://www.mahalaxmienterprise.in.net; Image URL, if provided, must use imimg.com.'],
+      ['Inventory is read from the mapped ERP SKU. Import does not set or overwrite inventory to 1,000.'],
+      ['After importing, review the rows and click Save listing changes. Active listings require a mapped active ERP SKU, price, listing SKU, and unit cost.'],
+    ]), 'Instructions')
+    XLSX.writeFile(workbook, 'Mahalaxmi-IndiaMART-Listings-Template.xlsx')
+  }
+
+  const importListingsFile = async (file?: File) => {
+    setMessage('')
+    if (!file) return
+    setBusy(true)
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error('IndiaMART workbook must be 5 MB or smaller.')
+      if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error('Choose an .xlsx, .xls, or .csv IndiaMART listing file.')
+      const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: false })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      if (!sheet) throw new Error('The selected file has no worksheet.')
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
+      if (!rows.length || rows.length > 1000) throw new Error('The file must contain between 1 and 1,000 listing rows.')
+
+      const next = new Map(draftListings.map(listing => [listing.id.toLowerCase(), listing]))
+      const bySku = new Map(draftListings.filter(listing => listing.listingSku).map(listing => [listing.listingSku.toLowerCase(), listing]))
+      const byName = new Map(draftListings.map(listing => [normalizedListingName(listing.productName), listing]))
+      const importedIds = new Set<string>()
+      let merged = 0
+      const imported: IndiaMartListing[] = []
+
+      for (const [index, row] of rows.entries()) {
+        const rowNumber = index + 2
+        const productName = listingImportValue(row, ['productname', 'name', 'itemname'])
+        if (!productName || productName.length > 300) throw new Error(`Row ${rowNumber} needs a Product Name of 300 characters or fewer.`)
+        const listingSku = listingImportValue(row, ['indiamartsku', 'listingsku', 'indiamartproductsku', 'sku'])
+        const productSku = listingImportValue(row, ['erpsku', 'productsku', 'stocksku'])
+        const sourceUrl = listingImportValue(row, ['producturl', 'sourceurl', 'listingurl'])
+        const imageUrl = listingImportValue(row, ['imageurl', 'image'])
+        const suppliedId = listingImportValue(row, ['listingid', 'id'])
+        const priceValue = listingImportValue(row, ['listingpriceinr', 'listedpriceinr', 'listingprice', 'listedprice', 'priceinr', 'price'])
+        const costValue = listingImportValue(row, ['unitcostinr', 'unitcost', 'cost'])
+        const suppliedStatus = listingImportValue(row, ['status']).toLowerCase()
+        if (listingSku.length > 100 || productSku.length > 100) throw new Error(`Row ${rowNumber} has an SKU longer than 100 characters.`)
+        if (suppliedId.length > 100) throw new Error(`Row ${rowNumber} has a Listing ID longer than 100 characters.`)
+        if (sourceUrl.length > 2000 || imageUrl.length > 2000) throw new Error(`Row ${rowNumber} has a URL longer than 2,000 characters.`)
+        if (sourceUrl) {
+          let parsedSourceUrl: URL
+          try {
+            parsedSourceUrl = new URL(sourceUrl)
+          } catch {
+            throw new Error(`Row ${rowNumber} has an invalid Product URL.`)
+          }
+          if (parsedSourceUrl.protocol !== 'https:' || parsedSourceUrl.origin !== 'https://www.mahalaxmienterprise.in.net') {
+            throw new Error(`Row ${rowNumber} Product URL must use the approved storefront host.`)
+          }
+        }
+        if (imageUrl) {
+          let parsedImageUrl: URL
+          try {
+            parsedImageUrl = new URL(imageUrl)
+          } catch {
+            throw new Error(`Row ${rowNumber} has an invalid Image URL.`)
+          }
+          if (parsedImageUrl.protocol !== 'https:' || !/(^|\.)imimg\.com$/i.test(parsedImageUrl.hostname)) {
+            throw new Error(`Row ${rowNumber} Image URL must use an approved product-image host.`)
+          }
+        }
+        if (suppliedStatus && !['draft', 'active', 'inactive'].includes(suppliedStatus)) {
+          throw new Error(`Row ${rowNumber} has an invalid Status. Use Draft, Active, or Inactive.`)
+        }
+
+        const listedPrice = parseListingImportAmount(priceValue, 'Listing Price', rowNumber)
+        const unitCost = parseListingImportAmount(costValue, 'Unit Cost', rowNumber)
+        const matched = (suppliedId && next.get(suppliedId.toLowerCase())) ||
+          (listingSku ? bySku.get(listingSku.toLowerCase()) : byName.get(normalizedListingName(productName)))
+        const id = suppliedId || matched?.id || await importedListingId(productName, listingSku, sourceUrl)
+        const idKey = id.toLowerCase()
+        if (importedIds.has(idKey)) throw new Error(`Row ${rowNumber} duplicates a Listing ID in this file.`)
+        importedIds.add(idKey)
+        if (matched) merged += 1
+
+        const status = suppliedStatus
+          ? (suppliedStatus === 'draft' ? 'Draft' : suppliedStatus === 'active' ? 'Active' : 'Inactive')
+          : matched?.status || 'Draft'
+        const listing: IndiaMartListing = {
+          id,
+          productName,
+          listingSku: listingSku || matched?.listingSku || '',
+          productSku: productSku || matched?.productSku || '',
+          listedPrice: listedPrice ?? matched?.listedPrice ?? null,
+          unitCost: unitCost ?? matched?.unitCost ?? null,
+          sourceUrl: sourceUrl || matched?.sourceUrl || '',
+          imageUrl: imageUrl || matched?.imageUrl || '',
+          status,
+          updatedAt: matched?.updatedAt || '',
+        }
+        imported.push(listing)
+        next.set(idKey, listing)
+        if (listing.listingSku) bySku.set(listing.listingSku.toLowerCase(), listing)
+        byName.set(normalizedListingName(listing.productName), listing)
+      }
+
+      if (next.size > 1000) throw new Error('The combined IndiaMART catalog cannot exceed 1,000 listings.')
+      setDraftListings([...next.values()])
+      setMessage(`${imported.length} Excel rows loaded; ${merged} matched existing listings. Review changes, then click Save listing changes.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'IndiaMART listing workbook could not be imported.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const importCatalog = async () => {
     setBusy(true)
@@ -336,11 +494,14 @@ export function IndiaMartView(props: {
       <div className="page-heading">
         <div><p>SALES CHANNEL</p><h1>IndiaMART</h1><span className="dashboard-description">IndiaMART listings use shared ERP finished-goods stock. Admin approves the imported catalog, maps ERP SKUs, sets listing SKUs, prices, and unit costs.</span></div>
         {canEdit && <div className="heading-actions">
+          <label className="secondary sales-upload-button"><Upload size={16} /> Import Excel / CSV<input type="file" accept=".xlsx,.xls,.csv" disabled={busy} onChange={event => { void importListingsFile(event.target.files?.[0]); event.currentTarget.value = '' }} /></label>
+          <button className="secondary" disabled={busy} onClick={downloadTemplate}><Download size={16} /> Template</button>
           <button className="secondary" disabled={busy} onClick={() => void importCatalog()}><RefreshCw size={16} /> Preview website catalog</button>
           <button className="primary" disabled={busy || !canSave} onClick={() => void persistListings()}><Save size={16} /> Save listing changes</button>
         </div>}
       </div>
       {message && <p className="sales-message" role="status">{message}</p>}
+      {canEdit && <p className="sales-readonly-note">Inventory comes from the mapped ERP SKU and is shared with other channels. Excel import does not set stock to 1,000.</p>}
       {!canEdit && <div className="stats-grid sales-stats">
         <article className="stat-card"><div className="stat-icon blue"><Store size={20} /></div><div className="stat-body"><span>Active IndiaMART listings</span><strong>{activeListings.length.toLocaleString('en-IN')}</strong><small>Admin-managed products</small></div></article>
         <article className="stat-card"><div className="stat-icon green"><Boxes size={20} /></div><div className="stat-body"><span>Mapped ERP SKUs in stock</span><strong>{activeListings.filter(listing => (productBySku.get(listing.productSku.toLowerCase())?.stock || 0) > 0).length.toLocaleString('en-IN')}</strong><small>Stock is shared with other sales channels</small></div></article>
@@ -350,7 +511,7 @@ export function IndiaMartView(props: {
         <tbody>{draftListings.map(listing => {
           const product = productBySku.get(listing.productSku.toLowerCase())
           return <tr key={listing.id}>
-            <td><div className="india-mart-product">{listing.imageUrl && <img src={listing.imageUrl} alt="" loading="lazy" />}<div><strong>{listing.productName}</strong><small><a href={listing.sourceUrl} target="_blank" rel="noreferrer">Open storefront listing</a></small></div></div></td>
+            <td><div className="india-mart-product">{listing.imageUrl && <img src={listing.imageUrl} alt="" loading="lazy" />}<div><strong>{listing.productName}</strong>{listing.sourceUrl && <small><a href={listing.sourceUrl} target="_blank" rel="noreferrer">Open storefront listing</a></small>}</div></div></td>
             <td>{canEdit ? <input aria-label={`${listing.productName} IndiaMART SKU`} maxLength={100} value={listing.listingSku} onChange={event => updateListing(listing.id, { listingSku: event.target.value })} /> : <code>{listing.listingSku}</code>}</td>
             <td>{canEdit
               ? <select aria-label={`${listing.productName} mapped ERP SKU`} value={listing.productSku} onChange={event => updateListing(listing.id, { productSku: event.target.value })}>
