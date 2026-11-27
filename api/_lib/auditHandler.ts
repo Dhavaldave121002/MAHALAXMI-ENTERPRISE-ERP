@@ -28,6 +28,16 @@ const ROLE_MODULES: Record<UserRole, Set<string>> = {
   'Graphic Designer': new Set(['Dashboard', 'Graphic Design', 'Daily Tasks', 'Chat']),
 }
 
+function auditFailureCategory(error: unknown) {
+  const message = error instanceof Error ? error.message : ''
+  if (/invalid api secret|deployment is outdated|configured/i.test(message)) return 'configuration'
+  if (/permission|authorization|not authorized|external_request/i.test(message)) return 'authorization'
+  if (/audit spreadsheet|audit events sheet/i.test(message)) return 'audit_storage'
+  if (/lock|timed out|too many|quota|rate limit/i.test(message)) return 'lock_or_quota'
+  if (/could not reach|http error|did not return json|incompatible response/i.test(message)) return 'apps_script_transport'
+  return 'other'
+}
+
 export default async function auditHandler(request: ApiRequest, response: ApiResponse) {
   if (!['GET', 'POST'].includes(request.method || '')) {
     response.setHeader('Allow', 'GET, POST')
@@ -61,6 +71,10 @@ export default async function auditHandler(request: ApiRequest, response: ApiRes
     })
     sendJson(response, 200, { ok: true })
   } catch (error) {
+    console.error('ERP activity audit request failed.', {
+      statusCode: error instanceof ApiError ? error.statusCode : 500,
+      category: auditFailureCategory(error),
+    })
     handleApiError(response, error, 'ERP audit log')
   }
 }

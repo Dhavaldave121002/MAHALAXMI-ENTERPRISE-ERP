@@ -14,6 +14,50 @@ type AssistantState = {
   memory: string
   retentionHours: number
   modelReady: boolean
+  faqModeReady: boolean
+}
+
+const FAQ_SUGGESTIONS: Record<string, string[]> = {
+  'Super Admin': [
+    'How do I import Sales leads?',
+    'Why can’t a Manager see an Executive?',
+    'How do I add a supplier?',
+  ],
+  'Production Supervisor': [
+    'Why is production not increasing finished-goods stock?',
+    'How should I update stock?',
+    'Who can dispatch a booked Sales order?',
+  ],
+  'Machine Operator': [
+    'Who records production and reviews quality?',
+    'How are production targets assigned?',
+    'Why is production not increasing finished-goods stock?',
+  ],
+  'Sales Executive': [
+    'Why was my Sales order booking rejected?',
+    'How do Sales order cancellations affect targets?',
+    'Who can dispatch a booked Sales order?',
+  ],
+  'E-commerce Manager': [
+    'How do I submit an E-commerce daily report?',
+    'How are E-commerce targets counted?',
+    'Why can’t I see an Executive?',
+  ],
+  'E-commerce Executive': [
+    'How do I complete an E-commerce task or daily report?',
+    'How do I get access to a marketplace platform?',
+    'How are E-commerce targets counted?',
+  ],
+  'Graphic Designer': [
+    'How do I plan Graphic Design work?',
+    'How do I share my screen or camera?',
+    'How do I complete a Daily Task?',
+  ],
+  'Store Manager': [
+    'Why can’t I see a page, task, or business record?',
+    'Who can see Chat messages and attachments?',
+    'How do I change or reset my password?',
+  ],
 }
 
 async function postAssistant<T>(action: string, values: Record<string, unknown> = {}): Promise<T> {
@@ -42,6 +86,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
   const [messages, setMessages] = useState<AssistantMessage[]>([])
   const [memory, setMemory] = useState('')
   const [modelReady, setModelReady] = useState(false)
+  const [faqModeReady, setFaqModeReady] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -55,6 +100,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
       setMessages(state.messages)
       setMemory(state.memory)
       setModelReady(state.modelReady)
+      setFaqModeReady(state.faqModeReady)
       setError('')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to load Mahalaxmi Saathi.')
@@ -72,6 +118,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
           setMessages(state.messages)
           setMemory(state.memory)
           setModelReady(state.modelReady)
+          setFaqModeReady(state.faqModeReady)
           setError('')
         }
       } catch (requestError) {
@@ -91,7 +138,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const question = message.trim()
-    if (!question || sending || !modelReady) return
+    if (!question || sending || (!modelReady && !faqModeReady)) return
     setSending(true)
     setError('')
     setMessage('')
@@ -125,6 +172,9 @@ export function AssistantView({ user }: { user: AssistantUser }) {
     }
   }
 
+  const canAsk = modelReady || faqModeReady
+  const suggestions = FAQ_SUGGESTIONS[user.role] || FAQ_SUGGESTIONS['Store Manager']
+
   return (
     <section className="assistant-page">
       <div className="page-heading assistant-heading">
@@ -147,7 +197,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
       {!modelReady && (
         <div className="assistant-setup-note" role="status">
           <AlertCircle size={18} />
-          <span>Private AI setup is incomplete. Ask the administrator to configure the company model server.</span>
+          <span>Private AI is not connected. You can still ask documented FAQs; live ERP lookups and unmatched questions need the company model server.</span>
         </div>
       )}
       {error && <div className="assistant-error" role="alert"><AlertCircle size={17} />{error}</div>}
@@ -169,8 +219,14 @@ export function AssistantView({ user }: { user: AssistantUser }) {
             <div className="assistant-welcome">
               <span className="assistant-welcome-icon"><Sparkles size={24} /></span>
               <strong>Namaste, {user.name}</strong>
-              <p>Ask how an ERP page works, or ask about your assigned daily tasks.</p>
-              <span>Example: “Show my pending tasks”</span>
+              <p>{modelReady ? 'Ask about ERP workflows or your assigned work.' : 'Ask a documented workflow FAQ. Live ERP details need the private AI server.'}</p>
+              <div className="assistant-suggestions" aria-label="Suggested questions">
+                {suggestions.map(suggestion => (
+                  <button key={suggestion} type="button" onClick={() => setMessage(suggestion)} disabled={sending}>
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {messages.map(item => (
@@ -191,12 +247,12 @@ export function AssistantView({ user }: { user: AssistantUser }) {
             id="assistant-message"
             value={message}
             onChange={event => setMessage(event.target.value)}
-            placeholder={modelReady ? 'Ask about ERP work or your assigned tasks…' : 'Private AI server setup is required before you can chat.'}
+            placeholder={modelReady ? 'Ask about ERP work or your assigned tasks…' : 'Ask a documented ERP workflow FAQ…'}
             maxLength={3000}
             rows={2}
-            disabled={!modelReady || sending}
+            disabled={!canAsk || sending}
           />
-          <button className="primary" type="submit" disabled={!modelReady || sending || !message.trim()}>
+          <button className="primary" type="submit" disabled={!canAsk || sending || !message.trim()}>
             <Send size={16} /> {sending ? 'Sending…' : 'Send'}
           </button>
         </form>

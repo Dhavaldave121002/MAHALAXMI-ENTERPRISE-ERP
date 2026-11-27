@@ -182,6 +182,42 @@
   font-size: 12px;
 }
 
+.assistant-suggestions {
+  display: flex;
+  max-width: 760px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.assistant-suggestions button {
+  padding: 7px 10px;
+  color: #42688e;
+  background: #fff;
+  border: 1px solid #dce6f0;
+  border-radius: 16px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.assistant-suggestions button:hover:not(:disabled) {
+  background: #edf5fd;
+  border-color: #b7d2ec;
+}
+
+.assistant-suggestions button:focus-visible {
+  outline: 2px solid #9cc8f4;
+  outline-offset: 2px;
+}
+
+.assistant-suggestions button:disabled {
+  cursor: default;
+  opacity: .65;
+}
+
 .assistant-message {
   max-width: min(82%, 720px);
   align-self: flex-start;

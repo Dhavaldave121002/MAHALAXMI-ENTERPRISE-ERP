@@ -1130,12 +1130,21 @@
       const cutoff = Date.now() - ERP_AUDIT_RETENTION_MS
       const timestamps = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getValues()
       let removed = 0
-      for (let index = timestamps.length - 1; index >= 0; index -= 1) {
+      let index = timestamps.length - 1
+      while (index >= 0) {
         const timestamp = Date.parse(String(timestamps[index][0] || ''))
-        if (Number.isFinite(timestamp) && timestamp < cutoff) {
-          sheet.deleteRow(index + 2)
-          removed += 1
+        if (!Number.isFinite(timestamp) || timestamp >= cutoff) {
+          index -= 1
+          continue
         }
+        const end = index
+        while (index >= 0) {
+          const blockTimestamp = Date.parse(String(timestamps[index][0] || ''))
+          if (!Number.isFinite(blockTimestamp) || blockTimestamp >= cutoff) break
+          removed += 1
+          index -= 1
+        }
+        sheet.deleteRows(index + 3, end - index)
       }
       return removed
     }
@@ -1197,7 +1206,6 @@
       if (!user || !user.id || !user.name || !user.role) throw new Error('An audit event requires a validated actor.')
       return withWriteLock_(function () {
         const sheet = auditSpreadsheet_(true)
-        cleanupExpiredAuditEvents_(sheet)
         const row = sheet.getLastRow() + 1
         const eventId = Utilities.getUuid()
         const timestamp = new Date().toISOString()

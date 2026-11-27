@@ -53,9 +53,14 @@ import { workspaceData } from './ecommerce.js'
 import {
   generatePrivateAssistantReply,
   isPrivateAssistantConfigured,
+  type AssistantReply,
   type AssistantRecordContext,
 } from './_lib/assistant.js'
-import { findRelevantAssistantFaqs } from './_lib/assistantFaq.js'
+import {
+  assistantFaqQuestionNeedsLiveData,
+  findRelevantAssistantFaqs,
+  getAssistantFaqOnlyAnswer,
+} from './_lib/assistantFaq.js'
 
 type CatalogItem = {
   id: string
@@ -1736,7 +1741,11 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'getAssistantState') {
       const state = await listWorkbookAssistantState(user)
-      sendJson(response, 200, { ...state, modelReady: isPrivateAssistantConfigured() })
+      sendJson(response, 200, {
+        ...state,
+        modelReady: isPrivateAssistantConfigured(),
+        faqModeReady: true,
+      })
       return
     }
     if (action === 'clearAssistantMemory') {
@@ -1746,6 +1755,24 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (action === 'askAssistant') {
       const question = requiredText(body.message, 'Message', 3000)
       const state = await listWorkbookAssistantState(user)
+      if (!isPrivateAssistantConfigured()) {
+        if (assistantFaqQuestionNeedsLiveData(question)) {
+          throw new ApiError(503, 'Live ERP lookups require the private AI server. Ask the administrator to connect it.')
+        }
+        const answer = getAssistantFaqOnlyAnswer(question)
+        if (!answer) {
+          throw new ApiError(503, 'No verified FAQ matches this question yet. Ask the administrator to add the documented workflow or connect the private AI server.')
+        }
+        const saved = await saveWorkbookAssistantTurn({
+          id: user.id,
+          role: user.role,
+          question,
+          answer,
+          memory: state.memory,
+        })
+        sendJson(response, 200, saved)
+        return
+      }
       let tasks: Array<{
         taskDate: string
         title: string
@@ -1782,15 +1809,29 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         const workbook = await getWorkbookData()
         liveRecords = assistantLiveRecords(getSnapshot(workbook, user), user, question)
       }
-      const reply = await generatePrivateAssistantReply({
-        user,
-        question,
-        memory: state.memory,
-        history: state.messages,
-        faqs: findRelevantAssistantFaqs(question),
-        tasks,
-        liveRecords,
-      })
+      let reply: AssistantReply
+      try {
+        reply = await generatePrivateAssistantReply({
+          user,
+          question,
+          memory: state.memory,
+          history: state.messages,
+          faqs: findRelevantAssistantFaqs(question),
+          tasks,
+          liveRecords,
+        })
+      } catch (error) {
+        if (!(error instanceof ApiError) || ![502, 504].includes(error.statusCode) ||
+            assistantFaqQuestionNeedsLiveData(question)) {
+          throw error
+        }
+        const faqAnswer = getAssistantFaqOnlyAnswer(question)
+        if (!faqAnswer) throw error
+        reply = {
+          answer: `${faqAnswer}\n\nThe private AI server did not respond, so this verified FAQ is shown instead.`,
+          memory: state.memory,
+        }
+      }
       const saved = await saveWorkbookAssistantTurn({
         id: user.id,
         role: user.role,
