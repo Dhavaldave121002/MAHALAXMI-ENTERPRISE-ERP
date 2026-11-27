@@ -27,7 +27,24 @@ function screenShareWasDeclined(error: unknown) {
   return error instanceof Error && ['AbortError', 'NotAllowedError'].includes(error.name)
 }
 
-async function createPictureInPictureCapture(screenStream: MediaStream, cameraStream: MediaStream): Promise<PictureInPictureCapture> {
+function webcamIssue(error: unknown) {
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+      return 'Webcam permission was blocked. Allow camera access for this site and in Windows Settings.'
+    }
+    if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+      return 'No webcam was found. Connect or enable a camera.'
+    }
+    if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+      return 'The webcam is busy or unavailable. Close other apps using the camera and try again.'
+    }
+  }
+  return error instanceof Error && error.message
+    ? `Webcam could not start: ${error.message}`
+    : 'Webcam could not start.'
+}
+
+async function createPictureInPictureCapture(screenStream: MediaStream, cameraStream: MediaStream | null): Promise<PictureInPictureCapture> {
   const screenVideo = document.createElement('video')
   screenVideo.muted = true
   screenVideo.playsInline = true
@@ -37,11 +54,13 @@ async function createPictureInPictureCapture(screenStream: MediaStream, cameraSt
   cameraVideo.muted = true
   cameraVideo.playsInline = true
   cameraVideo.srcObject = cameraStream
+  const cameraTrack = cameraStream?.getVideoTracks()[0]
 
   let captureStream: MediaStream | null = null
   let animationFrame: number | null = null
   try {
-    await Promise.all([screenVideo.play(), cameraVideo.play()])
+    await screenVideo.play()
+    if (cameraStream) await cameraVideo.play()
     const screenSettings = screenStream.getVideoTracks()[0]?.getSettings()
     const sourceWidth = screenVideo.videoWidth || screenSettings?.width || 1280
     const sourceHeight = screenVideo.videoHeight || screenSettings?.height || 720
@@ -63,38 +82,40 @@ async function createPictureInPictureCapture(screenStream: MediaStream, cameraSt
     const overlayY = height - overlayHeight - padding
     let lastFrameAt = 0
     const drawFrame = (timestamp: number) => {
-      if (timestamp - lastFrameAt >= 100 &&
-          screenVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-          cameraVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      if (timestamp - lastFrameAt >= 100 && screenVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         context.drawImage(screenVideo, 0, 0, width, height)
-        context.fillStyle = '#fff'
-        context.fillRect(overlayX - 2, overlayY - 2, overlayWidth + 4, overlayHeight + 4)
         const cameraWidth = cameraVideo.videoWidth
         const cameraHeight = cameraVideo.videoHeight
-        const sourceAspect = cameraWidth / cameraHeight
-        const targetAspect = overlayWidth / overlayHeight
-        let cropX = 0
-        let cropY = 0
-        let cropWidth = cameraWidth
-        let cropHeight = cameraHeight
-        if (sourceAspect > targetAspect) {
-          cropWidth = cameraHeight * targetAspect
-          cropX = (cameraWidth - cropWidth) / 2
-        } else {
-          cropHeight = cameraWidth / targetAspect
-          cropY = (cameraHeight - cropHeight) / 2
+        if (cameraTrack?.readyState === 'live' &&
+            cameraVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+            cameraWidth > 0 && cameraHeight > 0) {
+          context.fillStyle = '#fff'
+          context.fillRect(overlayX - 2, overlayY - 2, overlayWidth + 4, overlayHeight + 4)
+          const sourceAspect = cameraWidth / cameraHeight
+          const targetAspect = overlayWidth / overlayHeight
+          let cropX = 0
+          let cropY = 0
+          let cropWidth = cameraWidth
+          let cropHeight = cameraHeight
+          if (sourceAspect > targetAspect) {
+            cropWidth = cameraHeight * targetAspect
+            cropX = (cameraWidth - cropWidth) / 2
+          } else {
+            cropHeight = cameraWidth / targetAspect
+            cropY = (cameraHeight - cropHeight) / 2
+          }
+          context.drawImage(
+            cameraVideo,
+            cropX,
+            cropY,
+            cropWidth,
+            cropHeight,
+            overlayX,
+            overlayY,
+            overlayWidth,
+            overlayHeight,
+          )
         }
-        context.drawImage(
-          cameraVideo,
-          cropX,
-          cropY,
-          cropWidth,
-          cropHeight,
-          overlayX,
-          overlayY,
-          overlayWidth,
-          overlayHeight,
-        )
         lastFrameAt = timestamp
       }
       animationFrame = window.requestAnimationFrame(drawFrame)
@@ -140,6 +161,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
   function ScreenRecordingControl({ user }, ref) {
     const [status, setStatus] = useState<ScreenRecordingStatus>('idle')
     const [error, setError] = useState('')
+    const [webcamActive, setWebcamActive] = useState(false)
     const [uploadsPending, setUploadsPending] = useState(0)
     const streamRef = useRef<MediaStream | null>(null)
     const cameraStreamRef = useRef<MediaStream | null>(null)
@@ -246,6 +268,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       const stopPromise = (async () => {
         activeRef.current = false
         setStatus('stopping')
+        setWebcamActive(false)
         if (flushTimerRef.current !== null) {
           window.clearInterval(flushTimerRef.current)
           flushTimerRef.current = null
@@ -321,6 +344,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       startingRef.current = true
       cancelStartRef.current = false
       setError('')
+      setWebcamActive(false)
       setStatus('requesting')
       let stream: MediaStream | null = null
       let cameraStream: MediaStream | null = null
@@ -328,7 +352,6 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       let screenRoom: Room | null = null
       let screenTrack: MediaStreamTrack | null = null
       let sharePromptResolved = false
-      let cameraPermissionPrompted = false
       let auditStarted = false
       let stopAuditAttempted = false
       const stopPendingCapture = () => {
@@ -355,25 +378,38 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
         const mimeType = ['video/webm;codecs=vp8', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type))
         if (!mimeType) throw new Error('This browser cannot create a supported screen recording.')
 
-        cameraPermissionPrompted = true
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'user' },
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            frameRate: { ideal: 15, max: 30 },
-          },
-          audio: false,
-        })
-        if (cameraStream.getVideoTracks()[0]?.readyState !== 'live') {
-          throw new Error('Choose an active webcam to start picture-in-picture recording.')
+        try {
+          if (!navigator.mediaDevices?.getUserMedia) throw new Error('This browser does not support webcam access.')
+          cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: 'user' },
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 15, max: 30 },
+            },
+            audio: false,
+          })
+          if (cameraStream.getVideoTracks()[0]?.readyState !== 'live') {
+            throw new Error('The selected webcam is not active.')
+          }
+        } catch (cameraError) {
+          cameraStream?.getTracks().forEach(track => track.stop())
+          cameraStream = null
+          setError(`${webcamIssue(cameraError)} Screen recording will continue without the webcam.`)
         }
         if (cancelStartRef.current) {
           stopPendingCapture()
           setStatus('idle')
           return
         }
-        pictureInPicture = await createPictureInPictureCapture(stream, cameraStream)
+        try {
+          pictureInPicture = await createPictureInPictureCapture(stream, cameraStream)
+        } catch (pictureInPictureError) {
+          cameraStream?.getTracks().forEach(track => track.stop())
+          cameraStream = null
+          pictureInPicture = null
+          setError(`Webcam picture-in-picture could not start: ${messageFor(pictureInPictureError)} Screen recording will continue without the webcam.`)
+        }
         if (cancelStartRef.current) {
           stopPendingCapture()
           setStatus('idle')
@@ -439,22 +475,24 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
         uploadQueueRef.current = Promise.resolve()
         uploadErrorRef.current = ''
         activeRef.current = true
-        const recorder = createClipRecorder(pictureInPicture.stream, mimeType)
+        const recorder = createClipRecorder(pictureInPicture?.stream || stream, mimeType)
         recorderRef.current = recorder
         clipStartedAtRef.current = Date.now()
         recorder.start(1000)
         flushTimerRef.current = window.setInterval(() => { void rotateClipRecorder(mimeType) }, SCREEN_CLIP_DURATION_MS)
         screenTrack.addEventListener('ended', () => { void stopRef.current() }, { once: true })
-        cameraStream.getVideoTracks()[0]?.addEventListener('ended', () => { void stopRef.current() }, { once: true })
+        const cameraTrack = cameraStream?.getVideoTracks()[0]
+        if (cameraTrack?.readyState === 'live') {
+          setWebcamActive(true)
+          cameraTrack.addEventListener('ended', () => {
+            setWebcamActive(false)
+            setError('Webcam disconnected. Screen recording continues without the webcam.')
+          }, { once: true })
+        }
         setStatus('recording')
       } catch (startError) {
         const wasDeclined = !sharePromptResolved && screenShareWasDeclined(startError)
         let detail = messageFor(startError)
-        if (cameraPermissionPrompted && startError instanceof DOMException && startError.name === 'NotAllowedError') {
-          detail = 'Webcam permission was not granted. Allow camera access to include the picture-in-picture overlay; no recording was started.'
-        } else if (cameraPermissionPrompted && startError instanceof DOMException && startError.name === 'NotFoundError') {
-          detail = 'No webcam was found. Connect a camera to start a screen recording with picture-in-picture.'
-        }
         if (activeRef.current || streamRef.current) {
           stopAuditAttempted = true
           const stopError = await stopAndUpload()
@@ -513,17 +551,17 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
         <div className="screen-recording-copy">
           <div className="screen-recording-icon">{status === 'error' ? <AlertTriangle size={17} /> : <Monitor size={17} />}</div>
           <div>
-            <strong>{status === 'recording' ? 'Screen + webcam recording active' : status === 'requesting' ? 'Waiting for screen and camera approval' : status === 'stopping' ? 'Saving final picture-in-picture clip' : status === 'error' ? 'Screen recording issue' : 'Optional screen + webcam recording'}</strong>
+            <strong>{status === 'recording' ? webcamActive ? 'Screen + webcam recording active' : 'Screen recording active' : status === 'requesting' ? 'Waiting for screen and camera approval' : status === 'stopping' ? 'Saving final screen clip' : status === 'error' ? 'Screen recording issue' : 'Optional screen + webcam recording'}</strong>
             <span>
               {status === 'recording'
-                ? `Screen shared live to the Super Admin · webcam is included only in saved clips · ${uploadsPending ? 'Saving a private clip…' : 'Private clips save every 5 minutes'}`
+                ? `Screen shared live to the Super Admin · ${webcamActive ? 'webcam is included in saved clips only' : 'recording screen only'} · ${uploadsPending ? 'Saving a private clip…' : 'Private clips save every 5 minutes'}`
                 : 'Start after login and approve both browser prompts. Select the ERP tab to limit screen capture; the entire screen may include other tabs or apps.'}
             </span>
           </div>
         </div>
         <p className="screen-recording-disclosure">
           {status === 'recording'
-            ? `Video only, no audio. Webcam appears as a picture-in-picture overlay in private clips and is not streamed live. Clips are deleted after 24 hours. Signed in as ${user.name}.`
+            ? `${webcamActive ? 'Video only, no audio. Webcam appears as a picture-in-picture overlay in private clips and is not streamed live.' : 'Video only, no audio. Screen is recording without webcam. Webcam is not streamed live.'} Clips are deleted after 24 hours. Signed in as ${user.name}.`
             : 'Recording is never automatic. Approve screen sharing and camera access to start; the webcam appears only as a picture-in-picture overlay in saved clips. Stop anytime. No audio, keystrokes, or browser history.'}
         </p>
         {error && <p className="screen-recording-error" role="alert">{error}</p>}
