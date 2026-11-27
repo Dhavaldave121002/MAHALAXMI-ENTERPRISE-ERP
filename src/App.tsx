@@ -4,7 +4,7 @@ import {
   Boxes, Building2, CircleDollarSign, ClipboardCheck, MessageCircle,
   Factory, FileSpreadsheet, Gauge, LayoutDashboard, Menu, Package,
   RotateCcw, Search, Settings, ShoppingCart, Target, Truck, UserCog, Users,
-  Plus, Download, Upload, Bell, CheckCircle2, LogOut, LockKeyhole, Video,
+  Plus, Download, Upload, Bell, CheckCircle2, LogOut, LockKeyhole, Video, Sparkles,
 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import * as XLSX from 'xlsx'
@@ -14,6 +14,7 @@ import { DailyTasksView } from './DailyTasks'
 import { ScreenRecordingControl, type ScreenRecordingController } from './ScreenRecording'
 const CameraMonitoringView = lazy(() => import('./ScreenMonitoring').then(module => ({ default: module.ScreenMonitoringView })))
 const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.ChatView })))
+const AssistantView = lazy(() => import('./Assistant').then(module => ({ default: module.AssistantView })))
 import type { IndiaMartCatalogCandidate, IndiaMartListing, SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
 
@@ -21,7 +22,7 @@ type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Marketplace Reconciliation' | 'Daily Tasks' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
-  'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring' | 'Chat' | 'Change Password'
+  'Suppliers' | 'Accounts' | 'Reports' | 'Excel Management' | 'User Management' | 'Settings' | 'Audit Logs' | 'Camera Monitoring' | 'Chat' | 'Mahalaxmi Saathi' | 'Change Password'
 
 type AuditEvent = {
   id: string
@@ -215,7 +216,7 @@ function auditFailureMessage(error: unknown): string {
 
 const navSections: { label: string; items: Module[] }[] = [
   { label: 'MAIN', items: ['Dashboard', 'Production', 'Production Targets', 'Stitching', 'Quality Control'] },
-  { label: 'COMMUNICATION', items: ['Chat'] },
+  { label: 'COMMUNICATION', items: ['Mahalaxmi Saathi', 'Chat'] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
   { label: 'SALES', items: ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
@@ -268,7 +269,7 @@ const moduleIcons: Record<Module, typeof LayoutDashboard> = {
   'Daily Tasks': ClipboardCheck,
   'Daily Work Report': ClipboardCheck, 'Camera Monitoring': Video,
   'Graphic Design': FileSpreadsheet,
-  Chat: MessageCircle, 'Change Password': LockKeyhole,
+  Chat: MessageCircle, 'Mahalaxmi Saathi': Sparkles, 'Change Password': LockKeyhole,
 } as Record<Module, typeof LayoutDashboard>
 
 function readStored<T>(key: string, fallback: T): T {
@@ -1539,12 +1540,12 @@ export default function App() {
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report' && item !== 'Shipping Labels'),
     'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && !['Daily Work Report', 'Graphic Design', 'Suppliers', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART'].includes(item)),
-    'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Daily Tasks', 'Chat', 'Change Password'],
-    'Store Manager': ['Dashboard', 'Daily Tasks', 'Chat', 'Change Password'],
-    'E-commerce Executive': ['Marketplace Reconciliation', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Tasks', 'Daily Work Report', 'Chat', 'Change Password'],
-    'E-commerce Manager': ['E-commerce Workspace', 'Daily Tasks', 'Daily Work Report', 'Chat', 'Change Password'],
-    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Daily Tasks', 'Chat', 'Change Password'],
-    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Daily Tasks', 'Daily Work Report', 'Chat', 'Change Password'],
+    'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Daily Tasks', 'Mahalaxmi Saathi', 'Chat', 'Change Password'],
+    'Store Manager': ['Dashboard', 'Daily Tasks', 'Mahalaxmi Saathi', 'Chat', 'Change Password'],
+    'E-commerce Executive': ['Marketplace Reconciliation', 'E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Tasks', 'Daily Work Report', 'Mahalaxmi Saathi', 'Chat', 'Change Password'],
+    'E-commerce Manager': ['E-commerce Workspace', 'Daily Tasks', 'Daily Work Report', 'Mahalaxmi Saathi', 'Chat', 'Change Password'],
+    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Daily Tasks', 'Mahalaxmi Saathi', 'Chat', 'Change Password'],
+    'Graphic Designer': ['Dashboard', 'Graphic Design', 'Daily Tasks', 'Daily Work Report', 'Mahalaxmi Saathi', 'Chat', 'Change Password'],
   }
   return (
     <div className={sidebarOpen ? 'app-shell' : 'app-shell sidebar-collapsed'}>
@@ -2105,6 +2106,7 @@ function ModuleView(props: {
     return <EcommerceWorkspace user={sessionUser} module={module} setModule={setModule} />
   }
   if (module === 'Camera Monitoring') return <Suspense fallback={<div className="panel empty-state">Loading camera monitoring…</div>}><CameraMonitoringView /></Suspense>
+  if (module === 'Mahalaxmi Saathi') return <Suspense fallback={<div className="panel empty-state">Loading Mahalaxmi Saathi…</div>}><AssistantView user={sessionUser} /></Suspense>
   if (module === 'Chat') return <Suspense fallback={<div className="panel empty-state">Loading chat…</div>}><ChatView user={sessionUser} /></Suspense>
 
   const salesRole = sessionUser.role === 'Sales Executive' || sessionUser.role === 'Production Supervisor'

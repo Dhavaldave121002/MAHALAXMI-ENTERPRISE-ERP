@@ -1,7 +1,7 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms', 'Manager ID']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets', 'Graphic_Design_Tasks', 'Suppliers', 'Accounts_Expenses']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'listAssistantState', 'saveAssistantTurn', 'clearAssistantMemory', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
     const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
     ERP_SESSION_BOUND_ACTIONS.push('importMarketplaceReconciliation')
     ERP_SESSION_BOUND_ACTIONS.push('listMarketplaceReconciliation')
@@ -33,6 +33,11 @@
     const ERP_CHAT_RETENTION_MS = 48 * 60 * 60 * 1000
     const ERP_CHAT_MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024
     const ERP_CHAT_HEADERS = ['Message ID', 'Conversation ID', 'Sender ID', 'Sender Name', 'Sender Role', 'Recipient ID', 'Recipient Name', 'Recipient Role', 'Sent At', 'Message', 'Attachment ID', 'Attachment Name', 'Attachment MIME Type', 'Attachment Size']
+    const ERP_ASSISTANT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_ASSISTANT_SPREADSHEET_ID'
+    const ERP_ASSISTANT_RETENTION_MS = 24 * 60 * 60 * 1000
+    const ERP_ASSISTANT_MESSAGE_HEADERS = ['Message ID', 'User ID', 'Role', 'Content', 'Created At']
+    const ERP_ASSISTANT_MEMORY_HEADERS = ['User ID', 'Memory', 'Updated At']
+    const ERP_ASSISTANT_MEMORY_MAX_LENGTH = 2000
     const ERP_CAMERA_RECORDING_FOLDER_PROPERTY = 'ERP_CAMERA_RECORDING_FOLDER_ID'
     const ERP_CAMERA_RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000
     const ERP_WORKBOOK_BACKUP_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -85,6 +90,7 @@
       ecommerce: '06 E-commerce',
       sales: '07 Sales',
       dailyTasks: '08 Daily Tasks',
+      assistant: '09 AI Assistant',
     }
 
     function onOpen(event) {
@@ -307,7 +313,7 @@
             Logger.log('ERP action succeeded but its audit status remains Started: ' + String(auditError))
           }
         }
-        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'listDailyTasks', 'downloadDailyTaskAttachment'].indexOf(request.action) < 0) {
+        if (['getWorkbookData', 'getUsers', 'listAuditEvents', 'recordAuditEvent', 'listEcommerceLabels', 'downloadEcommerceLabel', 'uploadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'listAssistantState', 'saveAssistantTurn', 'clearAssistantMemory', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'listDailyTasks', 'downloadDailyTaskAttachment'].indexOf(request.action) < 0) {
           try {
             invalidateWorkbookCache_(spreadsheet)
           } catch (error) {
@@ -372,6 +378,12 @@
           return sendChatMessage_(spreadsheet, payload)
         case 'readChatAttachment':
           return readChatAttachment_(payload)
+        case 'listAssistantState':
+          return listAssistantState_(payload)
+        case 'saveAssistantTurn':
+          return saveAssistantTurn_(payload)
+        case 'clearAssistantMemory':
+          return clearAssistantMemory_(payload)
         case 'createInitialAdmin':
           return createInitialAdmin_(spreadsheet, payload.user)
         case 'appendUser':
@@ -851,8 +863,216 @@
       return expiredRows.length
     }
 
+    function assistantSpreadsheet_(createIfMissing) {
+      const properties = PropertiesService.getScriptProperties()
+      let id = properties.getProperty(ERP_ASSISTANT_SPREADSHEET_PROPERTY)
+      if (!id && !createIfMissing) return null
+      if (!id) {
+        const spreadsheet = SpreadsheetApp.create('Mahalaxmi Saathi Private Memory')
+        const file = DriveApp.getFileById(spreadsheet.getId())
+        file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+        file.moveTo(getErpStorageCategoryFolder_('assistant', true))
+        const messages = spreadsheet.getSheets()[0]
+        messages.setName('Messages')
+        messages.getRange(1, 1, 1, ERP_ASSISTANT_MESSAGE_HEADERS.length).setValues([ERP_ASSISTANT_MESSAGE_HEADERS])
+        const memory = spreadsheet.insertSheet('Memory')
+        memory.getRange(1, 1, 1, ERP_ASSISTANT_MEMORY_HEADERS.length).setValues([ERP_ASSISTANT_MEMORY_HEADERS])
+        properties.setProperty(ERP_ASSISTANT_SPREADSHEET_PROPERTY, spreadsheet.getId())
+        return spreadsheet
+      }
+      return SpreadsheetApp.openById(id)
+    }
+
+    function assistantSheet_(spreadsheet, name, headers) {
+      const sheet = spreadsheet.getSheetByName(name)
+      if (!sheet) throw new Error('The private Mahalaxmi Saathi spreadsheet is missing its ' + name + ' sheet.')
+      const actual = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0].map(function (value) {
+        return String(value || '').trim()
+      })
+      if (headers.some(function (header, index) { return actual[index] !== header })) {
+        throw new Error('The private Mahalaxmi Saathi ' + name + ' sheet has an unrecognized header format.')
+      }
+      return sheet
+    }
+
+    function assistantMessageFromRow_(row) {
+      const role = String(row[2] || '')
+      if (role !== 'user' && role !== 'assistant') {
+        throw apiError_(503, 'The private Mahalaxmi Saathi message store contains an invalid role.')
+      }
+      return {
+        id: String(row[0] || ''),
+        role: role,
+        content: String(row[3] || ''),
+        createdAt: row[4] instanceof Date ? row[4].toISOString() : String(row[4] || ''),
+      }
+    }
+
+    function listAssistantState_(payload) {
+      const userId = String(payload.sessionUserId || '').trim()
+      if (!userId) throw apiError_(401, 'Sign in again before opening Mahalaxmi Saathi.')
+      const spreadsheet = assistantSpreadsheet_(false)
+      if (!spreadsheet) return { messages: [], memory: '', retentionHours: 24 }
+
+      const messagesSheet = assistantSheet_(spreadsheet, 'Messages', ERP_ASSISTANT_MESSAGE_HEADERS)
+      const memorySheet = assistantSheet_(spreadsheet, 'Memory', ERP_ASSISTANT_MEMORY_HEADERS)
+      const cutoff = Date.now() - ERP_ASSISTANT_RETENTION_MS
+      const messages = messagesSheet.getLastRow() < 2
+        ? []
+        : messagesSheet.getRange(2, 1, messagesSheet.getLastRow() - 1, ERP_ASSISTANT_MESSAGE_HEADERS.length)
+          .getValues()
+          .filter(function (row) {
+            return String(row[1] || '') === userId && Date.parse(String(row[4] || '')) > cutoff
+          })
+          .map(assistantMessageFromRow_)
+          .sort(function (left, right) { return Date.parse(left.createdAt) - Date.parse(right.createdAt) })
+          .slice(-40)
+      const memoryRows = memorySheet.getLastRow() < 2
+        ? []
+        : memorySheet.getRange(2, 1, memorySheet.getLastRow() - 1, ERP_ASSISTANT_MEMORY_HEADERS.length).getValues()
+          .filter(function (row) { return String(row[0] || '') === userId })
+      if (memoryRows.length > 1) throw apiError_(503, 'The private Mahalaxmi Saathi memory store contains duplicate entries.')
+      return {
+        messages: messages,
+        memory: memoryRows.length ? String(memoryRows[0][1] || '').slice(0, ERP_ASSISTANT_MEMORY_MAX_LENGTH) : '',
+        retentionHours: 24,
+      }
+    }
+
+    function saveAssistantTurn_(payload) {
+      const userId = String(payload.sessionUserId || '').trim()
+      const question = String(payload.question || '').trim()
+      const answer = String(payload.answer || '').trim()
+      const memory = String(payload.memory || '').trim()
+      if (!userId || !question || question.length > 3000 || !answer || answer.length > 7000 ||
+          memory.length > ERP_ASSISTANT_MEMORY_MAX_LENGTH) {
+        throw apiError_(400, 'The Mahalaxmi Saathi message or memory is invalid.')
+      }
+      return withWriteLock_(function () {
+        const existingSpreadsheet = assistantSpreadsheet_(false)
+        if (existingSpreadsheet) {
+          const existingMessagesSheet = assistantSheet_(existingSpreadsheet, 'Messages', ERP_ASSISTANT_MESSAGE_HEADERS)
+          const expiredConversation = assistantConversationForUser_(existingMessagesSheet, userId)
+          if (expiredConversation && expiredConversation.latestAt <= Date.now() - ERP_ASSISTANT_RETENTION_MS) {
+            archiveAssistantConversation_(userId, expiredConversation)
+            expiredConversation.rowNumbers.sort(function (left, right) { return right - left })
+              .forEach(function (rowNumber) { existingMessagesSheet.deleteRow(rowNumber) })
+          }
+        }
+        const spreadsheet = assistantSpreadsheet_(true)
+        const messagesSheet = assistantSheet_(spreadsheet, 'Messages', ERP_ASSISTANT_MESSAGE_HEADERS)
+        const memorySheet = assistantSheet_(spreadsheet, 'Memory', ERP_ASSISTANT_MEMORY_HEADERS)
+        const matchingMemoryRows = memorySheet.getLastRow() < 2
+          ? []
+          : memorySheet.getRange(2, 1, memorySheet.getLastRow() - 1, ERP_ASSISTANT_MEMORY_HEADERS.length)
+            .getValues()
+            .map(function (row, index) { return { row: row, rowNumber: index + 2 } })
+            .filter(function (item) { return String(item.row[0] || '') === userId })
+        if (matchingMemoryRows.length > 1) throw apiError_(503, 'The private Mahalaxmi Saathi memory store contains duplicate entries.')
+        const timestamp = new Date().toISOString()
+        const userMessage = { id: Utilities.getUuid(), role: 'user', content: question, createdAt: timestamp }
+        const assistantMessage = { id: Utilities.getUuid(), role: 'assistant', content: answer, createdAt: timestamp }
+        const startRow = messagesSheet.getLastRow() + 1
+        messagesSheet.getRange(startRow, 1, 2, ERP_ASSISTANT_MESSAGE_HEADERS.length).setValues([
+          [userMessage.id, userId, userMessage.role, safeCellValue_(userMessage.content), timestamp],
+          [assistantMessage.id, userId, assistantMessage.role, safeCellValue_(assistantMessage.content), timestamp],
+        ])
+        if (memory) {
+          if (matchingMemoryRows.length) {
+            const rowNumber = matchingMemoryRows[0].rowNumber
+            memorySheet.getRange(rowNumber, 2, 1, 2).setValues([[safeCellValue_(memory), timestamp]])
+          } else {
+            memorySheet.appendRow([userId, safeCellValue_(memory), timestamp])
+          }
+        } else if (matchingMemoryRows.length) {
+          memorySheet.deleteRow(matchingMemoryRows[0].rowNumber)
+        }
+        return { userMessage: userMessage, assistantMessage: assistantMessage, memory: memory }
+      })
+    }
+
+    function clearAssistantMemory_(payload) {
+      const userId = String(payload.sessionUserId || '').trim()
+      if (!userId) throw apiError_(401, 'Sign in again before clearing Mahalaxmi Saathi memory.')
+      return withWriteLock_(function () {
+        const spreadsheet = assistantSpreadsheet_(false)
+        if (!spreadsheet) return { cleared: true }
+        const sheet = assistantSheet_(spreadsheet, 'Memory', ERP_ASSISTANT_MEMORY_HEADERS)
+        if (sheet.getLastRow() < 2) return { cleared: true }
+        const matchingRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ERP_ASSISTANT_MEMORY_HEADERS.length)
+          .getValues()
+          .map(function (row, index) { return { row: row, rowNumber: index + 2 } })
+          .filter(function (item) { return String(item.row[0] || '') === userId })
+        matchingRows.reverse().forEach(function (item) { sheet.deleteRow(item.rowNumber) })
+        return { cleared: true }
+      })
+    }
+
+    function assistantConversationForUser_(sheet, userId) {
+      if (sheet.getLastRow() < 2) return null
+      const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ERP_ASSISTANT_MESSAGE_HEADERS.length).getValues()
+      const conversation = { messages: [], rowNumbers: [], latestAt: 0 }
+      rows.forEach(function (row, index) {
+        if (String(row[1] || '') !== userId) return
+        const createdAt = Date.parse(String(row[4] || ''))
+        conversation.messages.push(assistantMessageFromRow_(row))
+        conversation.rowNumbers.push(index + 2)
+        conversation.latestAt = Math.max(conversation.latestAt, Number.isFinite(createdAt) ? createdAt : 0)
+      })
+      return conversation.messages.length ? conversation : null
+    }
+
+    function archiveAssistantConversation_(userId, conversation) {
+      const archive = {
+        kind: 'mahalaxmi-saathi-expired-chat',
+        userId: userId,
+        archivedAt: new Date().toISOString(),
+        messages: conversation.messages,
+      }
+      const file = getErpStorageCategoryFolder_('assistant', true).createFile(
+        'Mahalaxmi-Saathi-Chat-' + Utilities.getUuid() + '.json',
+        JSON.stringify(archive),
+        MimeType.PLAIN_TEXT,
+      )
+      file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE)
+      file.setTrashed(true)
+      return conversation.rowNumbers.length
+    }
+
+    function cleanupExpiredAssistantChats_() {
+      const spreadsheet = assistantSpreadsheet_(false)
+      if (!spreadsheet) return 0
+      const sheet = assistantSheet_(spreadsheet, 'Messages', ERP_ASSISTANT_MESSAGE_HEADERS)
+      if (sheet.getLastRow() < 2) return 0
+      const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, ERP_ASSISTANT_MESSAGE_HEADERS.length).getValues()
+      const conversations = {}
+      rows.forEach(function (row, index) {
+        const userId = String(row[1] || '')
+        if (!userId) throw apiError_(503, 'The private Mahalaxmi Saathi message store contains an invalid user.')
+        if (!conversations[userId]) conversations[userId] = { messages: [], rowNumbers: [], latestAt: 0 }
+        const createdAt = Date.parse(String(row[4] || ''))
+        conversations[userId].messages.push(assistantMessageFromRow_(row))
+        conversations[userId].rowNumbers.push(index + 2)
+        conversations[userId].latestAt = Math.max(conversations[userId].latestAt, Number.isFinite(createdAt) ? createdAt : 0)
+      })
+
+      const cutoff = Date.now() - ERP_ASSISTANT_RETENTION_MS
+      const expiredRowNumbers = []
+      Object.keys(conversations).forEach(function (userId) {
+        const conversation = conversations[userId]
+        if (conversation.latestAt > cutoff) return
+        expiredRowNumbers.push.apply(expiredRowNumbers, conversation.rowNumbers)
+        archiveAssistantConversation_(userId, conversation)
+      })
+      expiredRowNumbers.sort(function (left, right) { return right - left })
+        .forEach(function (rowNumber) { sheet.deleteRow(rowNumber) })
+      return expiredRowNumbers.length
+    }
+
     function cleanupExpiredChatMessagesScheduled_() {
-      return withWriteLock_(function () { return cleanupExpiredChatMessages_() })
+      return withWriteLock_(function () {
+        return cleanupExpiredChatMessages_() + cleanupExpiredAssistantChats_()
+      })
     }
 
     function readChatAttachment_(payload) {

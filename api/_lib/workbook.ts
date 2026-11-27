@@ -79,6 +79,9 @@ const READ_ONLY_APPS_SCRIPT_ACTIONS = new Set([
   'getEcommerceTargets',
   'listDailyTasks',
   'downloadDailyTaskAttachment',
+  'listAssistantState',
+  'saveAssistantTurn',
+  'clearAssistantMemory',
 ])
 let workbookDataCache: { data: WorkbookData; expiresAt: number } | null = null
 let workbookDataRequest: Promise<WorkbookData> | null = null
@@ -505,6 +508,36 @@ export async function reviewWorkbookEcommerceTask(input: SessionBoundInput & {
 
 export async function listWorkbookDailyTasks(user: SessionBoundInput) {
   return callAppsScript<{ tasks: Record<string, unknown>[] }>('listDailyTasks', sessionBoundPayload(user))
+}
+
+export type AssistantMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+}
+
+export async function listWorkbookAssistantState(user: SessionBoundInput) {
+  return callAppsScript<{ messages: AssistantMessage[]; memory: string; retentionHours: number }>(
+    'listAssistantState',
+    sessionBoundPayload(user),
+  )
+}
+
+export async function saveWorkbookAssistantTurn(input: SessionBoundInput & {
+  question: string
+  answer: string
+  memory: string
+}) {
+  return callAppsScript<{
+    userMessage: AssistantMessage
+    assistantMessage: AssistantMessage
+    memory: string
+  }>('saveAssistantTurn', { ...sessionBoundPayload(input), ...input })
+}
+
+export async function clearWorkbookAssistantMemory(user: SessionBoundInput) {
+  return callAppsScript<{ cleared: boolean }>('clearAssistantMemory', sessionBoundPayload(user))
 }
 
 export async function createWorkbookDailyTask(input: SessionBoundInput & {

@@ -64,7 +64,7 @@ function availableStock(row: Record<string, unknown>) {
     - number(row['Dispatched Stock']) - number(row['Damaged Stock']) - number(row['Reserved Stock']) - number(row['Adjustment Out'])
 }
 
-function workspaceData(data: WorkbookData, user: PublicUser, users: WorkbookUser[]) {
+export function workspaceData(data: WorkbookData, user: PublicUser, users: WorkbookUser[]) {
   const team = user.role === 'E-commerce Manager'
     ? users.filter(account => account.role === 'E-commerce Executive' && account.managerId === user.id)
     : []

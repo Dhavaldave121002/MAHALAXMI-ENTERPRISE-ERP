@@ -22,6 +22,11 @@ import {
   listWorkbookChatData,
   listWorkbookChatMessages,
   listWorkbookChatTyping,
+  listWorkbookAssistantState,
+  saveWorkbookAssistantTurn,
+  clearWorkbookAssistantMemory,
+  listWorkbookDailyTasks,
+  listUsers,
   importWorkbookSalesLeads,
   initializeWorkbookZeroFinishedStock,
   importWorkbookMarketplaceCatalog,
@@ -44,6 +49,12 @@ import {
   type WorkbookData,
 } from './_lib/workbook.js'
 import { fetchIndiaMartCatalog } from './_lib/indiamart.js'
+import { workspaceData } from './ecommerce.js'
+import {
+  generatePrivateAssistantReply,
+  isPrivateAssistantConfigured,
+  type AssistantRecordContext,
+} from './_lib/assistant.js'
 
 type CatalogItem = {
   id: string
@@ -892,6 +903,122 @@ function requiredText(value: unknown, label: string, maxLength: number) {
   return result
 }
 
+const ASSISTANT_SEARCH_STOP_WORDS = new Set([
+  'what', 'where', 'show', 'my', 'me', 'current', 'available', 'please', 'tell', 'is', 'are', 'the', 'for', 'of', 'in',
+  'do', 'i', 'how', 'much', 'many', 'can', 'open', 'check', 'report', 'today', 'data', 'stock', 'inventory', 'sku',
+  'product', 'finished', 'goods', 'raw', 'material', 'machine', 'production', 'target', 'lead', 'sales', 'order',
+  'account', 'expense', 'supplier', 'pending', 'task', 'tasks', 'status', 'details', 'record', 'list', 'listing', 'listings', 'items', 'give',
+  'find', 'search', 'listing', 'platform', 'dispatch', 'return', 'damage', 'movement', 'vendor', 'creative', 'design',
+  'graphic', 'post', 'video', 'caption', 'script', 'quality', 'qc', 'operator', 'followup', 'customer', 'revenue',
+  'financial', 'purchase', 'cost', 'income', 'loss', 'profit', 'price', 'mrp', 'selling', 'sold',
+  'mara', 'mari', 'shu', 'che', 'chhe', 'batao', 'batavo', 'ketla', 'ketli', 'aaj', 'kya', 'mane',
+  'nu', 'ni', 'na', 'ma', 'and', 'or', 'to', 'from', 'have', 'please',
+])
+
+function assistantSearchTerms(question: string) {
+  return question.toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(term => (term.length >= 3 || /^\d+$/.test(term)) && !ASSISTANT_SEARCH_STOP_WORDS.has(term))
+}
+
+function assistantRecordContext<T extends object>(
+  source: string,
+  rows: T[],
+  fields: Array<keyof T>,
+  terms: string[],
+  limit = 8,
+) {
+  if (!rows.length) return null
+  const matching = terms.length
+    ? rows.filter(row => {
+      const searchable = fields.map(field => String(row[field] ?? '')).join(' ').toLowerCase()
+      return terms.every(term => searchable.includes(term))
+    })
+    : rows
+  const records = matching.slice(0, limit).map(row => {
+    const selected: Record<string, unknown> = {}
+    fields.forEach(field => { selected[String(field)] = row[field] })
+    return selected
+  })
+  return {
+    source,
+    matchCount: matching.length,
+    returnedCount: records.length,
+    truncated: matching.length > records.length,
+    records,
+  }
+}
+
+function assistantLiveRecords(snapshot: ReturnType<typeof getSnapshot>, user: PublicUser, question: string) {
+  const query = question.toLowerCase()
+  const terms = assistantSearchTerms(question)
+  const contexts: AssistantRecordContext[] = []
+  const include = (context: AssistantRecordContext | null) => {
+    if (context) contexts.push(context)
+  }
+
+  if (/\b(stock|inventory|sku|product|finished|goods|raw|material|availability|available|maal|item)\b/i.test(query)) {
+    if (['Super Admin', 'Production Supervisor', 'Sales Executive'].includes(user.role)) {
+      include(assistantRecordContext('Product Catalog', snapshot.products, ['sku', 'name', 'category', 'stock', 'status'], terms))
+    }
+    if (user.role === 'Super Admin' || user.role === 'Production Supervisor') {
+      include(assistantRecordContext('Finished Goods', snapshot.finishedGoods, ['sku', 'name', 'availableStock', 'reservedStock', 'status'], terms))
+      include(assistantRecordContext('Raw Materials', snapshot.rawMaterials, ['sku', 'name', 'unit', 'closingStock', 'reorderLevel', 'status'], terms))
+    }
+  }
+  if (/\b(production|machine|quality|qc|target|operator)\b/i.test(query) &&
+      ['Super Admin', 'Production Supervisor', 'Machine Operator'].includes(user.role)) {
+    include(assistantRecordContext('Production', snapshot.production, ['id', 'date', 'machine', 'sku', 'product', 'actual', 'rejected', 'qcStatus', 'qcApproved', 'qcRejected'], terms))
+    include(assistantRecordContext('Production Targets', snapshot.productionTargets, ['period', 'startDate', 'endDate', 'machineName', 'sku', 'productName', 'targetQuantity', 'actual'], terms))
+    if (user.role === 'Super Admin' || user.role === 'Production Supervisor') {
+      include(assistantRecordContext('Machines', snapshot.machines, ['id', 'name', 'type', 'status'], terms))
+    }
+  }
+  if (/\b(sales|lead|followup|customer|order|revenue|target)\b/i.test(query) &&
+      ['Super Admin', 'Sales Executive'].includes(user.role)) {
+    include(assistantRecordContext('Sales Leads', snapshot.salesLeads, ['id', 'enquiryDate', 'name', 'company', 'productInterest', 'status', 'nextFollowUp'], terms))
+    include(assistantRecordContext('Sales Orders', snapshot.salesOrders, ['id', 'createdAt', 'customerName', 'sku', 'productName', 'quantity', 'unitPrice', 'amount', 'status'], terms))
+    include(assistantRecordContext('Sales Targets', snapshot.salesTargets, ['salesUserName', 'period', 'periodKey', 'targetAmount', 'actualAmount'], terms))
+  }
+  if (/\b(supplier|vendor)\b/i.test(query) &&
+      (user.role === 'Super Admin' || user.role === 'Production Supervisor')) {
+    include(assistantRecordContext('Suppliers', snapshot.suppliers, ['id', 'name', 'status'], terms))
+  }
+  if (/\b(account|expense|profit|loss|financial|purchase|cost|income)\b/i.test(query) && user.role === 'Super Admin') {
+    include(assistantRecordContext('Accounts Expenses', snapshot.accountExpenses, ['date', 'category', 'description', 'amount', 'paymentMethod'], terms))
+  }
+  if (/\b(design|graphic|creative|post|video|caption|script)\b/i.test(query) &&
+      (user.role === 'Super Admin' || user.role === 'Graphic Designer')) {
+    include(assistantRecordContext('Graphic Design Tasks', snapshot.graphicDesignTasks, ['plannedDate', 'sku', 'product', 'contentType', 'brief', 'shootStatus', 'editStatus', 'reviewStatus'], terms))
+  }
+  if (/\b(marketplace|listing|platform|amazon|flipkart|meesho|myntra|shopify)\b/i.test(query) &&
+      (user.role === 'Super Admin' || user.role === 'Production Supervisor')) {
+    include(assistantRecordContext('Marketplace Listings', snapshot.marketplaceListings, ['platform', 'platformSku', 'productSku', 'productName', 'mrp', 'sellingPrice', 'status'], terms))
+  }
+
+  return contexts.slice(0, 4)
+}
+
+function assistantEcommerceLiveRecords(workspace: ReturnType<typeof workspaceData>, question: string) {
+  const query = question.toLowerCase()
+  const terms = assistantSearchTerms(question)
+  const contexts: AssistantRecordContext[] = []
+  const include = (context: AssistantRecordContext | null) => {
+    if (context) contexts.push(context)
+  }
+  if (/\b(stock|inventory|sku|product|listing|platform|amazon|flipkart|meesho|myntra|shopify)\b/i.test(query)) {
+    include(assistantRecordContext('Assigned E-commerce Listings', workspace.listings, [
+      'platform', 'platformSku', 'productSku', 'productName', 'mrp', 'sellingPrice', 'availableStock', 'stockStatus', 'status',
+    ], terms))
+  }
+  if (/\b(dispatch|return|damage|movement)\b/i.test(query)) {
+    include(assistantRecordContext('Assigned E-commerce Stock Movements', workspace.movements, [
+      'date', 'platform', 'type', 'orderNumber', 'sku', 'quantity', 'unitSellingPrice',
+    ], terms))
+  }
+  return contexts.slice(0, 4)
+}
+
 function nonnegativeNumber(value: unknown, label: string) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed < 0) throw new ApiError(400, `${label} must be a non-negative number.`)
@@ -1604,6 +1731,72 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     if (action === 'listChatData') {
       sendJson(response, 200, await listWorkbookChatData(user))
+      return
+    }
+    if (action === 'getAssistantState') {
+      const state = await listWorkbookAssistantState(user)
+      sendJson(response, 200, { ...state, modelReady: isPrivateAssistantConfigured() })
+      return
+    }
+    if (action === 'clearAssistantMemory') {
+      sendJson(response, 200, await clearWorkbookAssistantMemory(user))
+      return
+    }
+    if (action === 'askAssistant') {
+      const question = requiredText(body.message, 'Message', 3000)
+      const state = await listWorkbookAssistantState(user)
+      let tasks: Array<{
+        taskDate: string
+        title: string
+        description: string
+        status: string
+        completed: string
+        pending: string
+        issues: string
+      }> = []
+      const asksForTaskRecords = /\b(task|tasks|daily work|daily tasks)\b/i.test(question) &&
+        /\b(show|list|check|find|what|which|how many|status|pending|assigned|submitted|approved|due|completed|today|yesterday|mine|my)\b/i.test(question)
+      if (asksForTaskRecords) {
+        const result = await listWorkbookDailyTasks(user)
+        tasks = result.tasks
+          .filter(task => user.role === 'Super Admin' || String(task.assigneeId || '') === user.id)
+          .slice(0, 8)
+          .map(task => ({
+            taskDate: String(task.taskDate || ''),
+            title: String(task.title || '').slice(0, 200),
+            description: String(task.description || '').slice(0, 500),
+            status: String(task.status || ''),
+            completed: String(task.completed || '').slice(0, 250),
+            pending: String(task.pending || '').slice(0, 250),
+            issues: String(task.issues || '').slice(0, 250),
+          }))
+      }
+      let liveRecords: AssistantRecordContext[] = []
+      const asksForLiveErpData = /\b(stock|inventory|sku|product|finished|goods|raw|material|availability|available|maal|item|production|machine|quality|qc|target|operator|sales|lead|followup|customer|order|revenue|supplier|vendor|account|expense|profit|loss|financial|purchase|cost|income|design|graphic|creative|post|video|caption|script|marketplace|listing|platform|amazon|flipkart|meesho|myntra|shopify)\b/i.test(question)
+      if (asksForLiveErpData &&
+          (user.role === 'E-commerce Manager' || user.role === 'E-commerce Executive')) {
+        const [workbook, users] = await Promise.all([getWorkbookData(), listUsers()])
+        liveRecords = assistantEcommerceLiveRecords(workspaceData(workbook, user, users), question)
+      } else if (asksForLiveErpData) {
+        const workbook = await getWorkbookData()
+        liveRecords = assistantLiveRecords(getSnapshot(workbook, user), user, question)
+      }
+      const reply = await generatePrivateAssistantReply({
+        user,
+        question,
+        memory: state.memory,
+        history: state.messages,
+        tasks,
+        liveRecords,
+      })
+      const saved = await saveWorkbookAssistantTurn({
+        id: user.id,
+        role: user.role,
+        question,
+        answer: reply.answer,
+        memory: reply.memory || state.memory,
+      })
+      sendJson(response, 200, saved)
       return
     }
     if (action === 'previewIndiaMartCatalog') {
