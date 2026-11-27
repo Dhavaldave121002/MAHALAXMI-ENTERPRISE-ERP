@@ -54,7 +54,7 @@
     const ERP_STOCK_MOVEMENT_HEADERS = ['Movement ID', 'Date/Time', 'SKU', 'Movement Type', 'Quantity', 'Reference ID', 'Machine ID', 'Reason', 'Opening Stock', 'Closing Stock', 'Created By', 'Item Type', 'Sales Channel', 'Delivery Partner', 'Supplier ID', 'Supplier', 'Unit Cost', 'Total Cost', 'Unit Price', 'Total Amount']
     const ERP_SUPPLIER_HEADERS = ['Supplier ID', 'Supplier Name', 'Contact Person', 'Phone', 'Email', 'Address', 'Notes', 'Status', 'Created At', 'Created By', 'Updated At', 'Updated By']
     const ERP_ACCOUNT_EXPENSE_HEADERS = ['Expense ID', 'Date', 'Category', 'Description', 'Amount', 'Payment Method', 'Reference ID', 'Created At', 'Created By ID', 'Created By']
-    const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At']
+    const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Location', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At']
     const ERP_SALES_ACTIVITY_HEADERS = ['Activity ID', 'Lead ID', 'Activity Type', 'Outcome', 'Notes', 'Next Follow-Up', 'Created At', 'Created By', 'Created By Name']
     const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes', 'Sales Channel', 'IndiaMART Listing ID', 'IndiaMART SKU', 'Unit Cost']
     const ERP_INDIAMART_LISTING_HEADERS = ['Listing ID', 'Product SKU', 'IndiaMART SKU', 'Product Name', 'Listed Price', 'Unit Cost', 'Source URL', 'Image URL', 'Status', 'Updated At', 'Updated By']
@@ -2441,12 +2441,13 @@
       const name = String(input.name || '').trim()
       const company = String(input.company || '').trim()
       const phone = String(input.phone || '').trim()
+      const location = String(input.location || '').trim()
       const email = String(input.email || '').trim()
       const productInterest = String(input.productInterest || '').trim()
       const notes = String(input.notes || '').trim()
       const referenceUrl = String(input.referenceUrl || '').trim()
       if (!name || name.length > 150 || /[\u0000-\u001f]/.test(name)) throw apiError_(400, 'Lead name is required and must be 150 characters or fewer.')
-      if (company.length > 180 || phone.length > 40 || email.length > 180 || productInterest.length > 180 || notes.length > 1000) {
+      if (company.length > 180 || phone.length > 40 || location.length > 240 || email.length > 180 || productInterest.length > 180 || notes.length > 1000) {
         throw apiError_(400, 'A lead field exceeds its allowed length.')
       }
       if (phone.replace(/\D/g, '').length < 7) throw apiError_(400, 'Enter a valid contact phone number.')
@@ -2459,6 +2460,7 @@
         name: name,
         company: company,
         phone: phone,
+        location: location,
         email: email,
         productInterest: productInterest,
         notes: notes,
@@ -2473,6 +2475,7 @@
         Name: input.name,
         Company: input.company,
         Phone: input.phone,
+        Location: input.location,
         Email: input.email,
         'Product Interest': input.productInterest,
         Notes: input.notes,

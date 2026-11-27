@@ -473,6 +473,7 @@ function toSalesLead(record: Record<string, unknown>): SalesLead {
     name: recordText(record, 'Name'),
     company: recordText(record, 'Company'),
     phone: recordText(record, 'Phone'),
+    location: recordText(record, 'Location'),
     email: recordText(record, 'Email'),
     productInterest: recordText(record, 'Product Interest'),
     notes: recordText(record, 'Notes'),

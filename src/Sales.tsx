@@ -51,6 +51,10 @@ export function SalesDailyReportView(props: {
   const dailyReportOrders = orders
     .filter(order => dailyReportDate && dateForSales(order.createdAt) === dailyReportDate)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const dailyReportLeads = leads
+    .filter(lead => dailyReportDate && dateForSales(lead.createdAt) === dailyReportDate &&
+      (role !== 'Sales Executive' || lead.assignedUserId === currentUser.id))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const dailyReportActivities = activities
     .filter(activity => dailyReportDate && dateForSales(activity.createdAt) === dailyReportDate &&
       (role !== 'Sales Executive' || activity.createdBy === currentUser.id))
@@ -97,6 +101,7 @@ export function SalesDailyReportView(props: {
       Date: dailyReportDate,
       Scope: role === 'Sales Executive' ? currentUser.name : 'All Sales Executives',
       'Orders Booked': dailyReportOrders.length,
+      'New Enquiries': dailyReportLeads.length,
       'Net Booked Amount': dailyReportAmount,
       'Activities Logged': dailyReportActivities.length,
       'Unique Leads Contacted': dailyReportLeadsContacted,
@@ -113,6 +118,16 @@ export function SalesDailyReportView(props: {
       'Net Booked Amount': activeOrderAmount(order),
       Status: order.status,
     }))), 'Orders')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportLeads.map(lead => ({
+      Date: dateForSales(lead.createdAt),
+      Phone: lead.phone,
+      Name: lead.name,
+      Product: lead.productInterest,
+      Location: lead.location,
+      Company: lead.company,
+      Email: lead.email,
+      Notes: lead.notes,
+    }))), 'Daily Enquiries')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dailyReportActivities.map(activity => ({
       Time: new Date(activity.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
       Salesperson: activity.createdByName,
@@ -136,7 +151,7 @@ export function SalesDailyReportView(props: {
   return (
     <section>
       <div className="page-heading">
-        <div><p>SALES WORKSPACE</p><h1>Sales Daily Report</h1><span className="dashboard-description">Review sales activity, booked orders, and daily work reports without scrolling through the dashboard.</span></div>
+        <div><p>SALES WORKSPACE</p><h1>Sales Daily Report</h1><span className="dashboard-description">Review daily enquiries, orders, call activities, and work reports for the selected date.</span></div>
       </div>
       <section className="panel sales-daily-report">
         <div className="panel-heading">
@@ -148,9 +163,18 @@ export function SalesDailyReportView(props: {
         </div>
         <div className="sales-daily-summary">
           <article><span>Orders booked</span><strong>{dailyReportOrders.length}</strong></article>
+          <article><span>New enquiries</span><strong>{dailyReportLeads.length}</strong></article>
           <article><span>Net booked value</span><strong>{money(dailyReportAmount)}</strong></article>
           <article><span>Activities logged</span><strong>{dailyReportActivities.length}</strong><small>{dailyReportActivities.filter(activity => activity.type === 'Call').length} calls · {dailyReportLeadsContacted} leads contacted</small></article>
           <article><span>Follow-ups scheduled</span><strong>{dailyReportActivities.filter(activity => activity.nextFollowUp).length}</strong></article>
+        </div>
+        <div className="sales-daily-tables">
+          <div>
+            <div className="sales-daily-table-heading"><h3>Daily enquiries</h3><span>{dailyReportLeads.length}</span></div>
+            {dailyReportLeads.length ? <div className="table-card entries-table"><table><thead><tr><th>Date</th><th>Phone</th><th>Name</th><th>Product</th><th>Location</th><th>Company</th><th>Email</th><th>Notes</th></tr></thead><tbody>
+              {dailyReportLeads.map(lead => <tr key={lead.id}><td>{dateForSales(lead.createdAt)}</td><td>{lead.phone}</td><td>{lead.name}</td><td>{lead.productInterest || '—'}</td><td>{lead.location || '—'}</td><td>{lead.company || '—'}</td><td>{lead.email || '—'}</td><td className="sales-report-cell">{lead.notes || '—'}</td></tr>)}
+            </tbody></table></div> : <div className="sales-daily-empty">No enquiries were added on this date.</div>}
+          </div>
         </div>
         <div className="sales-daily-tables">
           <div>
@@ -251,6 +275,7 @@ function leadRowFromImport(row: Record<string, unknown>, rowIndex: number, sales
     name,
     company: get('company', 'companyname', 'business'),
     phone,
+    location: get('location', 'city', 'citystate', 'address', 'region'),
     email: get('email', 'emailaddress'),
     productInterest: get('productinterest', 'interest', 'product', 'requirement'),
     notes: get('notes', 'remarks', 'comment'),
@@ -689,6 +714,7 @@ export function SalesDashboardView(props: {
       Phone: lead.phone,
       Email: lead.email,
       'Product Interest': lead.productInterest,
+      Location: lead.location,
       'Assigned To': lead.assignedUserName,
       Status: lead.status,
       'Next Follow-Up': lead.nextFollowUp,
@@ -865,6 +891,7 @@ export function SalesLeadsView(props: {
         name: String(values.get('name') || '').trim(),
         company: String(values.get('company') || '').trim(),
         phone: String(values.get('phone') || '').trim(),
+        location: String(values.get('location') || '').trim(),
         email: String(values.get('email') || '').trim(),
         productInterest: String(values.get('productInterest') || '').trim(),
         notes: String(values.get('notes') || '').trim(),
@@ -885,6 +912,7 @@ export function SalesLeadsView(props: {
       'Contact Name': 'Example Customer',
       Company: 'Example Company',
       Phone: '+91 9876543210',
+      Location: 'City, State, Country',
       Email: 'customer@example.com',
       'Product Interest': 'Product or requirement',
       Notes: 'Initial enquiry details',
@@ -904,7 +932,7 @@ export function SalesLeadsView(props: {
           <span>{fileName || 'Choose a lead workbook to preview'}</span>
           <button className="primary" type="button" disabled={!importRows.length || busy} onClick={() => void submitImport()}><Upload size={16} /> Import {importRows.length || ''} leads</button>
         </div>
-        {importRows.length > 0 && <div className="sales-import-preview"><strong>Preview · first {Math.min(5, importRows.length)} of {importRows.length}</strong><div className="table-card"><table><thead><tr><th>Contact</th><th>Phone</th><th>Company</th><th>Assigned To</th></tr></thead><tbody>{importRows.slice(0, 5).map((row, index) => <tr key={`${row.phone}-${index}`}><td>{row.name}</td><td>{row.phone}</td><td>{row.company || '—'}</td><td>{salesUsers.find(user => user.id === row.assignedUserId)?.name || '—'}</td></tr>)}</tbody></table></div></div>}
+        {importRows.length > 0 && <div className="sales-import-preview"><strong>Preview · first {Math.min(5, importRows.length)} of {importRows.length}</strong><div className="table-card"><table><thead><tr><th>Contact</th><th>Phone</th><th>Product</th><th>Location</th><th>Company</th><th>Assigned To</th></tr></thead><tbody>{importRows.slice(0, 5).map((row, index) => <tr key={`${row.phone}-${index}`}><td>{row.name}</td><td>{row.phone}</td><td>{row.productInterest || '—'}</td><td>{row.location || '—'}</td><td>{row.company || '—'}</td><td>{salesUsers.find(user => user.id === row.assignedUserId)?.name || '—'}</td></tr>)}</tbody></table></div></div>}
         {importMessage && <p className="sales-message" role="status">{importMessage}</p>}
       </section>}
       {role === 'Super Admin' && <form className="panel form-card sales-manual-lead" onSubmit={submitManualLead}>
@@ -913,6 +941,7 @@ export function SalesLeadsView(props: {
           <label>Contact name<input name="name" required maxLength={150} /></label>
           <label>Company<input name="company" maxLength={180} /></label>
           <label>Phone<input name="phone" required maxLength={40} /></label>
+          <label>Location<input name="location" maxLength={240} placeholder="City, State, Country" /></label>
           <label>Email<input name="email" type="email" maxLength={180} /></label>
           <label>Product interest<input name="productInterest" maxLength={180} /></label>
           <label>Sales Executive<select name="assignedUserId" required defaultValue=""><option value="">Choose Sales Executive</option>{salesUsers.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>

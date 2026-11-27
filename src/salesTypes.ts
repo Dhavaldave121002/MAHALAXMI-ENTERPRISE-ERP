@@ -7,6 +7,7 @@ export type SalesLead = {
   name: string
   company: string
   phone: string
+  location: string
   email: string
   productInterest: string
   notes: string
@@ -110,6 +111,7 @@ export type SalesLeadImportRow = {
   name: string
   company: string
   phone: string
+  location: string
   email: string
   productInterest: string
   notes: string

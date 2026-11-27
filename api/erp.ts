@@ -156,7 +156,7 @@ type AccountExpense = {
   paymentMethod: string; referenceId: string; createdAt: string; createdBy: string
 }
 type SalesLead = {
-  id: string; name: string; company: string; phone: string; email: string; productInterest: string;
+  id: string; name: string; company: string; phone: string; location: string; email: string; productInterest: string;
   notes: string; referenceUrl: string; assignedUserId: string; assignedUserName: string;
   status: string; nextFollowUp: string; createdAt: string; createdBy: string; updatedAt: string
 }
@@ -527,6 +527,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       name: text(row.Name),
       company: text(row.Company),
       phone: text(row.Phone),
+      location: text(row.Location),
       email: text(row.Email),
       productInterest: text(row['Product Interest']),
       notes: text(row.Notes),
