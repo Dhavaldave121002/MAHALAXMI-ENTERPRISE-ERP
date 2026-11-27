@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, CheckCircle2, Download, FileSpreadsheet, Phone, Plus, Search, Target, Upload } from 'lucide-react'
+import { BarChart3, Boxes, CheckCircle2, Download, FileSpreadsheet, Phone, Plus, RefreshCw, Save, Search, Store, Target, Upload } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import type {
-  SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus,
+  IndiaMartCatalogCandidate, IndiaMartListing, SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus,
   SalesDailyReport, SalesOrder, SalesTarget, SalesTargetPeriod,
 } from './salesTypes'
 
@@ -259,6 +259,122 @@ function leadRowFromImport(row: Record<string, unknown>, rowIndex: number, sales
   }
 }
 
+export function IndiaMartView(props: {
+  role: SalesRole
+  listings: IndiaMartListing[]
+  products: SalesProduct[]
+  previewCatalog: () => Promise<IndiaMartCatalogCandidate[]>
+  saveListings: (listings: IndiaMartListing[]) => Promise<IndiaMartListing[]>
+}) {
+  const { role, listings: savedListings, products, previewCatalog, saveListings } = props
+  const [draftListings, setDraftListings] = useState(savedListings)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const activeProducts = sellableProducts(products)
+  const productBySku = new Map(products.map(product => [product.sku.toLowerCase(), product]))
+  const canEdit = role === 'Super Admin'
+  const activeListings = draftListings.filter(listing => listing.status === 'Active')
+  const canSave = draftListings.every(listing =>
+    listing.status !== 'Active' ||
+    Boolean(listing.listingSku && listing.productSku && listing.listedPrice !== null && listing.listedPrice > 0 && listing.unitCost !== null && listing.unitCost >= 0),
+  )
+
+  const importCatalog = async () => {
+    setBusy(true)
+    setMessage('')
+    try {
+      const candidates = await previewCatalog()
+      const currentById = new Map(draftListings.map(listing => [listing.id, listing]))
+      const refreshed = candidates.map(candidate => {
+        const existing = currentById.get(candidate.id)
+        if (existing) {
+          return { ...existing, productName: candidate.productName, sourceUrl: candidate.sourceUrl, imageUrl: candidate.imageUrl }
+        }
+        return {
+          id: candidate.id,
+          productName: candidate.productName,
+          sourceUrl: candidate.sourceUrl,
+          imageUrl: candidate.imageUrl,
+          listingSku: `IM-${candidate.id.slice(-8)}`,
+          productSku: '',
+          listedPrice: candidate.suggestedPrice,
+          unitCost: null,
+          status: 'Draft' as const,
+          updatedAt: '',
+        }
+      })
+      const importedIds = new Set(refreshed.map(listing => listing.id))
+      setDraftListings([...refreshed, ...draftListings.filter(listing => !importedIds.has(listing.id))])
+      setMessage(`${candidates.length} storefront products loaded for review. New listings remain Draft until an Admin maps and activates them.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The IndiaMART catalog could not be loaded.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const updateListing = (id: string, patch: Partial<IndiaMartListing>) => {
+    setDraftListings(current => current.map(listing => listing.id === id ? { ...listing, ...patch } : listing))
+  }
+
+  const persistListings = async () => {
+    setBusy(true)
+    setMessage('')
+    try {
+      const saved = await saveListings(draftListings)
+      setDraftListings(saved)
+      setMessage('IndiaMART listings saved.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'IndiaMART listings could not be saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section>
+      <div className="page-heading">
+        <div><p>SALES CHANNEL</p><h1>IndiaMART</h1><span className="dashboard-description">IndiaMART listings use shared ERP finished-goods stock. Admin approves the imported catalog, maps ERP SKUs, sets listing SKUs, prices, and unit costs.</span></div>
+        {canEdit && <div className="heading-actions">
+          <button className="secondary" disabled={busy} onClick={() => void importCatalog()}><RefreshCw size={16} /> Preview website catalog</button>
+          <button className="primary" disabled={busy || !canSave} onClick={() => void persistListings()}><Save size={16} /> Save listing changes</button>
+        </div>}
+      </div>
+      {message && <p className="sales-message" role="status">{message}</p>}
+      {!canEdit && <div className="stats-grid sales-stats">
+        <article className="stat-card"><div className="stat-icon blue"><Store size={20} /></div><div className="stat-body"><span>Active IndiaMART listings</span><strong>{activeListings.length.toLocaleString('en-IN')}</strong><small>Admin-managed products</small></div></article>
+        <article className="stat-card"><div className="stat-icon green"><Boxes size={20} /></div><div className="stat-body"><span>Mapped ERP SKUs in stock</span><strong>{activeListings.filter(listing => (productBySku.get(listing.productSku.toLowerCase())?.stock || 0) > 0).length.toLocaleString('en-IN')}</strong><small>Stock is shared with other sales channels</small></div></article>
+      </div>}
+      {draftListings.length ? <div className="table-card entries-table india-mart-table"><table>
+        <thead><tr><th>Storefront product</th><th>IndiaMART SKU</th><th>ERP stock SKU</th><th>Available stock</th><th>Listing price (INR)</th>{canEdit && <th>Unit cost (INR)</th>}<th>Status</th></tr></thead>
+        <tbody>{draftListings.map(listing => {
+          const product = productBySku.get(listing.productSku.toLowerCase())
+          return <tr key={listing.id}>
+            <td><div className="india-mart-product">{listing.imageUrl && <img src={listing.imageUrl} alt="" loading="lazy" />}<div><strong>{listing.productName}</strong><small><a href={listing.sourceUrl} target="_blank" rel="noreferrer">Open storefront listing</a></small></div></div></td>
+            <td>{canEdit ? <input aria-label={`${listing.productName} IndiaMART SKU`} maxLength={100} value={listing.listingSku} onChange={event => updateListing(listing.id, { listingSku: event.target.value })} /> : <code>{listing.listingSku}</code>}</td>
+            <td>{canEdit
+              ? <select aria-label={`${listing.productName} mapped ERP SKU`} value={listing.productSku} onChange={event => updateListing(listing.id, { productSku: event.target.value })}>
+                <option value="">Map ERP SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku}</option>)}
+              </select>
+              : <code>{listing.productSku || 'Not mapped'}</code>}</td>
+            <td>{product ? product.stock.toLocaleString('en-IN') : '—'}</td>
+            <td>{canEdit
+              ? <input aria-label={`${listing.productName} IndiaMART listed price`} type="number" min="0" step="0.01" value={listing.listedPrice ?? ''} onChange={event => updateListing(listing.id, { listedPrice: event.target.value === '' ? null : Number(event.target.value) })} />
+              : listing.listedPrice === null ? '—' : money(listing.listedPrice)}</td>
+            {canEdit && <td><input aria-label={`${listing.productName} unit cost`} type="number" min="0" step="0.01" value={listing.unitCost ?? ''} onChange={event => updateListing(listing.id, { unitCost: event.target.value === '' ? null : Number(event.target.value) })} /></td>}
+            <td>{canEdit
+              ? <select aria-label={`${listing.productName} listing status`} value={listing.status} onChange={event => updateListing(listing.id, { status: event.target.value as IndiaMartListing['status'] })}>
+                <option value="Draft">Draft</option><option value="Active" disabled={!listing.listingSku || !listing.productSku || listing.listedPrice === null || listing.listedPrice <= 0 || listing.unitCost === null}>Active</option><option value="Inactive">Inactive</option>
+              </select>
+              : <span className={`status ${listing.status === 'Active' ? 'active' : 'pending'}`}>{listing.status}</span>}</td>
+          </tr>
+        })}</tbody>
+      </table></div> : <div className="empty-state"><Store size={22} /><strong>No IndiaMART products yet</strong><span>Admin can preview the public storefront catalog and approve products here.</span></div>}
+      {canEdit && draftListings.some(listing => listing.status === 'Active' && listing.unitCost === null) && <p className="sales-readonly-note">Enter an Admin unit cost for every active listing so IndiaMART gross profit can be reported.</p>}
+    </section>
+  )
+}
+
 export function SalesDashboardView(props: {
   role: SalesRole
   currentUser: { id: string; name: string }
@@ -268,9 +384,11 @@ export function SalesDashboardView(props: {
   orders: SalesOrder[]
   targets: SalesTarget[]
   products: SalesProduct[]
+  indiaMartListings: IndiaMartListing[]
+  stockMovements: Array<{ id: string; date: string; sku: string; itemType: string; type: string; quantity: number; referenceId: string; salesChannel: string; unitPrice: number; totalAmount: number }>
   setTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { role, currentUser, salesUsers, leads, activities, orders, targets, products, setTarget } = props
+  const { role, currentUser, salesUsers, leads, activities, orders, targets, products, indiaMartListings, stockMovements, setTarget } = props
   const [selectedMonth, setSelectedMonth] = useState(() => currentIndiaDate().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(() => currentIndiaDate().slice(0, 4))
   const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({})
@@ -287,6 +405,31 @@ export function SalesDashboardView(props: {
   const yearTarget = targets.find(target => target.salesUserId === currentUser.id && target.period === 'yearly' && target.periodKey === selectedYear)?.targetAmount || 0
   const availableProducts = sellableProducts(products)
   const stockUnits = availableProducts.reduce((total, product) => total + Math.max(0, product.stock), 0)
+  const indiaMartOrderById = new Map(orders.filter(order => order.salesChannel === 'INDIAMART').map(order => [order.id, order]))
+  const indiaMartDispatches = stockMovements.filter(movement =>
+    movement.itemType === 'Finished Goods' &&
+    movement.type === 'Dispatch' &&
+    movement.salesChannel === 'INDIAMART' &&
+    dateForSales(movement.date).slice(0, 7) === selectedMonth &&
+    indiaMartOrderById.has(movement.referenceId),
+  )
+  const indiaMartRevenue = indiaMartDispatches.reduce((sum, movement) => {
+    const order = indiaMartOrderById.get(movement.referenceId)!
+    return sum + (movement.totalAmount > 0 ? movement.totalAmount : movement.quantity * order.unitPrice)
+  }, 0)
+  const indiaMartCost = indiaMartDispatches.reduce((sum, movement) => {
+    const order = indiaMartOrderById.get(movement.referenceId)!
+    return sum + movement.quantity * (order.unitCost ?? 0)
+  }, 0)
+  const indiaMartGrossProfit = indiaMartDispatches.reduce((sum, movement) => {
+    const order = indiaMartOrderById.get(movement.referenceId)!
+    return order.unitCost === null
+      ? sum
+      : sum + (movement.totalAmount > 0 ? movement.totalAmount : movement.quantity * order.unitPrice) - movement.quantity * order.unitCost
+  }, 0)
+  const indiaMartMissingCost = indiaMartDispatches.filter(movement => indiaMartOrderById.get(movement.referenceId)?.unitCost === null).length
+  const activeIndiaMartListings = indiaMartListings.filter(listing => listing.status === 'Active')
+  const productBySku = new Map(products.map(product => [product.sku.toLowerCase(), product]))
   const dueLeads = leads.filter(lead => lead.nextFollowUp && lead.nextFollowUp <= today && !['Converted', 'Lost'].includes(lead.status))
   const reportOrders = [...orders].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   const targetRows = salesUsers.map(account => {
@@ -349,9 +492,11 @@ export function SalesDashboardView(props: {
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthlyOrders.map(order => ({
       'Order ID': order.id,
       Date: dateForSales(order.createdAt),
+      Channel: order.salesChannel,
       Salesperson: order.salesUserName,
       Customer: order.customerName,
       SKU: order.sku,
+      'IndiaMART SKU': order.listingSku,
       Product: order.productName,
       Quantity: order.quantity,
       'Unit Price': order.unitPrice,
@@ -359,6 +504,24 @@ export function SalesDashboardView(props: {
       'Cancelled Amount': order.unitPrice * order.cancelledQuantity,
       Status: order.status,
     }))), 'Orders')
+    if (role === 'Super Admin') {
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(indiaMartDispatches.map(movement => {
+        const order = indiaMartOrderById.get(movement.referenceId)!
+        const revenue = movement.totalAmount > 0 ? movement.totalAmount : movement.quantity * order.unitPrice
+        const productCost = order.unitCost === null ? null : movement.quantity * order.unitCost
+        return {
+          'Dispatch Date': dateForSales(movement.date),
+          'Order ID': order.id,
+          Customer: order.customerName,
+          'IndiaMART SKU': order.listingSku,
+          'ERP SKU': order.sku,
+          Quantity: movement.quantity,
+          Revenue: revenue,
+          'Product Cost': productCost,
+          'Gross Profit': productCost === null ? null : revenue - productCost,
+        }
+      })), 'IndiaMART P&L')
+    }
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(leads.map(lead => ({
       Lead: lead.name,
       Company: lead.company,
@@ -400,6 +563,32 @@ export function SalesDashboardView(props: {
         <article className="stat-card"><div className="stat-icon purple"><Target size={20} /></div><div className="stat-body"><span>Yearly booked / target</span><strong>{money(yearActual)} / {money(role === 'Sales Executive' ? yearTarget : targetRows.reduce((sum, row) => sum + (row.yearly?.targetAmount || 0), 0))}</strong><small>{selectedYear}</small></div></article>
         <article className="stat-card"><div className="stat-icon orange"><Phone size={20} /></div><div className="stat-body"><span>Available finished stock</span><strong>{stockUnits.toLocaleString('en-IN')}</strong><small>{availableProducts.filter(product => product.stock > 0).length} stocked SKUs · {dueLeads.length} follow-ups due</small></div></article>
       </div>
+      <section className="panel sales-dashboard-orders">
+        <div className="panel-heading"><div><h2>IndiaMART inventory</h2><p>{activeIndiaMartListings.length} active listings · stock is shared with other ERP sales channels</p></div></div>
+        {activeIndiaMartListings.length ? <div className="table-card entries-table"><table><thead><tr><th>IndiaMART SKU</th><th>Product</th><th>ERP stock SKU</th><th>Available stock</th><th>Listing price</th></tr></thead><tbody>
+          {activeIndiaMartListings.map(listing => {
+            const product = productBySku.get(listing.productSku.toLowerCase())
+            return <tr key={listing.id}><td><code>{listing.listingSku}</code></td><td>{listing.productName}</td><td><code>{listing.productSku}</code></td><td>{product ? product.stock.toLocaleString('en-IN') : '—'}</td><td>{listing.listedPrice === null ? '—' : money(listing.listedPrice)}</td></tr>
+          })}
+        </tbody></table></div> : <div className="empty-state"><Store size={22} /><strong>No active IndiaMART listings</strong><span>Admin must map and activate products in the IndiaMART workspace.</span></div>}
+      </section>
+      {role === 'Super Admin' && <section className="panel sales-target-panel">
+        <div className="panel-heading"><div><h2>IndiaMART gross profit</h2><p>{selectedMonth} · based on actual dispatch dates and fulfilled quantities</p></div></div>
+        <div className="stats-grid sales-stats">
+          <article className="stat-card"><div className="stat-icon blue"><BarChart3 size={20} /></div><div className="stat-body"><span>Dispatched revenue</span><strong>{money(indiaMartRevenue)}</strong><small>{indiaMartDispatches.length} dispatch lines</small></div></article>
+          <article className="stat-card"><div className="stat-icon orange"><Boxes size={20} /></div><div className="stat-body"><span>Recorded product cost</span><strong>{money(indiaMartCost)}</strong><small>Admin cost snapshot × dispatched quantity</small></div></article>
+          <article className="stat-card"><div className="stat-icon green"><Target size={20} /></div><div className="stat-body"><span>Gross product profit</span><strong>{money(indiaMartGrossProfit)}</strong><small>Cost-known dispatches only</small></div></article>
+        </div>
+        <p className="sales-readonly-note">Gross product profit excludes marketplace fees, shipping, taxes, and returns. {indiaMartMissingCost > 0 ? `${indiaMartMissingCost} dispatch lines have no saved unit-cost snapshot; profit is incomplete.` : 'Only fulfilled units are included.'}</p>
+        {indiaMartDispatches.length > 0 && <div className="table-card entries-table"><table><thead><tr><th>Dispatch date</th><th>Order</th><th>IndiaMART SKU / ERP SKU</th><th>Qty</th><th>Revenue</th><th>Product cost</th><th>Gross profit</th></tr></thead><tbody>
+          {indiaMartDispatches.map(movement => {
+            const order = indiaMartOrderById.get(movement.referenceId)!
+            const revenue = movement.totalAmount > 0 ? movement.totalAmount : movement.quantity * order.unitPrice
+            const cost = order.unitCost === null ? null : movement.quantity * order.unitCost
+            return <tr key={movement.id}><td>{dateForSales(movement.date)}</td><td><code>{order.id}</code></td><td><code>{order.listingSku || '—'}</code><small>{order.sku}</small></td><td>{movement.quantity}</td><td>{money(revenue)}</td><td>{cost === null ? 'Missing cost' : money(cost)}</td><td>{cost === null ? '—' : money(revenue - cost)}</td></tr>
+          })}
+        </tbody></table></div>}
+      </section>}
       {role !== 'Sales Executive' && <section className="panel sales-target-panel">
         <div className="panel-heading"><div><h2>Salesperson targets and progress</h2><p>Set targets per active Sales Executive; booked amounts update automatically.</p></div></div>
         {targetRows.length ? <div className="table-card entries-table"><table><thead><tr><th>Sales Executive</th><th>Monthly target / actual</th><th>Monthly progress</th><th>Yearly target / actual</th><th>Yearly progress</th><th /></tr></thead><tbody>
@@ -625,18 +814,25 @@ export function SalesOrdersView(props: {
   leads: SalesLead[]
   orders: SalesOrder[]
   products: SalesProduct[]
-  createOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string }) => Promise<void>
+  indiaMartListings: IndiaMartListing[]
+  createOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId?: string }) => Promise<void>
   cancelOrder: (orderId: string) => Promise<void>
 }) {
-  const { role, currentUserId, leads, orders, products, createOrder, cancelOrder } = props
+  const { role, currentUserId, leads, orders, products, indiaMartListings, createOrder, cancelOrder } = props
   const [customerSelection, setCustomerSelection] = useState('')
   const [selectedSku, setSelectedSku] = useState('')
+  const [salesChannel, setSalesChannel] = useState<'DIRECT' | 'INDIAMART'>('DIRECT')
+  const [selectedIndiaMartListingId, setSelectedIndiaMartListingId] = useState('')
   const [unitPrice, setUnitPrice] = useState('')
   const [quantityDraft, setQuantityDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const activeProducts = sellableProducts(products)
-  const selectedProduct = activeProducts.find(product => product.sku === selectedSku)
+  const activeIndiaMartListings = indiaMartListings.filter(listing => listing.status === 'Active')
+  const selectedIndiaMartListing = activeIndiaMartListings.find(listing => listing.id === selectedIndiaMartListingId)
+  const selectedProduct = salesChannel === 'INDIAMART'
+    ? activeProducts.find(product => product.sku === selectedIndiaMartListing?.productSku)
+    : activeProducts.find(product => product.sku === selectedSku)
   const assignedLeads = leads.filter(lead => role !== 'Sales Executive' || lead.status !== 'Lost')
   const sortedOrders = [...orders].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
@@ -648,12 +844,13 @@ export function SalesOrdersView(props: {
     const isCustomCustomer = selectedLeadId === '__custom_customer__'
     const customerName = isCustomCustomer ? String(values.get('customerName') || '').trim() : ''
     const quantity = Number(values.get('quantity'))
-    const price = Number(unitPrice)
+    const price = salesChannel === 'INDIAMART' ? selectedIndiaMartListing?.listedPrice ?? 0 : Number(unitPrice)
     if ((isCustomCustomer && (!customerName || customerName.length > 180)) ||
         (!isCustomCustomer && !assignedLeads.some(lead => lead.id === selectedLeadId)) ||
         !selectedProduct || !Number.isInteger(quantity) || quantity < 1 || quantity > selectedProduct.stock ||
-        !Number.isFinite(price) || price <= 0) {
-      setMessage('Choose an assigned lead or enter a customer name, then choose an in-stock SKU and valid quantity and unit price.')
+        !Number.isFinite(price) || price <= 0 ||
+        salesChannel === 'INDIAMART' && !selectedIndiaMartListing) {
+      setMessage('Choose an assigned lead or enter a customer name, then choose an in-stock listing and valid quantity.')
       return
     }
     const productName = String(values.get('productName') || '').trim()
@@ -668,14 +865,17 @@ export function SalesOrdersView(props: {
         leadId: isCustomCustomer ? '' : selectedLeadId,
         customerName,
         sku: selectedProduct.sku,
-        productName,
+        productName: salesChannel === 'INDIAMART' ? '' : productName,
         quantity,
         unitPrice: price,
         notes: String(values.get('notes') || ''),
+        salesChannel,
+        indiaMartListingId: salesChannel === 'INDIAMART' ? selectedIndiaMartListing!.id : undefined,
       })
       form.reset()
       setCustomerSelection('')
       setSelectedSku('')
+      setSelectedIndiaMartListingId('')
       setUnitPrice('')
       setQuantityDraft('')
       setMessage('Order booked; stock reserved and sales target updated.')
@@ -688,31 +888,53 @@ export function SalesOrdersView(props: {
 
   return (
     <section>
-      <div className="page-heading"><div><p>SALES</p><h1>Sales Orders</h1><span className="dashboard-description">Choose an assigned lead or enter a one-time customer name. Stock SKUs are reserved; a custom product name applies only to this order.</span></div></div>
+      <div className="page-heading"><div><p>SALES</p><h1>Sales Orders</h1><span className="dashboard-description">Choose a sales channel. IndiaMART bookings show only active IndiaMART SKUs and use the Admin-managed price and mapped shared ERP stock.</span></div></div>
       {role === 'Sales Executive' && <form className="panel form-card sales-order-form" onSubmit={submitOrder}>
         <div className="panel-heading"><div><h2>Book an order</h2><p>Custom customer and product names are saved only with the order, never as leads or catalog/listing products.</p></div></div>
         <div className="field-grid">
+          <label>Sales channel<select value={salesChannel} onChange={event => {
+            const channel = event.target.value as 'DIRECT' | 'INDIAMART'
+            setSalesChannel(channel)
+            setSelectedSku('')
+            setSelectedIndiaMartListingId('')
+            setUnitPrice('')
+          }}><option value="DIRECT">Direct sales</option><option value="INDIAMART">IndiaMART</option></select></label>
           <label>Customer / lead<select name="leadId" required value={customerSelection} onChange={event => setCustomerSelection(event.target.value)}><option value="">Choose assigned lead</option>{assignedLeads.map(lead => <option key={lead.id} value={lead.id}>{lead.name} · {lead.phone}</option>)}<option value="__custom_customer__">Enter a one-time customer name</option></select></label>
           {customerSelection === '__custom_customer__' && <label>Customer name<input name="customerName" required maxLength={180} placeholder="Enter customer name for this order" /></label>}
-          <label>One-time product name (optional)<input name="productName" maxLength={300} placeholder={selectedProduct?.name || 'Enter a name for this order'} /><small className="field-hint">Saved on this order only. Select an active inventory SKU below to reserve stock; this name will not be added to the catalog or listings.</small></label>
-          <label>Product SKU<select value={selectedSku} required onChange={event => { setSelectedSku(event.target.value); setUnitPrice('') }}><option value="">Choose active SKU</option>{activeProducts.map(product => <option key={product.sku} value={product.sku} disabled={product.stock <= 0}>{product.name} · {product.sku} · Available {product.stock}</option>)}</select></label>
+          {salesChannel === 'DIRECT' && <label>One-time product name (optional)<input name="productName" maxLength={300} placeholder={selectedProduct?.name || 'Enter a name for this order'} /><small className="field-hint">Saved on this order only. Select an active inventory SKU below to reserve stock; this name will not be added to the catalog or listings.</small></label>}
+          <label>{salesChannel === 'INDIAMART' ? 'IndiaMART listing SKU' : 'Product SKU'}<select value={salesChannel === 'INDIAMART' ? selectedIndiaMartListingId : selectedSku} required onChange={event => {
+            if (salesChannel === 'INDIAMART') {
+              setSelectedIndiaMartListingId(event.target.value)
+              setUnitPrice('')
+            } else {
+              setSelectedSku(event.target.value)
+              setUnitPrice('')
+            }
+          }}><option value="">{salesChannel === 'INDIAMART' ? 'Choose active IndiaMART listing' : 'Choose active SKU'}</option>
+            {salesChannel === 'INDIAMART'
+              ? activeIndiaMartListings.map(listing => {
+                  const product = activeProducts.find(item => item.sku === listing.productSku)
+                  return <option key={listing.id} value={listing.id} disabled={!product || product.stock <= 0 || !listing.listedPrice}>{listing.productName} · {listing.listingSku} · Available {product?.stock ?? 0}</option>
+                })
+              : activeProducts.map(product => <option key={product.sku} value={product.sku} disabled={product.stock <= 0}>{product.name} · {product.sku} · Available {product.stock}</option>)}
+          </select></label>
           {selectedProduct && <div className="sales-stock-note"><span>Available after existing reservations</span><strong>{selectedProduct.stock.toLocaleString('en-IN')} units</strong></div>}
           <label>Quantity<input name="quantity" type="number" min="1" max={selectedProduct?.stock || undefined} step="1" required value={quantityDraft} onChange={event => setQuantityDraft(event.target.value)} disabled={!selectedProduct || selectedProduct.stock <= 0} /></label>
-          <label>Unit price (INR)<input type="number" min="0.01" step="0.01" required value={unitPrice} onChange={event => setUnitPrice(event.target.value)} /></label>
+          <label>Unit price (INR)<input type="number" min="0.01" step="0.01" required value={salesChannel === 'INDIAMART' ? selectedIndiaMartListing?.listedPrice ?? '' : unitPrice} onChange={event => setUnitPrice(event.target.value)} readOnly={salesChannel === 'INDIAMART'} /></label>
           <label className="sales-note-field">Order notes<input name="notes" maxLength={500} placeholder="Delivery or customer requirement" /></label>
         </div>
-        {selectedProduct && <p className="sales-amount-hint">Estimated order amount: <strong>{money((Number(quantityDraft) || 0) * (Number(unitPrice) || 0))}</strong>. Server validates current stock and reserves it atomically.</p>}
+        {selectedProduct && <p className="sales-amount-hint">Estimated order amount: <strong>{money((Number(quantityDraft) || 0) * (salesChannel === 'INDIAMART' ? selectedIndiaMartListing?.listedPrice || 0 : Number(unitPrice) || 0))}</strong>. Server validates current price and stock and reserves it atomically.</p>}
         <button className="primary wide" type="submit" disabled={busy || !customerSelection || !selectedProduct || selectedProduct.stock <= 0}><Plus size={16} /> Book order</button>
         {message && <p className="sales-message" role="status">{message}</p>}
       </form>}
       {role === 'Sales Executive' && assignedLeads.length === 0 && <p className="local-storage-note">No open leads are assigned to you yet. You can still book an order by entering a one-time customer name.</p>}
       <section className="panel sales-orders-list">
         <div className="panel-heading"><div><h2>Booked orders</h2><p>{orders.length} orders · {role === 'Sales Executive' ? 'your bookings' : 'all Sales Executive bookings'}</p></div></div>
-        {sortedOrders.length ? <div className="table-card entries-table"><table><thead><tr><th>Booked</th><th>Order ID</th><th>Customer</th><th>Salesperson</th><th>SKU / product</th><th>Qty</th><th>Unit price</th><th>Booked amount</th><th>Fulfilment</th><th>Status</th><th /></tr></thead><tbody>
+        {sortedOrders.length ? <div className="table-card entries-table"><table><thead><tr><th>Booked</th><th>Order ID</th><th>Channel</th><th>Customer</th><th>Salesperson</th><th>SKU / product</th><th>Qty</th><th>Unit price</th><th>Booked amount</th><th>Fulfilment</th><th>Status</th><th /></tr></thead><tbody>
           {sortedOrders.map(order => {
             const remaining = order.quantity - order.fulfilledQuantity - order.cancelledQuantity
             const mayCancel = remaining > 0 && role !== 'Production Supervisor' && (role !== 'Sales Executive' || order.salesUserId === currentUserId)
-            return <tr key={order.id}><td>{dateForSales(order.createdAt)}</td><td><code>{order.id}</code></td><td>{order.customerName}</td><td>{order.salesUserName}</td><td><code>{order.sku}</code><small>{order.productName}</small></td><td>{order.quantity}</td><td>{money(order.unitPrice)}</td><td>{money(activeOrderAmount(order))}</td><td>{order.fulfilledQuantity} fulfilled · {remaining} open</td><td><span className={`status ${order.status === 'Booked' ? 'pending' : 'active'}`}>{order.status}</span></td><td>{mayCancel && <button className="secondary" disabled={busy} onClick={() => { if (window.confirm(`Cancel the remaining ${remaining} units of ${order.id}? Reserved stock will be released.`)) { setBusy(true); void cancelOrder(order.id).then(() => setMessage('Order cancelled and reserved stock released.')).catch(error => setMessage(error instanceof Error ? error.message : 'Order could not be cancelled.')).finally(() => setBusy(false)) } }}>Cancel remaining</button>}</td></tr>
+            return <tr key={order.id}><td>{dateForSales(order.createdAt)}</td><td><code>{order.id}</code></td><td>{order.salesChannel === 'INDIAMART' ? 'IndiaMART' : 'Direct'}</td><td>{order.customerName}</td><td>{order.salesUserName}</td><td><code>{order.listingSku || order.sku}</code><small>{order.listingSku ? `ERP SKU: ${order.sku}` : order.productName}</small></td><td>{order.quantity}</td><td>{money(order.unitPrice)}</td><td>{money(activeOrderAmount(order))}</td><td>{order.fulfilledQuantity} fulfilled · {remaining} open</td><td><span className={`status ${order.status === 'Booked' ? 'pending' : 'active'}`}>{order.status}</span></td><td>{mayCancel && <button className="secondary" disabled={busy} onClick={() => { if (window.confirm(`Cancel the remaining ${remaining} units of ${order.id}? Reserved stock will be released.`)) { setBusy(true); void cancelOrder(order.id).then(() => setMessage('Order cancelled and reserved stock released.')).catch(error => setMessage(error instanceof Error ? error.message : 'Order could not be cancelled.')).finally(() => setBusy(false)) } }}>Cancel remaining</button>}</td></tr>
           })}
         </tbody></table></div> : <div className="empty-state"><FileSpreadsheet size={22} /><strong>No sales orders yet</strong><span>New bookings will be listed here for the Admin and Production Supervisor.</span></div>}
       </section>

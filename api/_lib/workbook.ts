@@ -779,6 +779,8 @@ export async function createWorkbookSalesOrder(input: SessionBoundInput & {
   productName: string
   quantity: number
   unitPrice: number
+  salesChannel: 'DIRECT' | 'INDIAMART'
+  indiaMartListingId: string
   notes: string
 }) {
   return callAppsScript<{
@@ -786,6 +788,25 @@ export async function createWorkbookSalesOrder(input: SessionBoundInput & {
     item: Record<string, unknown>
     movement: Record<string, unknown>
   }>('createSalesOrder', { ...input, ...sessionBoundPayload(input) })
+}
+
+export async function saveWorkbookIndiaMartListings(input: SessionBoundInput & {
+  listings: Array<{
+    id: string
+    productSku: string
+    listingSku: string
+    productName: string
+    listedPrice: number | null
+    unitCost: number | null
+    sourceUrl: string
+    imageUrl: string
+    status: string
+  }>
+}) {
+  return callAppsScript<{ listings: Record<string, unknown>[] }>(
+    'saveIndiaMartListings',
+    { ...input, ...sessionBoundPayload(input) },
+  )
 }
 
 export async function cancelWorkbookSalesOrder(input: SessionBoundInput & { orderId: string }) {

@@ -40,6 +40,10 @@ export type SalesOrder = {
   leadId: string
   customerName: string
   sku: string
+  salesChannel: 'DIRECT' | 'INDIAMART'
+  indiaMartListingId: string
+  listingSku: string
+  unitCost: number | null
   productName: string
   quantity: number
   unitPrice: number
@@ -48,6 +52,27 @@ export type SalesOrder = {
   cancelledQuantity: number
   status: string
   notes: string
+}
+
+export type IndiaMartListing = {
+  id: string
+  productSku: string
+  listingSku: string
+  productName: string
+  listedPrice: number | null
+  unitCost: number | null
+  sourceUrl: string
+  imageUrl: string
+  status: 'Draft' | 'Active' | 'Inactive'
+  updatedAt: string
+}
+
+export type IndiaMartCatalogCandidate = {
+  id: string
+  productName: string
+  sourceUrl: string
+  imageUrl: string
+  suggestedPrice: number | null
 }
 
 export type SalesTarget = {

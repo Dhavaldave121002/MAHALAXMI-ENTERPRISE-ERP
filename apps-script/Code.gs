@@ -3,6 +3,9 @@
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
     const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
     const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    ERP_DATA_SHEETS.push('IndiaMART_Listings')
+    ERP_SESSION_BOUND_ACTIONS.push('saveIndiaMartListings')
+    ERP_AUDIT_ACTIONS.push('saveIndiaMartListings')
     ERP_SESSION_BOUND_ACTIONS.push('setMachineStatus')
     ERP_AUDIT_ACTIONS.push('setMachineStatus')
     const ERP_AUDIT_SPREADSHEET_PROPERTY = 'ERP_PRIVATE_AUDIT_SPREADSHEET_ID'
@@ -53,7 +56,8 @@
     const ERP_ACCOUNT_EXPENSE_HEADERS = ['Expense ID', 'Date', 'Category', 'Description', 'Amount', 'Payment Method', 'Reference ID', 'Created At', 'Created By ID', 'Created By']
     const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At']
     const ERP_SALES_ACTIVITY_HEADERS = ['Activity ID', 'Lead ID', 'Activity Type', 'Outcome', 'Notes', 'Next Follow-Up', 'Created At', 'Created By', 'Created By Name']
-    const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes']
+    const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes', 'Sales Channel', 'IndiaMART Listing ID', 'IndiaMART SKU', 'Unit Cost']
+    const ERP_INDIAMART_LISTING_HEADERS = ['Listing ID', 'Product SKU', 'IndiaMART SKU', 'Product Name', 'Listed Price', 'Unit Cost', 'Source URL', 'Image URL', 'Status', 'Updated At', 'Updated By']
     const ERP_SALES_TARGET_HEADERS = ['Target ID', 'Sales User ID', 'Sales User Name', 'Period', 'Period Key', 'Target Amount', 'Updated At', 'Updated By']
     const ERP_GRAPHIC_DESIGN_HEADERS = ['Task ID', 'Planned Date', 'Month', 'Product SKU', 'Product Name', 'Platforms', 'Content Type', 'Brief', 'Caption', 'Script', 'Shoot Status', 'Edit Status', 'Review Status', 'Review Note', 'Created By ID', 'Created By', 'Created At', 'Reviewed By', 'Reviewed At']
     const ERP_STORAGE_ROOT_PROPERTY = 'ERP_STORAGE_ROOT_FOLDER_ID'
@@ -410,6 +414,8 @@
           return assignSalesLead_(spreadsheet, payload)
         case 'recordSalesActivity':
           return recordSalesActivity_(spreadsheet, payload)
+        case 'saveIndiaMartListings':
+          return saveIndiaMartListings_(spreadsheet, payload)
         case 'createSalesOrder':
           return createSalesOrder_(spreadsheet, payload)
         case 'cancelSalesOrder':
@@ -919,6 +925,7 @@
         recordSalesActivity: 'Recorded sales activity',
         createSalesOrder: 'Created sales order',
         cancelSalesOrder: 'Cancelled sales order',
+        saveIndiaMartListings: 'Updated IndiaMART listings',
         setSalesTarget: 'Changed sales target',
         addSupplier: 'Created supplier',
         setSupplierActive: payload.active ? 'Activated supplier' : 'Deactivated supplier',
@@ -1531,7 +1538,7 @@
           if (kind !== 'finished' || (!linkedOrderReturn && type !== 'Dispatch') || (type === 'Dispatch' && (!salesChannel || !deliveryPartner))) {
             throw apiError_(400, 'A supported platform is required for dispatches and linked returns.')
           }
-          if (['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA', 'DIRECT'].indexOf(salesChannel) < 0 || deliveryPartner.length > 100) {
+          if (['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA', 'DIRECT', 'INDIAMART'].indexOf(salesChannel) < 0 || deliveryPartner.length > 100) {
             throw apiError_(400, 'Choose a supported delivery channel and a valid delivery partner.')
           }
           if (type === 'Dispatch' && !referenceId) throw apiError_(400, 'Enter the marketplace order number to enable order-linked returns.')
@@ -1625,7 +1632,12 @@
           if (String(linkedSalesOrder['Product SKU'] || '').trim().toLowerCase() !== sku.toLowerCase()) {
             throw apiError_(409, 'The selected sales order is for a different product SKU.')
           }
+          const orderChannel = String(linkedSalesOrder['Sales Channel'] || 'DIRECT').trim()
+          if (orderChannel !== salesChannel) throw apiError_(409, 'The selected sales order belongs to a different sales channel.')
           if (quantity > remainingOrderQuantity) throw apiError_(409, 'Dispatch quantity exceeds the remaining sales order quantity.')
+        }
+        if (type === 'Dispatch' && salesChannel === 'INDIAMART' && !linkedSalesOrder) {
+          throw apiError_(409, 'Book an IndiaMART order before dispatching its stock.')
         }
 
         const opening = isRaw ? rawClosingStock_(item) : finishedAvailableStock_(item)
@@ -2623,21 +2635,123 @@
       return 'Booked'
     }
 
+    function saveIndiaMartListings_(spreadsheet, payload) {
+      if (String(payload.sessionUserRole || '') !== 'Super Admin') {
+        throw apiError_(403, 'Only the Super Admin can manage IndiaMART listings.')
+      }
+      if (!Array.isArray(payload.listings) || payload.listings.length > 1000) {
+        throw apiError_(400, 'Provide no more than 1,000 IndiaMART listings to save.')
+      }
+      return withWriteLock_(function () {
+        const backupState = { created: false, backupName: '' }
+        const target = ensureStockSheet_(spreadsheet, 'IndiaMART_Listings', ERP_INDIAMART_LISTING_HEADERS, backupState)
+        const existing = readSheetRecords_(spreadsheet, 'IndiaMART_Listings')
+        const updates = []
+        const ids = {}
+        const activeSkus = {}
+        const normalized = payload.listings.map(function (entry, index) {
+          if (!entry || typeof entry !== 'object') throw apiError_(400, 'IndiaMART listing ' + (index + 1) + ' is invalid.')
+          const id = String(entry.id || '').trim()
+          const productSku = String(entry.productSku || '').trim()
+          const listingSku = String(entry.listingSku || '').trim()
+          const productName = String(entry.productName || '').trim()
+          const sourceUrl = String(entry.sourceUrl || '').trim()
+          const imageUrl = String(entry.imageUrl || '').trim()
+          const status = String(entry.status || '').trim()
+          const listedPrice = entry.listedPrice === '' || entry.listedPrice === null || entry.listedPrice === undefined
+            ? ''
+            : stockNumber_(entry.listedPrice, 'IndiaMART listed price')
+          const unitCost = entry.unitCost === '' || entry.unitCost === null || entry.unitCost === undefined
+            ? ''
+            : stockNumber_(entry.unitCost, 'IndiaMART unit cost')
+          if (!id || id.length > 100 || !productName || productName.length > 300 ||
+              !/^https:\/\/www\.mahalaxmienterprise\.in\.net(?:\/|$)/i.test(sourceUrl) ||
+              !/^https:\/\/(?:[a-z0-9-]+\.)*imimg\.com\//i.test(imageUrl) ||
+              ['Draft', 'Active', 'Inactive'].indexOf(status) < 0 ||
+              listingSku && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(listingSku) ||
+              listedPrice !== '' && (listedPrice < 0 || listedPrice > 100000000) ||
+              unitCost !== '' && (unitCost < 0 || unitCost > 100000000)) {
+            throw apiError_(400, 'IndiaMART listing ' + (index + 1) + ' contains invalid data.')
+          }
+          if (ids[id.toLowerCase()]) throw apiError_(400, 'Duplicate IndiaMART listing ID: ' + id + '.')
+          ids[id.toLowerCase()] = true
+          if (status === 'Active') {
+            if (!listingSku || !productSku || !listedPrice || unitCost === '') {
+              throw apiError_(400, 'Active IndiaMART listings require a listing SKU, mapped ERP SKU, positive price, and unit cost.')
+            }
+            const skuKey = listingSku.toLowerCase()
+            if (activeSkus[skuKey]) throw apiError_(409, 'IndiaMART SKU ' + listingSku + ' is already in use.')
+            activeSkus[skuKey] = true
+            if (!findCatalogProductName_(spreadsheet, productSku)) {
+              throw apiError_(409, 'Map active IndiaMART listings to an active ERP product SKU.')
+            }
+            const stockSheet = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
+            const stockRowNumber = findStockRow_(stockSheet.sheet, stockSheet.headers, 'Product SKU', productSku)
+            if (!stockRowNumber || String(readStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber).Status || '').toLowerCase() === 'archived') {
+              throw apiError_(409, 'Map active IndiaMART listings to an ERP SKU with a non-archived finished-goods stock record.')
+            }
+          }
+          return {
+            'Listing ID': id,
+            'Product SKU': productSku,
+            'IndiaMART SKU': listingSku,
+            'Product Name': productName,
+            'Listed Price': listedPrice,
+            'Unit Cost': unitCost,
+            'Source URL': sourceUrl,
+            'Image URL': imageUrl,
+            Status: status,
+            'Updated At': new Date().toISOString(),
+            'Updated By': String(payload.createdBy || ''),
+          }
+        })
+        const submittedIds = {}
+        normalized.forEach(function (listing) { submittedIds[String(listing['Listing ID']).toLowerCase()] = true })
+        const existingIds = {}
+        existing.forEach(function (listing) {
+          const listingId = String(listing['Listing ID'] || '').trim().toLowerCase()
+          if (!listingId || existingIds[listingId]) throw apiError_(409, 'Existing IndiaMART listings contain a duplicate or blank listing ID.')
+          existingIds[listingId] = true
+          if (submittedIds[listingId] || String(listing.Status || '') !== 'Active') return
+          const sku = String(listing['IndiaMART SKU'] || '').trim().toLowerCase()
+          if (!sku || activeSkus[sku]) throw apiError_(409, 'Existing IndiaMART listings contain duplicate active SKUs. Resolve them before saving.')
+          activeSkus[sku] = true
+        })
+        createBackupOnce_(spreadsheet, backupState)
+        normalized.forEach(function (listing) {
+          const rowNumber = findStockRow_(target.sheet, target.headers, 'Listing ID', listing['Listing ID'])
+          if (rowNumber) updateStockRow_(target.sheet, target.headers, rowNumber, listing)
+          else appendStockRow_(target.sheet, target.headers, listing)
+          updates.push(listing)
+        })
+        SpreadsheetApp.flush()
+        return { listings: updates }
+      })
+    }
+
     function createSalesOrder_(spreadsheet, payload) {
       if (String(payload.sessionUserRole || '') !== 'Sales Executive') throw apiError_(403, 'Only a Sales Executive can book a sales order.')
       return withWriteLock_(function () {
         const leadId = String(payload.leadId || '').trim()
         const customerName = String(payload.customerName || '').trim()
         const requestedProductName = String(payload.productName || '').trim()
-        const sku = String(payload.sku || '').trim()
+        const salesChannel = String(payload.salesChannel || 'DIRECT').trim()
+        const listingId = String(payload.indiaMartListingId || '').trim()
+        let sku = String(payload.sku || '').trim()
         const quantity = Number(payload.quantity)
-        const unitPrice = Number(payload.unitPrice)
+        let unitPrice = Number(payload.unitPrice)
+        let unitCost = ''
+        let indiaMartSku = ''
+        let listingProductName = ''
         const notes = String(payload.notes || '').trim()
         if ((!leadId && !customerName) || customerName.length > 180 || requestedProductName.length > 300 ||
-            !sku || !Number.isInteger(quantity) || quantity < 1 || quantity > 100000) {
+            !Number.isInteger(quantity) || quantity < 1 || quantity > 100000 ||
+            ['DIRECT', 'INDIAMART'].indexOf(salesChannel) < 0 ||
+            salesChannel === 'DIRECT' && !sku ||
+            salesChannel === 'INDIAMART' && !listingId) {
           throw apiError_(400, 'Choose an assigned lead or enter a customer name, choose a product SKU, and enter a whole-number quantity greater than zero.')
         }
-        if (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 100000000 || notes.length > 500) {
+        if (salesChannel === 'DIRECT' && (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 100000000) || notes.length > 500) {
           throw apiError_(400, 'Enter a valid unit price and optional order note.')
         }
         const backupState = { created: false, backupName: '' }
@@ -2654,9 +2768,24 @@
           }
           if (String(lead.Status || '').toLowerCase() === 'lost') throw apiError_(409, 'A lost lead cannot be converted into an order.')
         }
+        if (salesChannel === 'INDIAMART') {
+          const listingSheet = ensureStockSheet_(spreadsheet, 'IndiaMART_Listings', ERP_INDIAMART_LISTING_HEADERS, backupState)
+          const listingRowNumber = findStockRow_(listingSheet.sheet, listingSheet.headers, 'Listing ID', listingId)
+          if (!listingRowNumber) throw apiError_(404, 'IndiaMART listing was not found.')
+          const listing = readStockRow_(listingSheet.sheet, listingSheet.headers, listingRowNumber)
+          if (String(listing.Status || '') !== 'Active') throw apiError_(409, 'This IndiaMART listing is not active.')
+          sku = String(listing['Product SKU'] || '').trim()
+          indiaMartSku = String(listing['IndiaMART SKU'] || '').trim()
+          listingProductName = String(listing['Product Name'] || '').trim()
+          unitPrice = stockNumber_(listing['Listed Price'], 'IndiaMART listed price')
+          unitCost = stockNumber_(listing['Unit Cost'], 'IndiaMART unit cost')
+          if (!sku || !indiaMartSku || !listingProductName || unitPrice <= 0 || unitCost < 0) {
+            throw apiError_(409, 'This IndiaMART listing is missing its mapped SKU, price, or cost.')
+          }
+        }
         const catalogProductName = findCatalogProductName_(spreadsheet, sku)
         if (!catalogProductName) throw apiError_(404, 'Choose an active SKU from the product catalog.')
-        const productName = requestedProductName || catalogProductName
+        const productName = salesChannel === 'INDIAMART' ? listingProductName : requestedProductName || catalogProductName
 
         const stockSheet = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
         const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
@@ -2686,6 +2815,10 @@
           'Cancelled Quantity': 0,
           Status: 'Booked',
           Notes: notes,
+          'Sales Channel': salesChannel,
+          'IndiaMART Listing ID': salesChannel === 'INDIAMART' ? listingId : '',
+          'IndiaMART SKU': indiaMartSku,
+          'Unit Cost': unitCost,
         }
         item['Reserved Stock'] = stockNumber_(item['Reserved Stock'], 'Reserved stock') + quantity
         item['Available Stock'] = finishedAvailableStock_(item)
@@ -2696,7 +2829,7 @@
         const movement = appendStockMovement_(spreadsheet, stockMovementRecord_({
           sku: sku, type: 'Reserve', quantity: quantity, referenceId: orderId,
           reason: 'Sales order booking', opening: opening, closing: item['Available Stock'],
-          createdBy: payload.createdBy, itemType: 'Finished Goods',
+          createdBy: payload.createdBy, itemType: 'Finished Goods', salesChannel: salesChannel,
         }), backupState)
         if (lead) {
           lead.Status = 'Converted'
@@ -2748,7 +2881,7 @@
         const movement = stockMovementRecord_({
           sku: sku, type: 'Release Reservation', quantity: remaining, referenceId: orderId,
           reason: 'Sales order cancellation', opening: opening, closing: item['Available Stock'],
-          createdBy: payload.createdBy, itemType: 'Finished Goods',
+          createdBy: payload.createdBy, itemType: 'Finished Goods', salesChannel: String(order['Sales Channel'] || 'DIRECT'),
         })
         appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
         SpreadsheetApp.flush()

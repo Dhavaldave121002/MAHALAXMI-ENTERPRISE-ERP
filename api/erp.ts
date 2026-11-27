@@ -31,6 +31,7 @@ import {
   recordWorkbookSalesActivity,
   sendWorkbookChatMessage,
   setWorkbookSalesTarget,
+  saveWorkbookIndiaMartListings,
   setWorkbookProductionTarget,
   submitWorkbookGraphicDesignTask,
   updateWorkbookGraphicDesignProgress,
@@ -42,6 +43,7 @@ import {
   type PublicUser,
   type WorkbookData,
 } from './_lib/workbook.js'
+import { fetchIndiaMartCatalog } from './_lib/indiamart.js'
 
 type CatalogItem = {
   id: string
@@ -164,7 +166,8 @@ type SalesActivity = {
 }
 type SalesOrder = {
   id: string; createdAt: string; salesUserId: string; salesUserName: string; leadId: string;
-  customerName: string; sku: string; productName: string; quantity: number; unitPrice: number;
+  customerName: string; sku: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId: string;
+  listingSku: string; unitCost: number | null; productName: string; quantity: number; unitPrice: number;
   amount: number; fulfilledQuantity: number; cancelledQuantity: number; status: string; notes: string
 }
 
@@ -409,6 +412,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       salesLeads: [],
       salesActivities: [],
       salesOrders: [],
+      indiaMartListings: [],
       salesTargets: [],
       salesUsers: [],
       graphicDesignTasks: [],
@@ -561,12 +565,16 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
     const cancelledQuantity = number(row['Cancelled Quantity'])
     const unitPrice = number(row['Unit Price'])
     const amount = number(row.Amount)
+    const storedUnitCost = row['Unit Cost'] === undefined || row['Unit Cost'] === null || row['Unit Cost'] === ''
+      ? null
+      : Number(row['Unit Cost'])
     if (!text(row['Sales User ID']) || !text(row['Product SKU']) ||
         !Number.isInteger(quantity) || quantity < 1 ||
         !Number.isInteger(fulfilledQuantity) || fulfilledQuantity < 0 ||
         !Number.isInteger(cancelledQuantity) || cancelledQuantity < 0 ||
         fulfilledQuantity + cancelledQuantity > quantity ||
-        unitPrice <= 0 || amount <= 0) {
+        unitPrice <= 0 || amount <= 0 ||
+        storedUnitCost !== null && (!Number.isFinite(storedUnitCost) || storedUnitCost < 0)) {
       throw new ApiError(503, 'The Sales_Orders sheet contains an invalid order record.')
     }
     return [{
@@ -577,6 +585,10 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       leadId: text(row['Lead ID']),
       customerName: text(row['Customer Name']),
       sku: text(row['Product SKU']),
+      salesChannel: text(row['Sales Channel']) === 'INDIAMART' ? 'INDIAMART' : 'DIRECT',
+      indiaMartListingId: text(row['IndiaMART Listing ID']),
+      listingSku: text(row['IndiaMART SKU']),
+        unitCost: user.role === 'Super Admin' ? storedUnitCost : null,
       productName: text(row['Product Name']),
       quantity,
       unitPrice,
@@ -585,6 +597,50 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
       cancelledQuantity,
       status: text(row.Status),
       notes: text(row.Notes),
+    }]
+  })
+  const activeListingSkus = new Set<string>()
+  const listingIds = new Set<string>()
+  const indiaMartListings = optionalRecords(data, 'IndiaMART_Listings').flatMap(row => {
+    const id = text(row['Listing ID'])
+    const productName = text(row['Product Name'])
+    const status = text(row.Status)
+    if (!id || !productName || !['Draft', 'Active', 'Inactive'].includes(status)) {
+      throw new ApiError(503, 'The IndiaMART_Listings sheet contains an invalid listing record.')
+    }
+    if (listingIds.has(id.toLowerCase())) throw new ApiError(503, 'The IndiaMART_Listings sheet contains a duplicate listing ID.')
+    listingIds.add(id.toLowerCase())
+    const listingSku = text(row['IndiaMART SKU'])
+    const productSku = text(row['Product SKU'])
+    const listedPrice = row['Listed Price'] === undefined || row['Listed Price'] === null || row['Listed Price'] === ''
+      ? null
+      : Number(row['Listed Price'])
+    const unitCost = row['Unit Cost'] === undefined || row['Unit Cost'] === null || row['Unit Cost'] === ''
+      ? null
+      : Number(row['Unit Cost'])
+    if (listedPrice !== null && (!Number.isFinite(listedPrice) || listedPrice < 0) ||
+        unitCost !== null && (!Number.isFinite(unitCost) || unitCost < 0)) {
+      throw new ApiError(503, 'The IndiaMART_Listings sheet contains an invalid price or unit cost.')
+    }
+    if (status === 'Active') {
+      const key = listingSku.toLowerCase()
+      if (!listingSku || !productSku || listedPrice === null || listedPrice <= 0 || unitCost === null || activeListingSkus.has(key)) {
+        throw new ApiError(503, 'An active IndiaMART listing is missing required fields or has a duplicate IndiaMART SKU.')
+      }
+      activeListingSkus.add(key)
+    }
+    if (user.role !== 'Super Admin' && status !== 'Active') return []
+    return [{
+      id,
+      productSku,
+      listingSku,
+      productName,
+      listedPrice,
+      unitCost: user.role === 'Super Admin' ? unitCost : null,
+      sourceUrl: text(row['Source URL']),
+      imageUrl: text(row['Image URL']),
+      status: status as 'Draft' | 'Active' | 'Inactive',
+      updatedAt: text(row['Updated At']),
     }]
   })
   const salesOrders = allSalesOrders.filter(order => user.role !== 'Sales Executive' || order.salesUserId === user.id)
@@ -813,6 +869,7 @@ export function getSnapshot(data: WorkbookData, user: PublicUser) {
     salesLeads,
     salesActivities,
     salesOrders,
+    indiaMartListings,
     salesTargets,
     salesUsers,
     graphicDesignTasks: user.role === 'Super Admin' || user.role === 'Graphic Designer' ? graphicDesignTasks : [],
@@ -1372,7 +1429,7 @@ async function applyStockMovement(user: PublicUser, body: Record<string, unknown
     if (kind !== 'finished' || (type !== 'Dispatch' && !linkedOrderReturn) || (type === 'Dispatch' && !deliveryPartner)) {
       throw new ApiError(400, 'A supported platform is required for dispatches and linked returns.')
     }
-    if (!['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA', 'DIRECT'].includes(salesChannel)) {
+    if (!['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA', 'DIRECT', 'INDIAMART'].includes(salesChannel)) {
       throw new ApiError(400, 'Choose a supported delivery channel.')
     }
     if (deliveryPartner.length > 100) throw new ApiError(400, 'Delivery partner name is too long.')
@@ -1523,6 +1580,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const action = text(body.action)
     const snapshotActions = [
       'addProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'addProduct', 'addVariant', 'addMarketplaceListing', 'addMachine', 'setMachineStatus', 'setProductionTarget',
+      'previewIndiaMartCatalog', 'saveIndiaMartListings',
     ]
     const sessionBoundActions = [
       'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData',
@@ -1539,6 +1597,126 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     if (action === 'listChatData') {
       sendJson(response, 200, await listWorkbookChatData(user))
+      return
+    }
+    if (action === 'previewIndiaMartCatalog') {
+      requireAdmin(user)
+      let candidates: Awaited<ReturnType<typeof fetchIndiaMartCatalog>>
+      try {
+        candidates = await fetchIndiaMartCatalog()
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'The storefront returned an unknown error.'
+        throw new ApiError(502, `IndiaMART catalog preview failed: ${detail}`)
+      }
+      sendJson(response, 200, { candidates })
+      return
+    }
+    if (action === 'saveIndiaMartListings') {
+      requireAdmin(user)
+      if (!Array.isArray(body.listings) || body.listings.length > 1000) {
+        throw new ApiError(400, 'Provide no more than 1,000 IndiaMART listings to save.')
+      }
+      const activeSkus = new Set(getSnapshot(data!, user).products
+        .filter(product => product.status === 'Active')
+        .map(product => product.sku.toLowerCase()))
+      const finishedStockSkus = new Set(records(data!, 'Finished_Goods')
+        .filter(row => text(row.Status).toLowerCase() !== 'archived')
+        .map(row => text(row['Product SKU']).toLowerCase()))
+      const normalizedListings = body.listings.map((value, index) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} is invalid.`)
+        }
+        const row = value as Record<string, unknown>
+        const id = requiredText(row.id, 'Listing ID', 100)
+        const productName = requiredText(row.productName, 'Product name', 300)
+        const listingSku = text(row.listingSku)
+        const productSku = text(row.productSku)
+        const status = text(row.status)
+        const sourceUrl = requiredText(row.sourceUrl, 'Source URL', 2000)
+        const imageUrl = requiredText(row.imageUrl, 'Image URL', 2000)
+        let parsedSourceUrl: URL
+        let parsedImageUrl: URL
+        try {
+          parsedSourceUrl = new URL(sourceUrl)
+          parsedImageUrl = new URL(imageUrl)
+        } catch {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid source or image URL.`)
+        }
+        if (parsedSourceUrl.protocol !== 'https:' || parsedSourceUrl.origin !== 'https://www.mahalaxmienterprise.in.net' ||
+            parsedImageUrl.protocol !== 'https:' || !/(^|\.)imimg\.com$/i.test(parsedImageUrl.hostname)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} must use the approved storefront and product-image hosts.`)
+        }
+        if (listingSku && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(listingSku)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid SKU. Use letters, numbers, dot, underscore, or hyphen.`)
+        }
+        if (!['Draft', 'Active', 'Inactive'].includes(status)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid status.`)
+        }
+        const listedPrice = row.listedPrice === '' || row.listedPrice === null || row.listedPrice === undefined
+          ? null
+          : Number(row.listedPrice)
+        const unitCost = row.unitCost === '' || row.unitCost === null || row.unitCost === undefined
+          ? null
+          : Number(row.unitCost)
+        if (listedPrice !== null && (!Number.isFinite(listedPrice) || listedPrice < 0 || listedPrice > 100000000)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid listed price.`)
+        }
+        if (unitCost !== null && (!Number.isFinite(unitCost) || unitCost < 0 || unitCost > 100000000)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} has an invalid unit cost.`)
+        }
+        if (status === 'Active' && (!listingSku || !productSku || !listedPrice || unitCost === null)) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} needs an IndiaMART SKU, mapped ERP SKU, positive price, and unit cost before activation.`)
+        }
+        if (status === 'Active' && (!activeSkus.has(productSku.toLowerCase()) || !finishedStockSkus.has(productSku.toLowerCase()))) {
+          throw new ApiError(400, `IndiaMART listing ${index + 1} must map to an active ERP SKU with a finished-goods stock record.`)
+        }
+        return { id, productSku, listingSku, productName, listedPrice, unitCost, sourceUrl, imageUrl, status }
+      })
+      const listingIds = new Set<string>()
+      const listingSkus = new Set<string>()
+      const existingListings = optionalRecords(data!, 'IndiaMART_Listings')
+      const updatesById = new Map(normalizedListings.map(listing => [listing.id.toLowerCase(), listing]))
+      const existingIds = new Set<string>()
+      for (const existing of existingListings) {
+        const existingId = text(existing['Listing ID']).toLowerCase()
+        if (!existingId || existingIds.has(existingId)) throw new ApiError(409, 'Existing IndiaMART listings contain a duplicate or blank listing ID.')
+        existingIds.add(existingId)
+        if (updatesById.has(existingId)) continue
+        if (text(existing.Status) === 'Active') {
+          const sku = text(existing['IndiaMART SKU']).toLowerCase()
+          if (!sku || listingSkus.has(sku)) throw new ApiError(409, 'Existing IndiaMART listings contain duplicate active SKUs. Resolve them before saving.')
+          listingSkus.add(sku)
+        }
+      }
+      for (const listing of normalizedListings) {
+        const idKey = listing.id.toLowerCase()
+        if (listingIds.has(idKey)) throw new ApiError(400, `Duplicate IndiaMART listing ID: ${listing.id}.`)
+        listingIds.add(idKey)
+        if (listing.status === 'Active') {
+          const sku = listing.listingSku.toLowerCase()
+          if (listingSkus.has(sku)) throw new ApiError(409, `IndiaMART SKU ${listing.listingSku} is already in use.`)
+          listingSkus.add(sku)
+        }
+      }
+      const result = await saveWorkbookIndiaMartListings({
+        id: user.id,
+        role: user.role,
+        listings: normalizedListings,
+      })
+      sendJson(response, 200, {
+        listings: result.listings.map(row => ({
+          id: text(row['Listing ID']),
+          productSku: text(row['Product SKU']),
+          listingSku: text(row['IndiaMART SKU']),
+          productName: text(row['Product Name']),
+          listedPrice: row['Listed Price'] === '' || row['Listed Price'] === null || row['Listed Price'] === undefined ? null : number(row['Listed Price']),
+          unitCost: row['Unit Cost'] === '' || row['Unit Cost'] === null || row['Unit Cost'] === undefined ? null : number(row['Unit Cost']),
+          sourceUrl: text(row['Source URL']),
+          imageUrl: text(row['Image URL']),
+          status: text(row.Status),
+          updatedAt: text(row['Updated At']),
+        })),
+      })
       return
     }
     if (action === 'resetErpData') {
@@ -1754,6 +1932,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'createSalesOrder') {
       if (user.role !== 'Sales Executive') throw new ApiError(403, 'Only a Sales Executive can book a sales order.')
+      const salesChannel = text(body.salesChannel) || 'DIRECT'
+      if (salesChannel !== 'DIRECT' && salesChannel !== 'INDIAMART') throw new ApiError(400, 'Choose a supported sales channel.')
       const leadId = text(body.leadId)
       const customerName = text(body.customerName)
       const productName = text(body.productName)
@@ -1763,19 +1943,25 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (!leadId && !customerName) {
         throw new ApiError(400, 'Choose an assigned lead or enter a customer name.')
       }
-      const sku = requiredText(body.sku, 'Product SKU', 100)
+      const sku = salesChannel === 'DIRECT' ? requiredText(body.sku, 'Product SKU', 100) : text(body.sku)
+      const indiaMartListingId = salesChannel === 'INDIAMART'
+        ? requiredText(body.indiaMartListingId, 'IndiaMART listing', 100)
+        : ''
       const quantity = Number(body.quantity)
-      const unitPrice = Number(body.unitPrice)
+      const unitPrice = salesChannel === 'INDIAMART' ? 0 : Number(body.unitPrice)
       const notes = text(body.notes)
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100000 ||
-          !Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 100000000 || notes.length > 500) {
+          salesChannel === 'DIRECT' && (!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 100000000) || notes.length > 500) {
         throw new ApiError(400, 'Enter a valid order quantity, unit price, and note of 500 characters or fewer.')
       }
       const result = await createWorkbookSalesOrder({
-        id: user.id, role: user.role, leadId, customerName, sku, productName, quantity, unitPrice,
+        id: user.id, role: user.role, leadId, customerName, sku, productName, quantity, unitPrice, salesChannel, indiaMartListingId,
         notes,
       })
-      sendJson(response, 201, result)
+      sendJson(response, 201, {
+        ...result,
+        order: { ...result.order, 'Unit Cost': '' },
+      })
       return
     }
     if (action === 'cancelSalesOrder') {

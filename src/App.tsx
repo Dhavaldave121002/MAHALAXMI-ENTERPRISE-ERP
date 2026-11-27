@@ -8,14 +8,14 @@ import {
 } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import * as XLSX from 'xlsx'
-import { SalesDailyReportView, SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
+import { IndiaMartView, SalesDailyReportView, SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
 import { ScreenRecordingControl, type ScreenRecordingController } from './ScreenRecording'
 const CameraMonitoringView = lazy(() => import('./ScreenMonitoring').then(module => ({ default: module.ScreenMonitoringView })))
 const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.ChatView })))
-import type { SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
+import type { IndiaMartCatalogCandidate, IndiaMartListing, SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
 import './App.css'
 
-type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'Production' | 'Production Targets' | 'Stitching' | 'Graphic Design' | 'Raw Material' | 'Finished Goods' |
+type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'IndiaMART' | 'Production' | 'Production Targets' | 'Stitching' | 'Graphic Design' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
   'Stock Movement' | 'Shipping & Delivery' | 'Returns & RTO' | 'E-commerce Workspace' | 'E-commerce Stock' |
   'E-commerce Orders' | 'Shipping Labels' | 'Daily Work Report' | 'Machines' | 'Quality Control' | 'Employees' |
@@ -186,6 +186,7 @@ type WorkbookSnapshot = {
   salesLeads: SalesLead[]
   salesActivities: SalesActivity[]
   salesOrders: SalesOrder[]
+  indiaMartListings: IndiaMartListing[]
   salesTargets: SalesTarget[]
   salesUsers: SalesAccount[]
   graphicDesignTasks: GraphicDesignTask[]
@@ -215,7 +216,7 @@ const navSections: { label: string; items: Module[] }[] = [
   { label: 'COMMUNICATION', items: ['Chat'] },
   { label: 'INVENTORY', items: ['Raw Material', 'Finished Goods', 'Inventory', 'Stock Movement', 'Machines'] },
   { label: 'CATALOG', items: ['Product Catalog'] },
-  { label: 'SALES', items: ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
+  { label: 'SALES', items: ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Shipping & Delivery', 'Returns & RTO'] },
   { label: 'E-COMMERCE', items: ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels'] },
   { label: 'CREATIVE', items: ['Graphic Design'] },
   { label: 'WORK REPORTS', items: ['Daily Work Report'] },
@@ -226,10 +227,11 @@ const navSections: { label: string; items: Module[] }[] = [
 const settingsModules: Module[] = ['User Management', 'Excel Management', 'Audit Logs']
 const marketplaces = ['Amazon.in', 'Amazon.com', 'Flipkart', 'Meesho', 'Myntra', 'Shopify']
 const socialPlatforms = ['Instagram', 'Facebook', 'YouTube', 'LinkedIn']
-const deliveryChannels = ['DIRECT', 'AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
+const deliveryChannels = ['DIRECT', 'INDIAMART', 'AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const ecommercePlatforms: EcommercePlatform[] = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
 const deliveryPartnersByChannel: Record<string, string[]> = {
   DIRECT: ['CUSTOMER PICKUP', 'OWN DELIVERY', 'OTHER'],
+  INDIAMART: ['INDIAMART', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   AMAZON: ['AMAZON', 'AMAZON FLEX', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   FLIPKART: ['FLIPKART', 'SHREE ANJI COURIER', 'DELIVERY APP'],
   MEESHO: ['MEESHO', 'SHREE ANJI COURIER', 'DELIVERY APP'],
@@ -238,6 +240,7 @@ const deliveryPartnersByChannel: Record<string, string[]> = {
 }
 const deliveryMarketplacePlatforms: Record<string, string[]> = {
   DIRECT: [],
+  INDIAMART: [],
   AMAZON: ['AMAZON', 'AMAZON.IN', 'AMAZON.COM'],
   FLIPKART: ['FLIPKART'],
   MEESHO: ['MEESHO'],
@@ -251,7 +254,7 @@ const productionBlocks = [
 ]
 
 const moduleIcons: Record<Module, typeof LayoutDashboard> = {
-  Dashboard: LayoutDashboard, 'Sales Dashboard': BarChart3, 'Sales Daily Report': ClipboardCheck, Leads: Users, Production: Factory, 'Production Targets': Target, Stitching: ClipboardCheck, 'Raw Material': Boxes,
+  Dashboard: LayoutDashboard, 'Sales Dashboard': BarChart3, 'Sales Daily Report': ClipboardCheck, Leads: Users, IndiaMART: ShoppingCart, Production: Factory, 'Production Targets': Target, Stitching: ClipboardCheck, 'Raw Material': Boxes,
   'Finished Goods': Package, 'Product Catalog': Archive, Orders: ShoppingCart, Inventory: Boxes,
   'Stock Movement': ArrowUpRight,
   'Shipping & Delivery': Truck, 'Returns & RTO': RotateCcw, Machines: Gauge,
@@ -453,6 +456,13 @@ function recordNumber(record: Record<string, unknown>, key: string) {
   return Number.isFinite(value) ? value : 0
 }
 
+function recordNullableNumber(record: Record<string, unknown>, key: string) {
+  const raw = record[key]
+  if (raw === undefined || raw === null || raw === '') return null
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
+}
+
 function toSalesLead(record: Record<string, unknown>): SalesLead {
   const status = recordText(record, 'Status')
   if (!['New', 'Contacted', 'Qualified', 'Follow-up', 'Converted', 'Lost'].includes(status)) {
@@ -496,6 +506,7 @@ function toSalesActivity(record: Record<string, unknown>): SalesActivity {
 }
 
 function toSalesOrder(record: Record<string, unknown>): SalesOrder {
+  const salesChannel = recordText(record, 'Sales Channel')
   return {
     id: recordText(record, 'Order ID'),
     createdAt: recordText(record, 'Created At'),
@@ -504,6 +515,10 @@ function toSalesOrder(record: Record<string, unknown>): SalesOrder {
     leadId: recordText(record, 'Lead ID'),
     customerName: recordText(record, 'Customer Name'),
     sku: recordText(record, 'Product SKU'),
+    salesChannel: salesChannel === 'INDIAMART' ? 'INDIAMART' : 'DIRECT',
+    indiaMartListingId: recordText(record, 'IndiaMART Listing ID'),
+    listingSku: recordText(record, 'IndiaMART SKU'),
+    unitCost: recordNullableNumber(record, 'Unit Cost'),
     productName: recordText(record, 'Product Name'),
     quantity: recordNumber(record, 'Quantity'),
     unitPrice: recordNumber(record, 'Unit Price'),
@@ -672,6 +687,7 @@ export default function App() {
   const [salesLeads, setSalesLeads] = useState<SalesLead[]>([])
   const [salesActivities, setSalesActivities] = useState<SalesActivity[]>([])
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([])
+  const [indiaMartListings, setIndiaMartListings] = useState<IndiaMartListing[]>([])
   const [salesTargets, setSalesTargets] = useState<SalesTarget[]>([])
   const [salesAccounts, setSalesAccounts] = useState<SalesAccount[]>([])
   const [graphicDesignTasks, setGraphicDesignTasks] = useState<GraphicDesignTask[]>([])
@@ -699,6 +715,7 @@ export default function App() {
     setSalesLeads(data.salesLeads)
     setSalesActivities(data.salesActivities)
     setSalesOrders(data.salesOrders)
+    setIndiaMartListings(data.indiaMartListings)
     setSalesTargets(data.salesTargets)
     setSalesAccounts(data.salesUsers)
     setGraphicDesignTasks(data.graphicDesignTasks)
@@ -816,6 +833,7 @@ export default function App() {
       setSalesLeads([])
       setSalesActivities([])
       setSalesOrders([])
+      setIndiaMartListings([])
       setSalesTargets([])
       setSalesAccounts([])
       setWorkbookMeta({ loaded: false, name: 'Mahalaxmi-Enterprise-Master.xlsx', sheetCount: 0 })
@@ -1152,7 +1170,27 @@ export default function App() {
     notify('Call update saved.')
   }
 
-  const createSalesOrder = async (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string }) => {
+  const previewIndiaMartCatalog = async () => {
+    const result = await apiFetch<{ candidates: IndiaMartCatalogCandidate[] }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'previewIndiaMartCatalog' }),
+    })
+    return result.candidates
+  }
+
+  const saveIndiaMartListings = async (listings: IndiaMartListing[]) => {
+    const result = await apiFetch<{ listings: IndiaMartListing[] }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'saveIndiaMartListings', listings }),
+    })
+    setIndiaMartListings(result.listings)
+    workbookLastRefreshAt.current = Date.now()
+    return result.listings
+  }
+
+  const createSalesOrder = async (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId?: string }) => {
     const result = await apiFetch<{ order: Record<string, unknown>; item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1493,12 +1531,12 @@ export default function App() {
   const adminOnlyModules: Module[] = ['Camera Monitoring', 'Employees', 'Accounts', 'Reports', 'User Management', 'Audit Logs']
   const roleModules: Record<Role, Module[]> = {
     'Super Admin': adminModules.filter(item => item !== 'Daily Work Report' && item !== 'Shipping Labels'),
-    'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && !['Daily Work Report', 'Graphic Design', 'Suppliers', 'Sales Dashboard', 'Sales Daily Report', 'Leads'].includes(item)),
+    'Production Supervisor': adminModules.filter(item => !adminOnlyModules.includes(item) && !['Daily Work Report', 'Graphic Design', 'Suppliers', 'Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART'].includes(item)),
     'Machine Operator': ['Dashboard', 'Production', 'Production Targets', 'Chat', 'Change Password'],
     'Store Manager': ['Dashboard', 'Chat', 'Change Password'],
     'E-commerce Executive': ['E-commerce Workspace', 'E-commerce Stock', 'E-commerce Orders', 'Shipping Labels', 'Daily Work Report', 'Chat', 'Change Password'],
     'E-commerce Manager': ['E-commerce Workspace', 'Daily Work Report', 'Chat', 'Change Password'],
-    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'Orders', 'Chat', 'Change Password'],
+    'Sales Executive': ['Sales Dashboard', 'Sales Daily Report', 'Leads', 'IndiaMART', 'Orders', 'Chat', 'Change Password'],
     'Graphic Designer': ['Dashboard', 'Graphic Design', 'Daily Work Report', 'Chat', 'Change Password'],
   }
   return (
@@ -1583,11 +1621,11 @@ export default function App() {
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
               allowedModules={roleModules[sessionUser.role]}
-              salesLeads={salesLeads} salesActivities={salesActivities} salesOrders={salesOrders} salesTargets={salesTargets}
+              salesLeads={salesLeads} salesActivities={salesActivities} salesOrders={salesOrders} indiaMartListings={indiaMartListings} salesTargets={salesTargets}
               salesUsers={salesAccounts} setSalesUsers={setSalesAccounts}
               importSalesLeads={importSalesLeads} addSalesLead={addSalesLead} assignSalesLead={assignSalesLead}
               updateSalesLead={updateSalesLead} createSalesOrder={createSalesOrder} cancelSalesOrder={cancelSalesOrder}
-              setSalesTarget={setSalesTarget} />
+              setSalesTarget={setSalesTarget} previewIndiaMartCatalog={previewIndiaMartCatalog} saveIndiaMartListings={saveIndiaMartListings} />
           )}
         </div>
       </main>
@@ -1629,17 +1667,19 @@ function ModuleView(props: {
   machines: Machine[];
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
   allowedModules: Module[]
-  salesLeads: SalesLead[]; salesActivities: SalesActivity[]; salesOrders: SalesOrder[]; salesTargets: SalesTarget[]
+  salesLeads: SalesLead[]; salesActivities: SalesActivity[]; salesOrders: SalesOrder[]; indiaMartListings: IndiaMartListing[]; salesTargets: SalesTarget[]
   salesUsers: SalesAccount[]; setSalesUsers: React.Dispatch<React.SetStateAction<SalesAccount[]>>
   importSalesLeads: (rows: SalesLeadImportRow[], assignedUserId: string) => Promise<{ added: number; skipped: number }>
   addSalesLead: (lead: Omit<SalesLeadImportRow, 'assignedUserId'> & { assignedUserId: string }) => Promise<void>
   assignSalesLead: (leadId: string, assignedUserId: string) => Promise<void>
   updateSalesLead: (input: { leadId: string; status: SalesLeadStatus; activityType: SalesActivityType; outcome: string; notes: string; nextFollowUp: string }) => Promise<void>
-  createSalesOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string }) => Promise<void>
+  createSalesOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId?: string }) => Promise<void>
+  previewIndiaMartCatalog: () => Promise<IndiaMartCatalogCandidate[]>
+  saveIndiaMartListings: (listings: IndiaMartListing[]) => Promise<IndiaMartListing[]>
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, saveMachineStatus, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, saveMachineStatus, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, indiaMartListings, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget, previewIndiaMartCatalog, saveIndiaMartListings } = props
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditLoading, setAuditLoading] = useState(true)
   const [auditError, setAuditError] = useState('')
@@ -2053,6 +2093,15 @@ function ModuleView(props: {
   const salesRole = sessionUser.role === 'Sales Executive' || sessionUser.role === 'Production Supervisor'
     ? sessionUser.role
     : 'Super Admin'
+  if (module === 'IndiaMART') {
+    return <IndiaMartView
+      role={salesRole}
+      listings={indiaMartListings}
+      products={products}
+      previewCatalog={previewIndiaMartCatalog}
+      saveListings={saveIndiaMartListings}
+    />
+  }
   if (module === 'Sales Dashboard') {
     return <SalesDashboardView
       role={salesRole}
@@ -2063,6 +2112,8 @@ function ModuleView(props: {
       orders={salesOrders}
       targets={salesTargets}
       products={products}
+      indiaMartListings={indiaMartListings}
+      stockMovements={stockMovements}
       setTarget={setSalesTarget}
     />
   }
@@ -2094,6 +2145,7 @@ function ModuleView(props: {
       leads={salesLeads}
       orders={salesOrders}
       products={products}
+      indiaMartListings={indiaMartListings}
       createOrder={createSalesOrder}
       cancelOrder={cancelSalesOrder}
     />
@@ -2568,6 +2620,10 @@ function ModuleView(props: {
     const formElement = event.currentTarget
     const form = new FormData(formElement)
     const salesChannel = String(form.get('salesChannel') || '')
+    if (salesChannel === 'INDIAMART' && !salesOrders.some(order => order.id === deliverySalesOrderId && order.salesChannel === 'INDIAMART')) {
+      notify('Select a booked IndiaMART order before dispatching stock.')
+      return
+    }
     const partnerChoice = String(form.get('deliveryPartnerChoice') || '')
     const deliveryPartner = partnerChoice === 'Other'
       ? String(form.get('customDeliveryPartner') || '').trim()
@@ -2789,14 +2845,20 @@ function ModuleView(props: {
     const platformReturnDispatches = returnableDispatches.filter(dispatch => dispatch.salesChannel === returnChannel)
     const selectedReturnDispatch = platformReturnDispatches.find(dispatch => dispatch.id === returnDispatchId)
     const channelPlatforms = deliveryMarketplacePlatforms[deliveryChannel] || []
-    const channelProductSkus = new Set(marketplaceListings
+    const channelProductSkus = new Set([
+      ...marketplaceListings
       .filter(listing =>
         channelPlatforms.includes(listing.platform.trim().toUpperCase()) &&
         listing.status.toLowerCase() === 'active'
       )
-      .map(listing => listing.productSku.toLowerCase()))
+      .map(listing => listing.productSku.toLowerCase()),
+      ...(deliveryChannel === 'INDIAMART'
+        ? indiaMartListings.filter(listing => listing.status === 'Active').map(listing => listing.productSku.toLowerCase())
+        : []),
+    ])
     const deliveryVariantMasters = new Set(products.filter(product => product.isVariant && product.status === 'Active').map(product => product.masterSku.toLowerCase()))
     const pendingSalesOrders = salesOrders.filter(order =>
+      order.salesChannel === (deliveryChannel === 'INDIAMART' ? 'INDIAMART' : 'DIRECT') &&
       order.quantity - order.fulfilledQuantity - order.cancelledQuantity > 0
     )
     const selectedBookedOrder = pendingSalesOrders.find(order => order.id === deliverySalesOrderId)
@@ -2838,7 +2900,7 @@ function ModuleView(props: {
             </select></label>}
             {deliveryPartnerChoice === 'Other' && <label>Partner name<input name="customDeliveryPartner" required maxLength={100} value={customDeliveryPartner} onChange={event => setCustomDeliveryPartner(event.target.value)} placeholder="Enter delivery partner name" /></label>}
             {deliveryPartnerReady && <>
-            {deliveryChannel === 'DIRECT' && <label>Booked sales order<select value={deliverySalesOrderId} onChange={event => {
+            {(deliveryChannel === 'DIRECT' || deliveryChannel === 'INDIAMART') && <label>Booked sales order<select required={deliveryChannel === 'INDIAMART'} value={deliverySalesOrderId} onChange={event => {
               const order = pendingSalesOrders.find(item => item.id === event.target.value)
               setDeliverySalesOrderId(order?.id || '')
               setDeliverySku(order?.sku || '')
@@ -2866,11 +2928,11 @@ function ModuleView(props: {
             {selectedDeliveryProduct && <div className="delivery-stock"><span>{selectedBookedOrder ? 'Reserved for this order' : 'Available stock'}</span><strong>{selectedBookedOrder ? selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity : selectedDeliveryProduct.stock.toLocaleString('en-IN')} units</strong></div>}
             {selectedDeliveryProduct && <label>Unit sale price<input name="unitPrice" type="number" min="0.01" step="0.01" required value={selectedBookedOrder ? String(selectedBookedOrder.unitPrice) : deliveryUnitPrice} onChange={event => setDeliveryUnitPrice(event.target.value)} disabled={Boolean(selectedBookedOrder)} />{selectedDeliveryListing && <small>Defaults to the listing price; adjust to the actual dispatch price if needed.</small>}</label>}
             <label>Quantity<input name="quantity" type="number" min="1" max={selectedBookedOrder ? selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity : undefined} step="1" required value={deliveryQuantity} onChange={event => setDeliveryQuantity(event.target.value)} /></label>
-            <label>Order / shipment reference<input name="referenceId" maxLength={100} required placeholder={deliveryChannel === 'DIRECT' ? 'Select sales order above' : 'Marketplace order number'} value={deliveryReferenceId} onChange={event => setDeliveryReferenceId(event.target.value)} /></label>
+            <label>Order / shipment reference<input name="referenceId" maxLength={100} required placeholder={deliveryChannel === 'DIRECT' || deliveryChannel === 'INDIAMART' ? 'Select sales order above' : 'Marketplace order number'} value={deliveryReferenceId} onChange={event => setDeliveryReferenceId(event.target.value)} readOnly={Boolean(selectedBookedOrder)} /></label>
             <label className="delivery-note">Delivery notes<input name="reason" maxLength={300} placeholder="Optional delivery note" /></label>
             </>}
           </div>
-          {deliveryPartnerReady && <button className="primary wide" type="submit" disabled={!canManageDelivery || deliveryProducts.length === 0}>Save delivery and dispatch stock</button>}
+          {deliveryPartnerReady && <button className="primary wide" type="submit" disabled={!canManageDelivery || deliveryProducts.length === 0 || deliveryChannel === 'INDIAMART' && !selectedBookedOrder}>Save delivery and dispatch stock</button>}
           {canManageDelivery && deliveryPartnerReady && deliveryProducts.length === 0 && <p className="local-storage-note">Add an active {deliveryChannel} marketplace listing in Product Catalog before recording a delivery for this platform.</p>}
         </form> : <>
           <form className="panel form-card return-order-form" onSubmit={event => {
