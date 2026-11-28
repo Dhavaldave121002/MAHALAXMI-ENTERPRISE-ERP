@@ -97,6 +97,24 @@ export function isPrivateAssistantConfigured() {
   }
 }
 
+function openAiGeneralConfiguration() {
+  const apiKey = process.env.OPENAI_API_KEY?.trim() || ''
+  const model = process.env.OPENAI_MODEL?.trim() || ''
+  if (!apiKey || !model) {
+    throw new ApiError(503, 'General AI is not configured. Ask the administrator to configure its server-side settings.')
+  }
+  return { apiKey, model }
+}
+
+export function isOpenAiGeneralConfigured() {
+  try {
+    openAiGeneralConfiguration()
+    return true
+  } catch {
+    return false
+  }
+}
+
 function systemPrompt(user: PublicUser) {
   const roleModules = ROLE_MODULES[user.role].join('; ')
   return [
@@ -217,6 +235,67 @@ export async function generatePrivateAssistantReply(input: {
     }
     console.error('Private AI server connection failed.')
     throw new ApiError(502, 'Could not reach the private AI server. Check its secure connection and retry.')
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export async function generateOpenAiGeneralReply(question: string): Promise<string> {
+  const config = openAiGeneralConfiguration()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 20_000)
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a general-purpose assistant. Reply in the language and script used by the user. You have no access to Mahalaxmi ERP, private records, or live web search. Never claim to have checked current facts, changed records, or performed actions. For information that needs live verification, clearly say you cannot verify it. Never request passwords, API keys, or other credentials. Give concise, practical answers.',
+          },
+          { role: 'user', content: question },
+        ],
+        max_completion_tokens: 700,
+      }),
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      console.error('OpenAI General AI request returned HTTP status', response.status)
+      throw new ApiError(502, 'OpenAI General AI could not answer. Check its server-side configuration, then retry.')
+    }
+
+    let result: unknown
+    try {
+      result = await response.json()
+    } catch {
+      throw new ApiError(502, 'OpenAI General AI returned an unreadable response. Please retry.')
+    }
+    if (!result || typeof result !== 'object' || !('choices' in result) ||
+        !Array.isArray(result.choices) || !result.choices[0] ||
+        typeof result.choices[0] !== 'object' || !('message' in result.choices[0]) ||
+        !result.choices[0].message || typeof result.choices[0].message !== 'object' ||
+        !('content' in result.choices[0].message) ||
+        typeof result.choices[0].message.content !== 'string') {
+      throw new ApiError(502, 'OpenAI General AI returned an invalid response. Please retry.')
+    }
+    const answer = result.choices[0].message.content.trim()
+    if (!answer || answer.length > 7000) {
+      throw new ApiError(502, 'OpenAI General AI returned an invalid answer. Please retry.')
+    }
+    return answer
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError(504, 'OpenAI General AI took too long to answer. Try a shorter question, then retry.')
+    }
+    console.error('OpenAI General AI connection failed.')
+    throw new ApiError(502, 'Could not reach OpenAI General AI. Check the server-side connection, then retry.')
   } finally {
     clearTimeout(timeout)
   }

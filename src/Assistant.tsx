@@ -14,6 +14,7 @@ type AssistantState = {
   memory: string
   retentionHours: number
   modelReady: boolean
+  generalAiReady: boolean
   faqModeReady: boolean
 }
 
@@ -86,7 +87,10 @@ export function AssistantView({ user }: { user: AssistantUser }) {
   const [messages, setMessages] = useState<AssistantMessage[]>([])
   const [memory, setMemory] = useState('')
   const [modelReady, setModelReady] = useState(false)
+  const [generalAiReady, setGeneralAiReady] = useState(false)
   const [faqModeReady, setFaqModeReady] = useState(false)
+  const [mode, setMode] = useState<'erp' | 'general'>('erp')
+  const [generalMessages, setGeneralMessages] = useState<AssistantMessage[]>([])
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -100,6 +104,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
       setMessages(state.messages)
       setMemory(state.memory)
       setModelReady(state.modelReady)
+      setGeneralAiReady(state.generalAiReady)
       setFaqModeReady(state.faqModeReady)
       setError('')
     } catch (requestError) {
@@ -118,6 +123,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
           setMessages(state.messages)
           setMemory(state.memory)
           setModelReady(state.modelReady)
+          setGeneralAiReady(state.generalAiReady)
           setFaqModeReady(state.faqModeReady)
           setError('')
         }
@@ -138,18 +144,37 @@ export function AssistantView({ user }: { user: AssistantUser }) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const question = message.trim()
-    if (!question || sending || (!modelReady && !faqModeReady)) return
+    const canAsk = mode === 'general' ? generalAiReady : modelReady || faqModeReady
+    if (!question || sending || !canAsk) return
     setSending(true)
     setError('')
     setMessage('')
     try {
-      const result = await postAssistant<{
-        userMessage: AssistantMessage
-        assistantMessage: AssistantMessage
-        memory: string
-      }>('askAssistant', { message: question })
-      setMessages(previous => [...previous, result.userMessage, result.assistantMessage].slice(-40))
-      setMemory(result.memory)
+      if (mode === 'general') {
+        const result = await postAssistant<{ answer: string }>('askGeneralAssistant', { message: question })
+        const createdAt = new Date().toISOString()
+        const userMessage: AssistantMessage = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: question,
+          createdAt,
+        }
+        const assistantMessage: AssistantMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: result.answer,
+          createdAt,
+        }
+        setGeneralMessages(previous => [...previous, userMessage, assistantMessage].slice(-40))
+      } else {
+        const result = await postAssistant<{
+          userMessage: AssistantMessage
+          assistantMessage: AssistantMessage
+          memory: string
+        }>('askAssistant', { message: question })
+        setMessages(previous => [...previous, result.userMessage, result.assistantMessage].slice(-40))
+        setMemory(result.memory)
+      }
     } catch (requestError) {
       setMessage(question)
       setError(requestError instanceof Error ? requestError.message : 'Mahalaxmi Saathi could not answer.')
@@ -172,14 +197,15 @@ export function AssistantView({ user }: { user: AssistantUser }) {
     }
   }
 
-  const canAsk = modelReady || faqModeReady
+  const canAsk = mode === 'general' ? generalAiReady : modelReady || faqModeReady
+  const visibleMessages = mode === 'general' ? generalMessages : messages
   const suggestions = FAQ_SUGGESTIONS[user.role] || FAQ_SUGGESTIONS['Store Manager']
 
   return (
     <section className="assistant-page">
       <div className="page-heading assistant-heading">
         <div className="assistant-heading-copy">
-          <p>PRIVATE ERP HELPER</p>
+          <p>ERP & GENERAL HELP</p>
           <h1><Sparkles size={24} /> Mahalaxmi Saathi</h1>
           <span>Hi {user.name} — ask for ERP guidance or details about your assigned daily tasks.</span>
         </div>
@@ -188,21 +214,56 @@ export function AssistantView({ user }: { user: AssistantUser }) {
         </button>
       </div>
 
-      <p className="assistant-privacy-note">
-        Saathi uses your signed-in role and only retrieves matching ERP records or tasks you are allowed to see. It cannot change ERP records.
-        Chat moves to private Drive Trash after 24 hours of inactivity and is permanently removed after 30 days.
-        A separate memory summary stays until you clear it.
-      </p>
+      <div className="assistant-mode-picker" role="group" aria-label="Choose assistant mode">
+        <button
+          className={mode === 'erp' ? 'selected' : ''}
+          type="button"
+          aria-pressed={mode === 'erp'}
+          onClick={() => { setMode('erp'); setError('') }}
+          disabled={sending}
+        >
+          Private ERP assistant
+        </button>
+        <button
+          className={mode === 'general' ? 'selected' : ''}
+          type="button"
+          aria-pressed={mode === 'general'}
+          onClick={() => { setMode('general'); setError('') }}
+          disabled={!generalAiReady || sending}
+          title={generalAiReady ? 'Send an opted-in general question to OpenAI' : 'General AI is not configured'}
+        >
+          General AI (OpenAI)
+        </button>
+      </div>
 
-      {!modelReady && (
+      {mode === 'general' ? (
+        <p className="assistant-privacy-note assistant-external-notice">
+          This mode sends only the question you submit to OpenAI. ERP records, tasks, private chat history, and saved memory are not sent or saved with this reply.
+          Do not include confidential business information, passwords, or API keys. OpenAI usage may incur separate charges.
+        </p>
+      ) : (
+        <p className="assistant-privacy-note">
+          Saathi uses your signed-in role and only retrieves matching ERP records or tasks you are allowed to see. It cannot change ERP records.
+          Chat moves to private Drive Trash after 24 hours of inactivity and is permanently removed after 30 days.
+          A separate memory summary stays until you clear it.
+        </p>
+      )}
+
+      {mode === 'erp' && !modelReady && (
         <div className="assistant-setup-note" role="status">
           <AlertCircle size={18} />
           <span>Private AI is not connected. You can ask documented FAQs, but full multilingual answers and live ERP lookups need the company model server.</span>
         </div>
       )}
+      {!generalAiReady && (
+        <div className="assistant-setup-note" role="status">
+          <AlertCircle size={18} />
+          <span>General AI is not configured. An administrator can configure the server-only OpenAI API settings; never paste an API key into chat or frontend code.</span>
+        </div>
+      )}
       {error && <div className="assistant-error" role="alert"><AlertCircle size={17} />{error}</div>}
 
-      <details className="assistant-memory">
+      {mode === 'erp' && <details className="assistant-memory">
         <summary>Saved AI memory <span>{memory ? 'Stored separately from chat history' : 'No saved memory yet'}</span></summary>
         <div className="assistant-memory-content">
           <p>{memory || 'Saathi may save a short summary of useful conversation context. It is instructed not to save passwords or API keys; do not send secrets in chat.'}</p>
@@ -210,26 +271,30 @@ export function AssistantView({ user }: { user: AssistantUser }) {
             <Trash2 size={15} /> {clearingMemory ? 'Clearing…' : 'Clear my AI memory'}
           </button>
         </div>
-      </details>
+      </details>}
 
       <div className="assistant-workspace">
         <div className="assistant-messages" aria-live="polite">
-          {loading && <div className="assistant-empty">Loading your private assistant history…</div>}
-          {!loading && messages.length === 0 && (
+          {loading && mode === 'erp' && <div className="assistant-empty">Loading your private assistant history…</div>}
+          {!loading && visibleMessages.length === 0 && (
             <div className="assistant-welcome">
               <span className="assistant-welcome-icon"><Sparkles size={24} /></span>
               <strong>Namaste, {user.name}</strong>
-              <p>{modelReady ? 'Ask about ERP workflows or your assigned work.' : 'Ask a documented workflow FAQ. Live ERP details need the private AI server.'}</p>
-              <div className="assistant-suggestions" aria-label="Suggested questions">
+              <p>{mode === 'general'
+                ? 'Ask a general question. This mode does not have access to ERP records or live web search.'
+                : modelReady
+                  ? 'Ask about ERP workflows or your assigned work.'
+                  : 'Ask a documented workflow FAQ. Live ERP details need the private AI server.'}</p>
+              {mode === 'erp' && <div className="assistant-suggestions" aria-label="Suggested questions">
                 {suggestions.map(suggestion => (
                   <button key={suggestion} type="button" onClick={() => setMessage(suggestion)} disabled={sending}>
                     {suggestion}
                   </button>
                 ))}
-              </div>
+              </div>}
             </div>
           )}
-          {messages.map(item => (
+          {visibleMessages.map(item => (
             <article key={item.id} className={`assistant-message ${item.role === 'user' ? 'own' : ''}`}>
               <div className="assistant-message-meta">
                 <strong>{item.role === 'user' ? user.name : 'Mahalaxmi Saathi'}</strong>
@@ -252,17 +317,21 @@ export function AssistantView({ user }: { user: AssistantUser }) {
               event.preventDefault()
               event.currentTarget.form?.requestSubmit()
             }}
-            placeholder={modelReady ? 'Ask about ERP work or your assigned tasks…' : 'Ask a documented ERP workflow FAQ…'}
+            placeholder={mode === 'general'
+              ? 'Ask a general question (not ERP or confidential data)…'
+              : modelReady ? 'Ask about ERP work or your assigned tasks…' : 'Ask a documented ERP workflow FAQ…'}
             maxLength={3000}
             rows={2}
             disabled={!canAsk || sending}
           />
           <button className="primary" type="submit" disabled={!canAsk || sending || !message.trim()}>
-            <Send size={16} /> {sending ? 'Sending…' : 'Send'}
+            <Send size={16} /> {sending ? 'Sending…' : mode === 'general' ? 'Ask OpenAI' : 'Send'}
           </button>
         </form>
         <div className="assistant-composer-note">
-          Enter sends; Shift+Enter starts a new line. {modelReady ? 'Ask in any language.' : 'Full multilingual answers need the private AI server.'}
+          Enter sends; Shift+Enter starts a new line. {mode === 'general'
+            ? 'General AI answers are temporary and not saved to ERP chat history.'
+            : modelReady ? 'Ask in any language.' : 'Full multilingual answers need the private AI server.'}
           {' '}Answers can be wrong; verify important decisions in the ERP or with your supervisor.
         </div>
       </div>

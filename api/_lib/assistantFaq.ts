@@ -227,8 +227,8 @@ const ERP_ASSISTANT_FAQS: AssistantFaqEntry[] = [
   },
   {
     question: 'What should I do if Mahalaxmi Saathi cannot answer?',
-    answer: 'When the private model is not connected, Saathi can answer only documented FAQs and cannot check live ERP records. If a documented FAQ is missing, ask the Super Admin to add the workflow to the knowledge base. For live answers, the administrator must configure the private model server and its authenticated HTTPS connection; never expose the model port or share its token.',
-    keywords: ['ai not working', 'assistant unavailable', 'model offline', 'cannot answer', 'cant answer', 'private ai setup', 'ollama connection', 'server error', 'ai timeout', 'live data unavailable', 'એઆઈ કામ નથી કરતું'],
+    answer: 'When the private model is not connected, the Private ERP assistant can answer only documented FAQs and cannot check live ERP records. If configured, the separate General AI mode can answer general questions through OpenAI, but it receives only the question you submit and has no ERP data or live web access. For live ERP answers, the administrator must configure the private model server and its authenticated HTTPS connection; never expose the model port or share either provider token.',
+    keywords: ['ai not working', 'assistant unavailable', 'model offline', 'cannot answer', 'cant answer', 'private ai setup', 'ollama connection', 'server error', 'ai timeout', 'live data unavailable', 'openai api setup', 'general ai', 'chatgpt api', 'એઆઈ કામ નથી કરતું'],
   },
   {
     question: 'How are Chat messages, attachments, and AI memory retained?',

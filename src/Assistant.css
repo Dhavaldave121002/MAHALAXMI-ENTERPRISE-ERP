@@ -46,6 +46,40 @@
   margin: 0;
 }
 
+.assistant-mode-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.assistant-mode-picker button {
+  padding: 8px 12px;
+  color: #52657b;
+  background: #fff;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.assistant-mode-picker button.selected {
+  color: #205a91;
+  background: #eaf3fc;
+  border-color: #9cc8f4;
+  font-weight: 650;
+}
+
+.assistant-mode-picker button:focus-visible {
+  outline: 2px solid #9cc8f4;
+  outline-offset: 2px;
+}
+
+.assistant-mode-picker button:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
 .assistant-setup-note,
 .assistant-error {
   display: flex;

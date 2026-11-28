@@ -52,7 +52,9 @@ import {
 import { fetchIndiaMartCatalog } from './_lib/indiamart.js'
 import { workspaceData } from './ecommerce.js'
 import {
+  generateOpenAiGeneralReply,
   generatePrivateAssistantReply,
+  isOpenAiGeneralConfigured,
   isPrivateAssistantConfigured,
   type AssistantReply,
   type AssistantRecordContext,
@@ -1751,12 +1753,19 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       sendJson(response, 200, {
         ...state,
         modelReady: isPrivateAssistantConfigured(),
+        generalAiReady: isOpenAiGeneralConfigured(),
         faqModeReady: true,
       })
       return
     }
     if (action === 'clearAssistantMemory') {
       sendJson(response, 200, await clearWorkbookAssistantMemory(user))
+      return
+    }
+    if (action === 'askGeneralAssistant') {
+      const question = requiredText(body.message, 'Message', 3000)
+      const answer = await generateOpenAiGeneralReply(question)
+      sendJson(response, 200, { answer })
       return
     }
     if (action === 'askAssistant') {
