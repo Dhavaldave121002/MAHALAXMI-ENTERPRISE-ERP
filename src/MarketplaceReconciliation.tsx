@@ -204,7 +204,7 @@ function parseAmazonPayments(rows: Record<string, unknown>[]) {
         taxWithheld: 0,
         productCost: null,
         expectedSettlement: settlementAmount,
-        bankCredit: settlementAmount,
+        bankCredit: settlementAmount >= 0 ? settlementAmount : null,
       })
     }
     const transactionType = String(row['transaction-type'] ?? '').trim().toLowerCase()
