@@ -27,15 +27,12 @@ type PendingExternalRequest =
   | { kind: 'image'; message: string }
   | { kind: 'transcription'; audioDataUrl: string }
 
-const GENERAL_INTENT = /\b(business plan|market research|market analysis|swot|competitor analysis|pricing strategy|unit economics|go[- ]to[- ]market|marketing plan|brand strategy|business strategy|general question|write a poem|what is gst)\b|વ્યવસાય યોજના|બિઝનેસ પ્લાન|બજાર સંશોધન|સ્પર્ધક વિશ્લેષણ|व्यवसाय योजना|बाज़ार अनुसंधान/iu
-const IMAGE_GENERATION_INTENT = /\b(create|generate|make|draw)\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|illustration|logo)\b|\bdesign\s+(?:me\s+)?(?:a\s+)?logo\b|(?:image|picture|photo|logo)\s+(?:banavo|banao|bana do)|(?:બનાવો|બનાવી)\s*(?:ઇમેજ|છબી|ફોટો)/iu
-
-const GENERAL_SUGGESTIONS = [
-  'Create a practical business plan for my product and target customers.',
-  'Design a market-research plan for my product in my target city.',
-  'Build a SWOT analysis and recommend the top three actions.',
-  'Help me set a price using costs, margin, and competitor research.',
-  'Create a 90-day go-to-market strategy with measurable milestones.',
+const BUSINESS_FAQ_SUGGESTIONS = [
+  'How do I build a practical business strategy and 90-day plan?',
+  'How do I conduct market research and validate demand?',
+  'How do I compare competitors without guessing?',
+  'How do I set a product price using unit economics?',
+  'How do I create a measurable marketing and promotion plan?',
 ]
 
 const FAQ_SUGGESTIONS: Record<string, string[]> = {
@@ -43,11 +40,13 @@ const FAQ_SUGGESTIONS: Record<string, string[]> = {
     'How do I import Sales leads?',
     'Why can’t a Manager see an Executive?',
     'How do I add a supplier?',
+    'How do I build a practical business strategy and 90-day plan?',
   ],
   'Production Supervisor': [
     'Why is production not increasing finished-goods stock?',
     'How should I update stock?',
     'Who can dispatch a booked Sales order?',
+    'How do I set a product price using unit economics?',
   ],
   'Machine Operator': [
     'Who records production and reviews quality?',
@@ -73,6 +72,7 @@ const FAQ_SUGGESTIONS: Record<string, string[]> = {
     'How do I plan Graphic Design work?',
     'How do I share my screen or camera?',
     'How do I complete a Daily Task?',
+    'How do I create a measurable marketing and promotion plan?',
   ],
   'Store Manager': [
     'Why can’t I see a page, task, or business record?',
@@ -310,27 +310,13 @@ export function AssistantView({ user }: { user: AssistantUser }) {
     const prompt = question || (selectedImage ? 'Describe this image and summarize its visible contents.' : '')
     if (!prompt || sending || pendingExternal || recordingVoice || transcribingVoice) return
 
-    if (generalTask === 'image' || IMAGE_GENERATION_INTENT.test(prompt)) {
-      if (!imageGenerationReady) {
-        setError('Image generation is not configured. Ask the administrator to check OPENAI_IMAGE_MODEL.')
-        return
-      }
-      setPendingExternal({ kind: 'image', message: prompt })
-      setError('')
+    if (selectedImage || voiceTranscriptPending) {
+      setError('Saathi is in FAQ-only mode. Images and voice are not sent; no external request was made.')
       return
     }
 
-    if (selectedImage || voiceTranscriptPending || GENERAL_INTENT.test(prompt)) {
-      if (!generalAiReady) {
-        setError('General AI is not configured. Ask the administrator to check the OpenAI setup.')
-        return
-      }
-      setPendingExternal({
-        kind: 'answer',
-        message: prompt,
-        ...(selectedImage ? { imageDataUrl: selectedImage.dataUrl } : {}),
-      })
-      setError('')
+    if (generalTask === 'image') {
+      setError('Saathi is in FAQ-only mode. Image generation is paused; no external request was made.')
       return
     }
 
@@ -516,13 +502,13 @@ export function AssistantView({ user }: { user: AssistantUser }) {
       {!generalAiReady && (
         <div className="assistant-setup-note" role="status">
           <AlertCircle size={18} />
-          <span>General AI is not configured. An administrator can configure the server-only OpenAI API settings; never paste an API key into chat or frontend code.</span>
+          <span>Saathi is currently in FAQ-only mode. No OpenAI request is made from this chat, so it will not incur OpenAI API charges.</span>
         </div>
       )}
       {!imageGenerationReady && (
         <div className="assistant-setup-note" role="status">
           <AlertCircle size={18} />
-          <span>Image generation is not configured. An administrator must set the server-side OPENAI_IMAGE_MODEL. OpenAI video generation is not currently available in this integration.</span>
+          <span>Image and voice AI features are paused in FAQ-only mode. OpenAI video generation is unavailable in this integration.</span>
         </div>
       )}
       {error && <div className="assistant-error" role="alert"><AlertCircle size={17} />{error}</div>}
@@ -544,9 +530,9 @@ export function AssistantView({ user }: { user: AssistantUser }) {
             <div className="assistant-welcome">
               <span className="assistant-welcome-icon"><Sparkles size={24} /></span>
               <strong>Namaste, {user.name}</strong>
-              <p>Ask about ERP tasks or workflows, or try a business-planning question. General questions are sent to OpenAI only after you confirm.</p>
+              <p>Ask about documented ERP workflows or use the business-planning FAQs. This chat is currently FAQ-only.</p>
               <div className="assistant-suggestions" aria-label="Suggested Saathi questions">
-                {[...suggestions.slice(0, 2), ...GENERAL_SUGGESTIONS.slice(0, 3)].map(suggestion => (
+                {[...suggestions.slice(0, 2), ...BUSINESS_FAQ_SUGGESTIONS].map(suggestion => (
                   <button key={suggestion} type="button" onClick={() => setMessage(suggestion)} disabled={sending || Boolean(pendingExternal)}>
                     {suggestion}
                   </button>
@@ -675,8 +661,8 @@ export function AssistantView({ user }: { user: AssistantUser }) {
                 event.currentTarget.form?.requestSubmit()
               }}
               placeholder={generalTask === 'image'
-                ? 'Describe the image you want to create…'
-                : 'Ask Saathi about ERP, business planning, or attach an image…'}
+                ? 'Image generation is paused in FAQ-only mode…'
+                : 'Ask Saathi about an ERP workflow or business-planning FAQ…'}
               maxLength={generalTask === 'image' ? 2000 : 3000}
               rows={2}
               disabled={!canAsk || sending || recordingVoice || transcribingVoice || Boolean(pendingExternal)}
@@ -693,7 +679,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
           </div>
         </form>
         <div className="assistant-composer-note">
-          Enter sends; Shift+Enter starts a new line. Saathi checks ERP questions privately first; OpenAI receives general/media content only after your confirmation.
+          Enter sends; Shift+Enter starts a new line. Saathi answers documented FAQs only; no ERP live lookup or external AI request is made.
           OpenAI messages are temporary in this browser. Review voice transcripts before sending; “Read aloud” uses your browser/device voice.
           {' '}Verify important decisions in the ERP or with your supervisor.
         </div>

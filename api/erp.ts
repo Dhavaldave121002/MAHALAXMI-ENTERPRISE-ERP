@@ -68,6 +68,8 @@ import {
   getAssistantFaqOnlyAnswer,
 } from './_lib/assistantFaq.js'
 
+const SAATHI_FAQ_ONLY_MODE = true
+
 type CatalogItem = {
   id: string
   sku: string
@@ -1755,9 +1757,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       const state = await listWorkbookAssistantState(user)
       sendJson(response, 200, {
         ...state,
-        modelReady: isPrivateAssistantConfigured(),
-        generalAiReady: isOpenAiGeneralConfigured(),
-        imageGenerationReady: isOpenAiImageGenerationConfigured(),
+        modelReady: !SAATHI_FAQ_ONLY_MODE && isPrivateAssistantConfigured(),
+        generalAiReady: !SAATHI_FAQ_ONLY_MODE && isOpenAiGeneralConfigured(),
+        imageGenerationReady: !SAATHI_FAQ_ONLY_MODE && isOpenAiImageGenerationConfigured(),
         faqModeReady: true,
       })
       return
@@ -1767,6 +1769,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return
     }
     if (action === 'askGeneralAssistant') {
+      if (SAATHI_FAQ_ONLY_MODE) throw new ApiError(503, 'Saathi is currently in FAQ-only mode. No external AI request was sent.')
       const question = requiredText(body.message, 'Message', 3000)
       let imageDataUrl: string | undefined
       if (body.imageDataUrl !== undefined) {
@@ -1783,12 +1786,14 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return
     }
     if (action === 'generateGeneralImage') {
+      if (SAATHI_FAQ_ONLY_MODE) throw new ApiError(503, 'Saathi is currently in FAQ-only mode. No external AI request was sent.')
       const prompt = requiredText(body.message, 'Image description', 2000)
       const imageDataUrl = await generateOpenAiGeneralImage(prompt)
       sendJson(response, 200, { imageDataUrl })
       return
     }
     if (action === 'transcribeGeneralAudio') {
+      if (SAATHI_FAQ_ONLY_MODE) throw new ApiError(503, 'Saathi is currently in FAQ-only mode. No external AI request was sent.')
       const audioDataUrl = body.audioDataUrl
       if (typeof audioDataUrl !== 'string' || audioDataUrl.length > 2_900_000) {
         throw new ApiError(400, 'Keep the voice recording under 2 MB.')
@@ -1800,7 +1805,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     if (action === 'askAssistant') {
       const question = requiredText(body.message, 'Message', 3000)
       const state = await listWorkbookAssistantState(user)
-      if (!isPrivateAssistantConfigured()) {
+      if (SAATHI_FAQ_ONLY_MODE || !isPrivateAssistantConfigured()) {
         if (assistantFaqQuestionNeedsLiveData(question)) {
           throw new ApiError(503, 'Live ERP lookups require the private AI server. Ask the administrator to connect it.')
         }
