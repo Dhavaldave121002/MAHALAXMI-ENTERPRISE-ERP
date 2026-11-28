@@ -479,7 +479,11 @@ export async function listWorkbookEcommerceReports(user: SessionBoundInput) {
 export async function importWorkbookMarketplaceRows(input: SessionBoundInput & {
   rows: Record<string, unknown>[]
 }) {
-  return callAppsScript<{ imported: number; duplicates: number }>('importMarketplaceReconciliation', {
+  return callAppsScript<{
+    imported: number
+    duplicates: number
+    records: Record<string, unknown>[]
+  }>('importMarketplaceReconciliation', {
     rows: input.rows,
     ...sessionBoundPayload(input),
   })

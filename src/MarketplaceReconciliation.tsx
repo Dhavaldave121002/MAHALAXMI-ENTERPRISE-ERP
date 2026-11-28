@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, FileSpreadsheet, RefreshCw, Upload } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import { unzipSync } from 'fflate'
+import { unzip } from 'fflate'
 
 type MarketplaceRecord = {
   id: string
@@ -421,6 +421,22 @@ async function requestReconciliationData() {
   return { records: result.records as MarketplaceRecord[], erpExpenses: result.erpExpenses as ERPExpense[] }
 }
 
+function extractZip(bytes: Uint8Array) {
+  return new Promise<Record<string, Uint8Array>>((resolve, reject) => {
+    unzip(bytes, (error, files) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve(files)
+    })
+  })
+}
+
+function waitForBrowserPaint() {
+  return new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+}
+
 export function MarketplaceReconciliationView({ user }: Props) {
   const isAdmin = user.role === 'Super Admin'
   const availablePlatforms = isAdmin ? RECONCILIATION_PLATFORMS : user.platforms || []
@@ -429,6 +445,8 @@ export function MarketplaceReconciliationView({ user }: Props) {
   const [selectedMonth, setSelectedMonth] = useState('')
   const [loading, setLoading] = useState(isAdmin)
   const [saving, setSaving] = useState(false)
+  const [importStatus, setImportStatus] = useState('')
+  const [importProgress, setImportProgress] = useState<{ completed: number; total: number } | null>(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [defaultPlatform, setDefaultPlatform] = useState(availablePlatforms[0] || '')
@@ -482,32 +500,52 @@ export function MarketplaceReconciliationView({ user }: Props) {
   const importFile = async (file?: File) => {
     if (!file) return
     setSaving(true)
+    setImportStatus('Reading report…')
+    setImportProgress(null)
     setError('')
     setMessage('')
+    let imported = 0
+    let duplicates = 0
+    let processed = 0
+    let totalRows = 0
+    const confirmedRecords: MarketplaceRecord[] = []
+    const mergeImportedRecords = () => {
+      if (!isAdmin || !confirmedRecords.length) return
+      setRecords(current => {
+        const existingIds = new Set(current.map(record => record.id))
+        const additions = confirmedRecords.filter(record => !existingIds.has(record.id))
+        return additions.length ? [...current, ...additions] : current
+      })
+    }
     try {
       if (file.size > 25 * 1024 * 1024) throw new Error('Choose a report smaller than 25 MB.')
       const mappedRows: Record<string, unknown>[] = []
       if (/\.zip$/i.test(file.name)) {
-        const archive = unzipSync(new Uint8Array(await file.arrayBuffer()))
-        let reportFiles = 0
-        for (const [name, bytes] of Object.entries(archive)) {
-          if (/\.pdf$/i.test(name)) continue
-          if (!/\.(xlsx|xls|csv)$/i.test(name)) continue
-          reportFiles += 1
+        setImportStatus('Extracting report files…')
+        await waitForBrowserPaint()
+        const archive = await extractZip(new Uint8Array(await file.arrayBuffer()))
+        const reportFiles = Object.entries(archive).filter(([name]) => /\.(xlsx|xls|csv)$/i.test(name))
+        if (!reportFiles.length) throw new Error('This ZIP contains PDFs only (labels/invoices), not an importable order or settlement report.')
+        for (const [index, [name, bytes]] of reportFiles.entries()) {
+          setImportStatus(`Reading file ${index + 1} of ${reportFiles.length}: ${name}`)
+          await waitForBrowserPaint()
           const workbook = XLSX.read(bytes, { type: 'array', cellDates: true })
-          mappedRows.push(...parseWorkbook(workbook, defaultPlatform, defaultType))
+          for (const row of parseWorkbook(workbook, defaultPlatform, defaultType)) mappedRows.push(row)
         }
-        if (!reportFiles) throw new Error('This ZIP contains PDFs only (labels/invoices), not an importable order or settlement report.')
       } else {
+        await waitForBrowserPaint()
         const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
-        mappedRows.push(...parseWorkbook(workbook, defaultPlatform, defaultType))
+        for (const row of parseWorkbook(workbook, defaultPlatform, defaultType)) mappedRows.push(row)
       }
       if (!mappedRows.length) throw new Error('The selected report has no supported transaction rows.')
-      let imported = 0
-      let duplicates = 0
+      totalRows = mappedRows.length
       const batchSize = 500
       for (let offset = 0; offset < mappedRows.length; offset += batchSize) {
         const batch = mappedRows.slice(offset, offset + batchSize)
+        const end = offset + batch.length
+        setImportProgress({ completed: processed, total: totalRows })
+        setImportStatus(`Importing rows ${offset + 1}–${end} of ${totalRows}…`)
+        await waitForBrowserPaint()
         const response = await fetch('/api/marketplace-reconciliation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -515,15 +553,25 @@ export function MarketplaceReconciliationView({ user }: Props) {
         })
         const result = await response.json()
         if (!response.ok) throw new Error(result.error || 'The report could not be imported.')
+        if (!Array.isArray(result.records)) throw new Error('The import completed without returning its saved rows. Refresh the dashboard to verify the result.')
         imported += Number(result.imported || 0)
         duplicates += Number(result.duplicates || 0)
+        processed = end
+        confirmedRecords.push(...result.records as MarketplaceRecord[])
+        setImportProgress({ completed: processed, total: totalRows })
       }
-      if (isAdmin) await refresh()
+      mergeImportedRecords()
+      setImportStatus('')
       setMessage(`Import complete: ${imported} new rows added; ${duplicates} duplicate rows skipped. (${mappedRows.length} source rows processed.)`)
     } catch (importError) {
-      setError(importError instanceof Error ? importError.message : 'The report could not be imported.')
+      mergeImportedRecords()
+      const detail = importError instanceof Error ? importError.message : 'The report could not be imported.'
+      setError(processed
+        ? `${detail} Import stopped after ${processed} of ${totalRows} rows; ${imported} new rows were confirmed.`
+        : detail)
     } finally {
       setSaving(false)
+      setImportStatus('')
       if (fileRef.current) fileRef.current.value = ''
     }
   }
@@ -561,6 +609,13 @@ export function MarketplaceReconciliationView({ user }: Props) {
       <button className="primary" type="button" disabled={saving || !defaultPlatform} onClick={() => fileRef.current?.click()}>
         <Upload size={16} /> {saving ? 'Importing report…' : 'Choose report to import'}
       </button>
+      {saving && <div className="reconciliation-import-progress" role="status" aria-live="polite">
+        <span>{importStatus || 'Preparing report…'}</span>
+        {importProgress && <>
+          <progress aria-label="Marketplace import progress" max={importProgress.total} value={importProgress.completed} />
+          <small>{importProgress.completed} of {importProgress.total} rows processed</small>
+        </>}
+      </div>}
       {!isAdmin && error && <p className="ecommerce-error" role="alert">{error}</p>}
       {message && <p className="ecommerce-feedback" role="status">{message}</p>}
     </section>

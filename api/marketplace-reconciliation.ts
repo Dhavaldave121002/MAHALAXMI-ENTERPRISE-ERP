@@ -57,6 +57,39 @@ function storedAmount(value: unknown, label: string, optional = false) {
   return parsed
 }
 
+function marketplaceRecord(row: Record<string, unknown>) {
+  const recordType = text(row['Record Type'], 'Stored Record Type', true)
+  if (recordType !== 'ORDER' && recordType !== 'SETTLEMENT') {
+    throw new ApiError(503, 'Stored marketplace reconciliation data has an invalid record type.')
+  }
+  const recordId = String(row['Record ID'] || '')
+  const platform = String(row.Platform || '')
+  return {
+    id: `${platform}|${recordType}|${recordId}`,
+    recordType,
+    recordId,
+    platform,
+    transactionDate: String(row['Transaction Date'] || ''),
+    orderId: String(row['Order ID'] || ''),
+    settlementId: String(row['Settlement ID'] || ''),
+    platformSku: String(row['Platform SKU'] || ''),
+    erpSku: String(row['ERP SKU'] || ''),
+    quantity: storedAmount(row.Quantity, 'Quantity') || 0,
+    grossSales: storedAmount(row['Gross Sales'], 'Gross Sales') || 0,
+    refunds: storedAmount(row.Refunds, 'Refunds') || 0,
+    marketplaceFees: storedAmount(row['Marketplace Fees'], 'Marketplace Fees') || 0,
+    shippingFees: storedAmount(row['Shipping Fees'], 'Shipping Fees') || 0,
+    advertisingFees: storedAmount(row['Advertising Fees'], 'Advertising Fees') || 0,
+    otherCharges: storedAmount(row['Other Charges'], 'Other Charges') || 0,
+    taxWithheld: storedAmount(row['Tax Withheld'], 'Tax Withheld') || 0,
+    productCost: storedAmount(row['Product Cost'], 'Product Cost', true),
+    expectedSettlement: storedAmount(row['Expected Settlement'], 'Expected Settlement') || 0,
+    bankCredit: storedAmount(row['Bank Credit'], 'Bank Credit', true),
+    importedBy: String(row['Imported By'] || ''),
+    importedAt: String(row['Imported At'] || ''),
+  }
+}
+
 function normalizeRow(value: unknown, index: number, user: PublicUser) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new ApiError(400, `Row ${index + 2} must contain marketplace report data.`)
@@ -162,36 +195,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (!Array.isArray(result.records) || !Array.isArray(result.expenses)) {
         throw new ApiError(503, 'Apps Script returned invalid marketplace reconciliation data.')
       }
-      const records = result.records.map(row => {
-        const recordType = text(row['Record Type'], 'Stored Record Type', true)
-        if (recordType !== 'ORDER' && recordType !== 'SETTLEMENT') {
-          throw new ApiError(503, 'Stored marketplace reconciliation data has an invalid record type.')
-        }
-        return {
-          id: `${String(row.Platform || '')}|${recordType}|${String(row['Record ID'] || '')}`,
-          recordType,
-          recordId: String(row['Record ID'] || ''),
-          platform: String(row.Platform || ''),
-          transactionDate: String(row['Transaction Date'] || ''),
-          orderId: String(row['Order ID'] || ''),
-          settlementId: String(row['Settlement ID'] || ''),
-          platformSku: String(row['Platform SKU'] || ''),
-          erpSku: String(row['ERP SKU'] || ''),
-          quantity: storedAmount(row.Quantity, 'Quantity') || 0,
-          grossSales: storedAmount(row['Gross Sales'], 'Gross Sales') || 0,
-          refunds: storedAmount(row.Refunds, 'Refunds') || 0,
-          marketplaceFees: storedAmount(row['Marketplace Fees'], 'Marketplace Fees') || 0,
-          shippingFees: storedAmount(row['Shipping Fees'], 'Shipping Fees') || 0,
-          advertisingFees: storedAmount(row['Advertising Fees'], 'Advertising Fees') || 0,
-          otherCharges: storedAmount(row['Other Charges'], 'Other Charges') || 0,
-          taxWithheld: storedAmount(row['Tax Withheld'], 'Tax Withheld') || 0,
-          productCost: storedAmount(row['Product Cost'], 'Product Cost', true),
-          expectedSettlement: storedAmount(row['Expected Settlement'], 'Expected Settlement') || 0,
-          bankCredit: storedAmount(row['Bank Credit'], 'Bank Credit', true),
-          importedBy: String(row['Imported By'] || ''),
-          importedAt: String(row['Imported At'] || ''),
-        }
-      })
+      const records = result.records.map(marketplaceRecord)
       const erpExpenses = result.expenses.map(row => ({
         date: text(row.Date, 'Stored ERP expense date', true),
         amount: storedAmount(row.Amount, 'ERP expense amount') || 0,
@@ -209,7 +213,10 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     const rows = body.rows.map((row, index) => normalizeRow(row, index, user))
     const result = await importWorkbookMarketplaceRows({ ...user, rows })
-    sendJson(response, 200, result)
+    if (!Array.isArray(result.records)) {
+      throw new ApiError(503, 'Apps Script returned no imported records. Deploy the latest Code.gs as a new web-app version.')
+    }
+    sendJson(response, 200, { ...result, records: result.records.map(marketplaceRecord) })
   } catch (error) {
     handleApiError(response, error, 'Marketplace reconciliation')
   }

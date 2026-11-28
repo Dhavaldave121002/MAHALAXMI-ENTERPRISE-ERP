@@ -1393,6 +1393,14 @@
       CacheService.getScriptCache().removeAll(keys)
     }
 
+    function invalidateSheetCache_(spreadsheet, name) {
+      try {
+        CacheService.getScriptCache().remove(workbookCacheKey_(spreadsheet, name))
+      } catch (error) {
+        Logger.log('Workbook cache invalidation failed for ' + name + ': ' + String(error))
+      }
+    }
+
     function ensureStockSheet_(spreadsheet, name, requiredHeaders, backupState) {
       let sheet = spreadsheet.getSheetByName(name)
       if (!sheet) {
@@ -4252,6 +4260,8 @@
         })
         let imported = 0
         let duplicates = 0
+        const rowsToAppend = []
+        const importedRecords = []
         payload.rows.forEach(function (source, index) {
           if (!source || typeof source !== 'object' || Array.isArray(source)) {
             throw apiError_(400, 'Marketplace report row ' + (index + 2) + ' is invalid.')
@@ -4314,11 +4324,18 @@
               throw apiError_(400, 'Marketplace report row ' + (index + 2) + ' has an invalid ' + field + '.')
             }
           })
-          appendStockRow_(target.sheet, target.headers, record)
+          rowsToAppend.push(target.headers.map(function (header) {
+            return safeCellValue_(record[header] === undefined ? '' : record[header])
+          }))
+          importedRecords.push(record)
           seen[key] = true
           imported += 1
         })
-        return { imported: imported, duplicates: duplicates }
+        if (rowsToAppend.length) {
+          target.sheet.getRange(target.sheet.getLastRow() + 1, 1, rowsToAppend.length, target.headers.length).setValues(rowsToAppend)
+          invalidateSheetCache_(spreadsheet, 'Marketplace_Reconciliation')
+        }
+        return { imported: imported, duplicates: duplicates, records: importedRecords }
       })
     }
 
@@ -4327,8 +4344,8 @@
         throw apiError_(403, 'Only the Super Admin can view marketplace reconciliation.')
       }
       return {
-        records: readSheetRecords_(spreadsheet, 'Marketplace_Reconciliation'),
-        expenses: readSheetRecords_(spreadsheet, 'Accounts_Expenses').map(function (record) {
+        records: readCachedSheetRecords_(spreadsheet, 'Marketplace_Reconciliation'),
+        expenses: readCachedSheetRecords_(spreadsheet, 'Accounts_Expenses').map(function (record) {
           return { Date: record.Date, Amount: record.Amount }
         }),
       }
