@@ -204,8 +204,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       throw new ApiError(403, 'Only an E-commerce Executive can import marketplace reports.')
     }
     const body = await readJsonBody(request)
-    if (!Array.isArray(body.rows) || body.rows.length === 0 || body.rows.length > 1000) {
-      throw new ApiError(400, 'Import between 1 and 1,000 report rows at a time.')
+    if (!Array.isArray(body.rows) || body.rows.length === 0 || body.rows.length > 500) {
+      throw new ApiError(400, 'Import between 1 and 500 report rows per batch.')
     }
     const rows = body.rows.map((row, index) => normalizeRow(row, index, user))
     const result = await importWorkbookMarketplaceRows({ ...user, rows })

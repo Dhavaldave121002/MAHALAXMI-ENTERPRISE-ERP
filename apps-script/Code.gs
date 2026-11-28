@@ -4233,8 +4233,8 @@
       if (String(payload.sessionUserRole || '') !== 'E-commerce Executive') {
         throw apiError_(403, 'Only an E-commerce Executive can import marketplace reports.')
       }
-      if (!Array.isArray(payload.rows) || payload.rows.length < 1 || payload.rows.length > 1000) {
-        throw apiError_(400, 'Import between 1 and 1,000 report rows at a time.')
+      if (!Array.isArray(payload.rows) || payload.rows.length < 1 || payload.rows.length > 500) {
+        throw apiError_(400, 'Import between 1 and 500 report rows per batch.')
       }
       const headers = [
         'Record ID', 'Record Type', 'Platform', 'Transaction Date', 'Order ID', 'Settlement ID',

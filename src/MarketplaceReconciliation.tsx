@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, FileSpreadsheet, RefreshCw, Upload } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { unzipSync } from 'fflate'
 
 type MarketplaceRecord = {
   id: string
@@ -87,7 +88,12 @@ function normalizeDate(value: unknown) {
   }
   const text = String(value ?? '').trim()
   const match = text.match(/^(\d{4}-\d{2}-\d{2})/)
-  return match ? match[1] : text
+  if (match) return match[1]
+  const dotted = text.match(/^(\d{2})\.(\d{2})\.(\d{4})/)
+  if (dotted) return `${dotted[3]}-${dotted[2]}-${dotted[1]}`
+  const slashed = text.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (slashed) return `${slashed[3]}-${slashed[2]}-${slashed[1]}`
+  return text
 }
 
 function mapImportRows(rows: Record<string, unknown>[], defaultPlatform: string, defaultType: 'ORDER' | 'SETTLEMENT') {
@@ -107,6 +113,254 @@ function mapImportRows(rows: Record<string, unknown>[], defaultPlatform: string,
     }
     return mapped
   })
+}
+
+function cleanAmount(value: unknown) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  const parsed = Number(String(value ?? '').replace(/[₹,$,%\s]/g, '').replace(/,/g, '').trim())
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function parseAmazonOrders(rows: Record<string, unknown>[]) {
+  const result: Record<string, unknown>[] = []
+  rows.forEach((row, index) => {
+    const quantity = cleanAmount(row.quantity)
+    const status = String(row['item-status'] ?? '').toLowerCase()
+    if (!quantity || status.includes('cancel') || status.includes('refund')) return
+    const orderId = String(row['amazon-order-id'] ?? '').trim()
+    const sku = String(row.sku ?? '').trim()
+    if (!orderId || !sku) return
+    const transactionDate = normalizeDate(row['purchase-date'])
+    result.push({
+      recordType: 'ORDER',
+      recordId: `${orderId}:${row['order-item-id'] || index}:${sku}`,
+      platform: 'AMAZON',
+      transactionDate,
+      orderId,
+      settlementId: '',
+      platformSku: sku,
+      erpSku: sku,
+      quantity,
+      grossSales: cleanAmount(row['item-price']) * quantity,
+      refunds: 0,
+      marketplaceFees: 0,
+      shippingFees: 0,
+      advertisingFees: 0,
+      otherCharges: 0,
+      taxWithheld: 0,
+      productCost: null,
+      expectedSettlement: 0,
+      bankCredit: null,
+    })
+  })
+  return result
+}
+
+function parseAmazonPayments(rows: Record<string, unknown>[]) {
+  const orders = new Map<string, Record<string, unknown>>()
+  const settlements = new Map<string, Record<string, unknown>>()
+  rows.forEach((row, index) => {
+    const settlementId = String(row['settlement-id'] ?? '').trim()
+    const settlementAmount = cleanAmount(row['total-amount'])
+    if (settlementId && settlementAmount && !settlements.has(settlementId)) {
+      settlements.set(settlementId, {
+        recordType: 'SETTLEMENT',
+        recordId: settlementId,
+        platform: 'AMAZON',
+        transactionDate: normalizeDate(row['deposit-date']),
+        orderId: '',
+        settlementId,
+        platformSku: '',
+        erpSku: '',
+        quantity: 0,
+        grossSales: 0,
+        refunds: 0,
+        marketplaceFees: 0,
+        shippingFees: 0,
+        advertisingFees: 0,
+        otherCharges: 0,
+        taxWithheld: 0,
+        productCost: null,
+        expectedSettlement: settlementAmount,
+        bankCredit: settlementAmount,
+      })
+    }
+    const transactionType = String(row['transaction-type'] ?? '').trim().toLowerCase()
+    const orderId = String(row['order-id'] ?? '').trim()
+    if (!orderId || (!transactionType.includes('order') && !transactionType.includes('refund') && !transactionType.includes('transaction'))) return
+    const sku = String(row.sku ?? '').trim()
+    const amountType = String(row['amount-type'] ?? '').trim()
+    const description = String(row['amount-description'] ?? '').trim().toLowerCase()
+    const amount = cleanAmount(row.amount)
+    const key = `${orderId}:${sku}`
+    const existing = orders.get(key) || {
+      recordType: 'ORDER',
+      recordId: `${orderId}:${sku}:${String(row['posted-date'] ?? row['posted-date-time'] ?? index)}`,
+      platform: 'AMAZON',
+      transactionDate: normalizeDate(row['posted-date'] || row['posted-date-time']),
+      orderId,
+      settlementId: '',
+      platformSku: sku,
+      erpSku: sku,
+      quantity: cleanAmount(row['quantity-purchased']) || 1,
+      grossSales: 0,
+      refunds: 0,
+      marketplaceFees: 0,
+      shippingFees: 0,
+      advertisingFees: 0,
+      otherCharges: 0,
+      taxWithheld: 0,
+      productCost: null,
+      expectedSettlement: 0,
+      bankCredit: null,
+    }
+    if (transactionType === 'refund') {
+      existing.refunds = Number(existing.refunds) + Math.abs(amount)
+    } else if (amountType.toLowerCase() === 'itemprice' && amount > 0) {
+      existing.grossSales = Number(existing.grossSales) + amount
+    } else if (amountType.toLowerCase() === 'itemfees') {
+      existing.marketplaceFees = Number(existing.marketplaceFees) + Math.abs(amount)
+    } else if (description.includes('easy ship') || description.includes('shipping') || description.includes('postage')) {
+      existing.shippingFees = Number(existing.shippingFees) + Math.abs(amount)
+    } else if (description.includes('tcs') || description.includes('tds')) {
+      existing.taxWithheld = Number(existing.taxWithheld) + Math.abs(amount)
+    } else if (amountType.toLowerCase() === 'promotion') {
+      existing.otherCharges = Number(existing.otherCharges) + Math.abs(amount)
+    }
+    orders.set(key, existing)
+  })
+  return [...orders.values(), ...settlements.values()]
+}
+
+function parseFlipkartOrders(rows: Record<string, unknown>[]) {
+  const result: Record<string, unknown>[] = []
+  rows.forEach(row => {
+    const status = String(row.order_item_status ?? row.OrderItemStatus ?? '').trim().toUpperCase()
+    const orderId = String(row.order_id ?? row.OrderID ?? '').trim()
+    const itemId = String(row.order_item_id ?? row.OrderItemID ?? '').trim()
+    const sku = String(row.sku ?? row.SKU ?? '').replace(/^(?:"*)?SKU:/i, '').replace(/^["]+|["]+$/g, '').trim()
+    const quantity = cleanAmount(row.quantity)
+    if (!orderId || !itemId || !sku || !quantity || status === 'CANCELLED') return
+    result.push({
+      recordType: 'ORDER',
+      recordId: itemId,
+      platform: 'FLIPKART',
+      transactionDate: normalizeDate(row.order_date),
+      orderId,
+      settlementId: '',
+      platformSku: sku,
+      erpSku: sku,
+      quantity,
+      grossSales: 0,
+      refunds: status === 'RETURNED' ? quantity : 0,
+      marketplaceFees: 0,
+      shippingFees: 0,
+      advertisingFees: 0,
+      otherCharges: 0,
+      taxWithheld: 0,
+      productCost: null,
+      expectedSettlement: 0,
+      bankCredit: null,
+    })
+  })
+  return result
+}
+
+function parseMeeshoWorkbook(workbook: XLSX.WorkBook) {
+  const sheet = workbook.Sheets['Order Payments']
+  if (!sheet) return []
+  const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
+    header: 1,
+    range: 3,
+    defval: '',
+  })
+  const orders: Record<string, unknown>[] = []
+  const settlements = new Map<string, Record<string, unknown>>()
+  rows.forEach((values) => {
+    const subOrder = String(values[0] ?? '').trim()
+    const sku = String(values[4] ?? '').trim()
+    if (!subOrder || !sku) return
+    const quantity = cleanAmount(values[10]) || 1
+    const status = String(values[7] ?? '').trim().toLowerCase()
+    const transactionId = String(values[11] ?? '').trim()
+    const paymentDate = normalizeDate(values[12])
+    const gross = cleanAmount(values[14])
+    const refund = Math.abs(cleanAmount(values[15]))
+    const fees = [21, 22, 23, 24, 25, 26, 27, 28].reduce((sum, column) => sum + Math.abs(cleanAmount(values[column])), 0)
+    const taxWithheld = Math.abs(cleanAmount(values[32])) + Math.abs(cleanAmount(values[34]))
+    orders.push({
+      recordType: 'ORDER',
+      recordId: subOrder,
+      platform: 'MEESHO',
+      transactionDate: normalizeDate(values[1]),
+      orderId: subOrder,
+      settlementId: transactionId,
+      platformSku: sku,
+      erpSku: sku,
+      quantity,
+      grossSales: status.includes('cancel') ? 0 : gross,
+      refunds: status.includes('rto') || status.includes('return') || refund > 0 ? refund : 0,
+      marketplaceFees: fees,
+      shippingFees: Math.abs(cleanAmount(values[28])),
+      advertisingFees: 0,
+      otherCharges: Math.abs(cleanAmount(values[27])),
+      taxWithheld,
+      productCost: null,
+      expectedSettlement: 0,
+      bankCredit: null,
+    })
+    if (transactionId) {
+      const settlementAmount = cleanAmount(values[13])
+      const existing = settlements.get(transactionId)
+      settlements.set(transactionId, existing ? {
+        ...existing,
+        expectedSettlement: Number(existing.expectedSettlement) + settlementAmount,
+        bankCredit: Number(existing.bankCredit) + settlementAmount,
+      } : {
+        recordType: 'SETTLEMENT',
+        recordId: transactionId,
+        platform: 'MEESHO',
+        transactionDate: paymentDate,
+        orderId: '',
+        settlementId: transactionId,
+        platformSku: '',
+        erpSku: '',
+        quantity: 0,
+        grossSales: 0,
+        refunds: 0,
+        marketplaceFees: 0,
+        shippingFees: 0,
+        advertisingFees: 0,
+        otherCharges: 0,
+        taxWithheld: 0,
+        productCost: null,
+        expectedSettlement: settlementAmount,
+        bankCredit: settlementAmount,
+      })
+    }
+  })
+  return [...orders, ...settlements.values()]
+}
+
+function parseWorkbook(workbook: XLSX.WorkBook, defaultPlatform: string, defaultType: 'ORDER' | 'SETTLEMENT') {
+  const sheetName = workbook.SheetNames.find(name => {
+    const lower = name.toLowerCase()
+    return lower === 'orders' || lower.includes('order') || lower.includes('payment')
+  }) || workbook.SheetNames[0]
+  const sheet = workbook.Sheets[sheetName]
+  if (!sheet) throw new Error('The selected workbook has no worksheet.')
+  if (sheetName === 'Order Payments') return parseMeeshoWorkbook(workbook)
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
+  if (!rows.length) throw new Error('The selected report has no transaction rows.')
+  const headers = Object.keys(rows[0]).map(normalizeHeader)
+  if (headers.includes('amazonorderid') || headers.includes('purchaseorderid') && headers.includes('sku')) {
+    if (headers.includes('settlementid') && headers.includes('transactiontype')) return parseAmazonPayments(rows)
+    return parseAmazonOrders(rows)
+  }
+  if (headers.includes('orderitemid') || headers.includes('orderid') && headers.includes('sku')) {
+    return parseFlipkartOrders(rows)
+  }
+  return mapImportRows(rows, defaultPlatform, defaultType)
 }
 
 function downloadTemplate() {
@@ -227,21 +481,40 @@ export function MarketplaceReconciliationView({ user }: Props) {
     setError('')
     setMessage('')
     try {
-      if (file.size > 5 * 1024 * 1024) throw new Error('Choose a report smaller than 5 MB.')
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-      if (!firstSheet) throw new Error('The selected workbook has no worksheet.')
-      const sourceRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: '' })
-      if (sourceRows.length === 0) throw new Error('The selected report has no transaction rows.')
-      if (sourceRows.length > 1000) throw new Error('Import up to 1,000 rows at a time.')
-      const response = await fetch('/api/marketplace-reconciliation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: mapImportRows(sourceRows, defaultPlatform, defaultType) }),
-      })
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.error || 'The report could not be imported.')
-      setMessage(`Import complete: ${result.imported} new rows added; ${result.duplicates} duplicate rows skipped.`)
+      if (file.size > 25 * 1024 * 1024) throw new Error('Choose a report smaller than 25 MB.')
+      const mappedRows: Record<string, unknown>[] = []
+      if (/\.zip$/i.test(file.name)) {
+        const archive = unzipSync(new Uint8Array(await file.arrayBuffer()))
+        let reportFiles = 0
+        for (const [name, bytes] of Object.entries(archive)) {
+          if (/\.pdf$/i.test(name)) continue
+          if (!/\.(xlsx|xls|csv)$/i.test(name)) continue
+          reportFiles += 1
+          const workbook = XLSX.read(bytes, { type: 'array', cellDates: true })
+          mappedRows.push(...parseWorkbook(workbook, defaultPlatform, defaultType))
+        }
+        if (!reportFiles) throw new Error('This ZIP contains PDFs only (labels/invoices), not an importable order or settlement report.')
+      } else {
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+        mappedRows.push(...parseWorkbook(workbook, defaultPlatform, defaultType))
+      }
+      if (!mappedRows.length) throw new Error('The selected report has no supported transaction rows.')
+      let imported = 0
+      let duplicates = 0
+      const batchSize = 500
+      for (let offset = 0; offset < mappedRows.length; offset += batchSize) {
+        const batch = mappedRows.slice(offset, offset + batchSize)
+        const response = await fetch('/api/marketplace-reconciliation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: batch }),
+        })
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error || 'The report could not be imported.')
+        imported += Number(result.imported || 0)
+        duplicates += Number(result.duplicates || 0)
+      }
+      setMessage(`Import complete: ${imported} new rows added; ${duplicates} duplicate rows skipped. (${mappedRows.length} source rows processed.)`)
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : 'The report could not be imported.')
     } finally {
@@ -277,7 +550,7 @@ export function MarketplaceReconciliationView({ user }: Props) {
           ref={fileRef}
           className="reconciliation-file-input"
           type="file"
-          accept=".csv,.xlsx,.xls"
+          accept=".csv,.xlsx,.xls,.zip"
           aria-label="Choose marketplace report"
           disabled={saving}
           onChange={event => void importFile(event.target.files?.[0])}
