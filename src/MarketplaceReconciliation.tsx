@@ -161,6 +161,26 @@ function parseAmazonOrders(rows: Record<string, unknown>[]) {
 function parseAmazonPayments(rows: Record<string, unknown>[]) {
   const orders = new Map<string, Record<string, unknown>>()
   const settlements = new Map<string, Record<string, unknown>>()
+  const orderLevelRows: Record<string, unknown>[] = []
+  const addAmounts = (existing: Record<string, unknown>, row: Record<string, unknown>) => {
+    const transactionType = String(row['transaction-type'] ?? '').trim().toLowerCase()
+    const amountType = String(row['amount-type'] ?? '').trim().toLowerCase()
+    const description = String(row['amount-description'] ?? '').trim().toLowerCase()
+    const amount = cleanAmount(row.amount)
+    if (transactionType === 'refund') {
+      existing.refunds = Number(existing.refunds) + Math.abs(amount)
+    } else if (amountType === 'itemprice' && amount > 0) {
+      existing.grossSales = Number(existing.grossSales) + amount
+    } else if (amountType === 'itemfees') {
+      existing.marketplaceFees = Number(existing.marketplaceFees) + Math.abs(amount)
+    } else if (description.includes('easy ship') || description.includes('shipping') || description.includes('postage')) {
+      existing.shippingFees = Number(existing.shippingFees) + Math.abs(amount)
+    } else if (description.includes('tcs') || description.includes('tds')) {
+      existing.taxWithheld = Number(existing.taxWithheld) + Math.abs(amount)
+    } else if (amountType === 'promotion') {
+      existing.otherCharges = Number(existing.otherCharges) + Math.abs(amount)
+    }
+  }
   rows.forEach((row, index) => {
     const settlementId = String(row['settlement-id'] ?? '').trim()
     const settlementAmount = cleanAmount(row['total-amount'])
@@ -191,9 +211,10 @@ function parseAmazonPayments(rows: Record<string, unknown>[]) {
     const orderId = String(row['order-id'] ?? '').trim()
     if (!orderId || (!transactionType.includes('order') && !transactionType.includes('refund') && !transactionType.includes('transaction'))) return
     const sku = String(row.sku ?? '').trim()
-    const amountType = String(row['amount-type'] ?? '').trim()
-    const description = String(row['amount-description'] ?? '').trim().toLowerCase()
-    const amount = cleanAmount(row.amount)
+    if (!sku) {
+      orderLevelRows.push(row)
+      return
+    }
     const key = `${orderId}:${sku}`
     const existing = orders.get(key) || {
       recordType: 'ORDER',
@@ -216,20 +237,21 @@ function parseAmazonPayments(rows: Record<string, unknown>[]) {
       expectedSettlement: 0,
       bankCredit: null,
     }
-    if (transactionType === 'refund') {
-      existing.refunds = Number(existing.refunds) + Math.abs(amount)
-    } else if (amountType.toLowerCase() === 'itemprice' && amount > 0) {
-      existing.grossSales = Number(existing.grossSales) + amount
-    } else if (amountType.toLowerCase() === 'itemfees') {
-      existing.marketplaceFees = Number(existing.marketplaceFees) + Math.abs(amount)
-    } else if (description.includes('easy ship') || description.includes('shipping') || description.includes('postage')) {
-      existing.shippingFees = Number(existing.shippingFees) + Math.abs(amount)
-    } else if (description.includes('tcs') || description.includes('tds')) {
-      existing.taxWithheld = Number(existing.taxWithheld) + Math.abs(amount)
-    } else if (amountType.toLowerCase() === 'promotion') {
-      existing.otherCharges = Number(existing.otherCharges) + Math.abs(amount)
-    }
+    addAmounts(existing, row)
     orders.set(key, existing)
+  })
+  const ordersByOrderId = new Map<string, Record<string, unknown>[]>()
+  orders.forEach(order => {
+    const orderId = String(order.orderId ?? '')
+    const matchingOrders = ordersByOrderId.get(orderId) || []
+    matchingOrders.push(order)
+    ordersByOrderId.set(orderId, matchingOrders)
+  })
+  orderLevelRows.forEach(row => {
+    const orderId = String(row['order-id'] ?? '').trim()
+    const matchingOrders = ordersByOrderId.get(orderId) || []
+    if (matchingOrders.length !== 1) return
+    addAmounts(matchingOrders[0], row)
   })
   return [...orders.values(), ...settlements.values()]
 }
@@ -355,8 +377,11 @@ function parseWorkbook(workbook: XLSX.WorkBook, defaultPlatform: string, default
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
   if (!rows.length) throw new Error('The selected report has no transaction rows.')
   const headers = Object.keys(rows[0]).map(normalizeHeader)
+  if (headers.includes('settlementid') && headers.includes('transactiontype') &&
+      headers.includes('amountdescription') && headers.includes('amount') && headers.includes('totalamount')) {
+    return parseAmazonPayments(rows)
+  }
   if (headers.includes('amazonorderid') || headers.includes('purchaseorderid') && headers.includes('sku')) {
-    if (headers.includes('settlementid') && headers.includes('transactiontype')) return parseAmazonPayments(rows)
     return parseAmazonOrders(rows)
   }
   if (headers.includes('orderitemid') || headers.includes('orderid') && headers.includes('sku')) {
@@ -584,7 +609,7 @@ export function MarketplaceReconciliationView({ user }: Props) {
       </div>
       <div className="reconciliation-import-notes">
         <p>Prepare <strong>ORDER</strong> rows with sales, fees, SKU, quantity, and total product cost. Add a separate <strong>SETTLEMENT</strong> row for each payout, including its expected amount and optional bank credit.</p>
-        <p>Choose the marketplace and report type for each upload. Common column names are recognized; if a platform export uses different headers, map/copy its data into the template. Blank product cost or bank credit is flagged rather than guessed.</p>
+        <p>For Amazon, choose Orders / transactions for the Orders export and Settlements / bank credits for the Payments/Settlement report; both formats are recognized directly. For other exports with different headers, map/copy the data into the template. Blank product cost or bank credit is flagged rather than guessed.</p>
         <p>{isAdmin
           ? 'As Super Admin, you can import reports for any supported marketplace.'
           : `Your account can import only platforms assigned by the Super Admin: ${availablePlatforms.join(', ') || 'none assigned'}.`}</p>
