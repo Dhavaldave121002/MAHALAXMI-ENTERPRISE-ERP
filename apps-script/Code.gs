@@ -2255,11 +2255,8 @@
             const sameEntry =
               String(existing.Date || '') === String(record.Date || '') &&
               String(existing['Machine ID'] || '').trim().toLowerCase() === String(record['Machine ID'] || '').trim().toLowerCase() &&
-              String(existing['Production Block'] || '').trim() === productionBlock &&
-              String(existing['Variant SKU'] || existing['Master SKU'] || '').trim().toLowerCase() === sku.toLowerCase() &&
-              Number(existing['Actual Quantity']) === actual &&
-              Number(existing['Rejected Quantity']) === rejected
-            if (sameEntry) throw apiError_(409, 'This production entry already exists for the selected date, block, machine, and SKU.')
+              String(existing['Production Block'] || '').trim() === productionBlock
+            if (sameEntry) throw apiError_(409, 'This machine already has an entry for the selected date and production block.')
           }
         }
 

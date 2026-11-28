@@ -1306,6 +1306,12 @@ async function addProduction(data: WorkbookData, user: PublicUser, body: Record<
   const machineId = requiredText(body.machine, 'Machine', 100)
   const block = requiredText(body.block, 'Production block', 20)
   if (!['Block 1', 'Block 2', 'Block 3'].includes(block)) throw new ApiError(400, 'Choose a valid production time block.')
+  const machineEntryExists = records(data, 'Production').some(row =>
+    text(row.Date) === date &&
+    text(row['Machine ID']).toLowerCase() === machineId.toLowerCase() &&
+    text(row['Production Block']) === block
+  )
+  if (machineEntryExists) throw new ApiError(409, 'This machine already has an entry for the selected date and production block.')
   const machine = records(data, 'Machines').find(row => text(row['Machine ID']).toLowerCase() === machineId.toLowerCase())
   if (!machine) throw new ApiError(400, 'Choose a machine configured by the Admin.')
   if (text(machine.Status).toLowerCase() === 'maintenance') throw new ApiError(400, 'The selected machine is under maintenance.')

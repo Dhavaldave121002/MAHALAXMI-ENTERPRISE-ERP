@@ -2216,6 +2216,18 @@ function ModuleView(props: {
     const rejected = Number(form.get('rejected'))
     const sku = String(form.get('sku') || '')
     const product = products.find(item => item.sku === sku && item.status === 'Active')
+    const date = String(form.get('date'))
+    const machine = String(form.get('machine'))
+    const block = String(form.get('block'))
+    const machineAlreadyUsed = production.some(row =>
+      row.date === date &&
+      row.machine.toLowerCase() === machine.toLowerCase() &&
+      row.block === block
+    )
+    if (machineAlreadyUsed) {
+      notify('This machine already has a production entry for the selected date and production block')
+      return
+    }
     if (!Number.isInteger(actual) || actual <= 0 || !Number.isInteger(rejected) || rejected < 0 || rejected > actual || !product) {
       notify('Select an active SKU and enter valid whole-number quantities')
       return
@@ -3489,7 +3501,11 @@ function ModuleView(props: {
     const activeProducts = products.filter(product =>
       product.status === 'Active' && (product.isVariant || !variantMasters.has(product.sku.toLowerCase()))
     )
-    const availableMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
+    const workingMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
+    const usedMachinesForSelectedSlot = new Set(production
+      .filter(row => row.date === productionDate && row.block === selectedProductionBlock)
+      .map(row => row.machine.toLowerCase()))
+    const availableMachines = workingMachines.filter(machine => !usedMachinesForSelectedSlot.has(machine.id.toLowerCase()))
     const visibleProduction = production.filter(row => row.date === today)
     const productionRows = visibleProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td><span className={`status ${row.qcStatus === 'Reviewed' ? 'active' : 'pending'}`}>{row.qcStatus}</span></td><td>{row.qcApproved}</td><td>{row.qcRejected}</td><td>{row.createdBy || '—'}</td><td>{sessionUser.role === 'Production Supervisor' || sessionUser.role === 'Super Admin'
       ? <button type="button" className="text-action danger" disabled={productionDeletingId === row.id} onClick={() => {
@@ -3547,7 +3563,7 @@ function ModuleView(props: {
                 : productionDate === today
                   ? <p className="local-storage-note">Current India time is outside a production block or during a break. Select the block manually for this entry.</p>
                   : <p className="local-storage-note">For a different production date, select the block manually.</p>}
-              {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin or Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask the Super Admin or Production Supervisor to add a machine.' : ''}</p>}
+              {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin or Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? (workingMachines.length === 0 ? 'No working machines configured. Ask the Super Admin or Production Supervisor to add a machine.' : 'All working machines already have entries for this date and production block.') : ''}</p>}
               <button className="primary wide" type="submit" disabled={productionSaving || activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> {productionSaving ? 'Saving…' : 'Save production record'}</button>
             </form>
             <div className="panel time-card">
