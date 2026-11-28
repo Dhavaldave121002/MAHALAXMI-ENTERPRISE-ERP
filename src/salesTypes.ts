@@ -52,6 +52,7 @@ export type SalesOrder = {
   amount: number
   fulfilledQuantity: number
   cancelledQuantity: number
+  reservedQuantity: number
   status: string
   notes: string
 }

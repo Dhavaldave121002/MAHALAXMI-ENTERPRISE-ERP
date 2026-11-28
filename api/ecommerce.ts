@@ -151,12 +151,12 @@ export function workspaceData(data: WorkbookData, user: PublicUser, users: Workb
   return { platforms, listings, movements, team: team.map(publicUser) }
 }
 
-function requireText(value: unknown, label: string, maximum: number) {
-  if (typeof value !== 'string') throw new ApiError(400, `${label} is required and must be ${maximum} characters or fewer.`)
+function requireText(value: unknown, label: string, maximum?: number) {
+  if (typeof value !== 'string') throw new ApiError(400, `${label} is required.`)
   const result = text(value)
   const hasControlCharacters = result.split('').some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
-  if (!result || result.length > maximum || hasControlCharacters) {
-    throw new ApiError(400, `${label} is required and must be ${maximum} characters or fewer.`)
+  if (!result || (maximum !== undefined && result.length > maximum) || hasControlCharacters) {
+    throw new ApiError(400, maximum === undefined ? `${label} is required.` : `${label} is required and must be ${maximum} characters or fewer.`)
   }
   return result
 }
@@ -226,14 +226,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         platform = requirePlatform(body.platform)
         requirePlatformAccess(user, platform)
       }
-      const completed = requireText(body.completed, 'Completed work', 3000)
+      const completed = requireText(body.completed, 'Completed work')
       if ((body.pending !== undefined && typeof body.pending !== 'string') ||
           (body.issues !== undefined && typeof body.issues !== 'string')) {
         throw new ApiError(400, 'Pending work and issues must be text.')
       }
       const pending = typeof body.pending === 'string' ? body.pending.trim() : ''
       const issues = typeof body.issues === 'string' ? body.issues.trim() : ''
-      if (pending.length > 3000 || issues.length > 3000) throw new ApiError(400, 'Each report field must be 3,000 characters or fewer.')
       const result = await submitWorkbookEcommerceReport({ id: user.id, role: user.role, platform, completed, pending, issues })
       sendJson(response, 200, result)
       return

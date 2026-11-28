@@ -76,7 +76,7 @@
     const ERP_ACCOUNT_EXPENSE_HEADERS = ['Expense ID', 'Date', 'Category', 'Description', 'Amount', 'Payment Method', 'Reference ID', 'Created At', 'Created By ID', 'Created By']
     const ERP_SALES_LEAD_HEADERS = ['Lead ID', 'Name', 'Company', 'Phone', 'Location', 'Email', 'Product Interest', 'Notes', 'Reference URL', 'Assigned User ID', 'Assigned User Name', 'Status', 'Next Follow-Up', 'Created At', 'Created By', 'Updated At', 'Enquiry Date']
     const ERP_SALES_ACTIVITY_HEADERS = ['Activity ID', 'Lead ID', 'Activity Type', 'Outcome', 'Notes', 'Next Follow-Up', 'Created At', 'Created By', 'Created By Name']
-    const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes', 'Sales Channel', 'IndiaMART Listing ID', 'IndiaMART SKU', 'Unit Cost']
+    const ERP_SALES_ORDER_HEADERS = ['Order ID', 'Created At', 'Sales User ID', 'Sales User Name', 'Lead ID', 'Customer Name', 'Product SKU', 'Product Name', 'Quantity', 'Unit Price', 'Amount', 'Fulfilled Quantity', 'Cancelled Quantity', 'Status', 'Notes', 'Sales Channel', 'IndiaMART Listing ID', 'IndiaMART SKU', 'Unit Cost', 'Reserved Quantity']
     const ERP_INDIAMART_LISTING_HEADERS = ['Listing ID', 'Product SKU', 'IndiaMART SKU', 'Product Name', 'Listed Price', 'Unit Cost', 'Source URL', 'Image URL', 'Status', 'Updated At', 'Updated By', 'Listing Inventory']
     const ERP_SALES_TARGET_HEADERS = ['Target ID', 'Sales User ID', 'Sales User Name', 'Period', 'Period Key', 'Target Amount', 'Updated At', 'Updated By']
     const ERP_GRAPHIC_DESIGN_HEADERS = ['Task ID', 'Planned Date', 'Month', 'Product SKU', 'Product Name', 'Platforms', 'Content Type', 'Brief', 'Caption', 'Script', 'Shoot Status', 'Edit Status', 'Review Status', 'Review Note', 'Created By ID', 'Created By', 'Created At', 'Reviewed By', 'Reviewed At']
@@ -1897,6 +1897,14 @@
           const orderChannel = String(linkedSalesOrder['Sales Channel'] || 'DIRECT').trim()
           if (orderChannel !== salesChannel) throw apiError_(409, 'The selected sales order belongs to a different sales channel.')
           if (quantity > remainingOrderQuantity) throw apiError_(409, 'Dispatch quantity exceeds the remaining sales order quantity.')
+          const savedReservedQuantity = linkedSalesOrder['Reserved Quantity']
+          const reservedForOrder = savedReservedQuantity === '' || savedReservedQuantity === null || savedReservedQuantity === undefined
+            ? remainingOrderQuantity
+            : stockNumber_(savedReservedQuantity, 'Order reserved quantity')
+          if (reservedForOrder < 0 || reservedForOrder > remainingOrderQuantity ||
+              quantity > reservedForOrder + Math.max(0, finishedAvailableStock_(item))) {
+            throw apiError_(409, 'Dispatch quantity exceeds the stock reserved for this order and currently available stock.')
+          }
         }
         if (type === 'Dispatch' && salesChannel === 'INDIAMART' && !linkedSalesOrder) {
           throw apiError_(409, 'Book an IndiaMART order before dispatching its stock.')
@@ -1944,9 +1952,18 @@
           if (!mapping) throw apiError_(400, 'Choose a supported finished-goods movement type.')
           if (type === 'Dispatch' && linkedSalesOrder) {
             const reserved = stockNumber_(item['Reserved Stock'], 'Reserved stock')
-            if (reserved < quantity) throw apiError_(409, 'The sales order reservation is missing. Ask a supervisor to review it.')
-            item['Reserved Stock'] = reserved - quantity
+            const remainingOrderQuantity = stockNumber_(linkedSalesOrder.Quantity, 'Sales order quantity')
+              - stockNumber_(linkedSalesOrder['Fulfilled Quantity'], 'Fulfilled quantity')
+              - stockNumber_(linkedSalesOrder['Cancelled Quantity'], 'Cancelled quantity')
+            const savedReservedQuantity = linkedSalesOrder['Reserved Quantity']
+            const reservedForOrder = savedReservedQuantity === '' || savedReservedQuantity === null || savedReservedQuantity === undefined
+              ? remainingOrderQuantity
+              : stockNumber_(savedReservedQuantity, 'Order reserved quantity')
+            const reservedToConsume = Math.min(quantity, reservedForOrder)
+            if (reserved < reservedToConsume) throw apiError_(409, 'The sales order reservation is missing. Ask a supervisor to review it.')
+            item['Reserved Stock'] = reserved - reservedToConsume
             item['Dispatched Stock'] = stockNumber_(item['Dispatched Stock'], 'Dispatched stock') + quantity
+            linkedSalesOrder['Reserved Quantity'] = reservedForOrder - reservedToConsume
             linkedSalesOrder['Fulfilled Quantity'] = stockNumber_(linkedSalesOrder['Fulfilled Quantity'], 'Fulfilled quantity') + quantity
             linkedSalesOrder.Status = salesOrderStatus_(linkedSalesOrder)
           } else if (linkedOrderReturn && type === 'Damage') {
@@ -2494,8 +2511,8 @@
       const completed = String(payload.completed || '').trim()
       const pending = String(payload.pending || '').trim()
       const issues = String(payload.issues || '').trim()
-      if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
-        throw apiError_(400, 'Completed work is required; each report field must be 3,000 characters or fewer.')
+      if (!completed) {
+        throw apiError_(400, 'Completed work is required.')
       }
       const userId = String(payload.sessionUserId || '').trim()
       if (!userId) throw apiError_(401, 'Sign in again before submitting a daily report.')
@@ -3078,7 +3095,7 @@
         const item = readStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber)
         if (String(item.Status || 'Active').toLowerCase() === 'archived') throw apiError_(409, 'This product is archived.')
         const opening = finishedAvailableStock_(item)
-        if (opening < quantity) throw apiError_(409, 'Not enough available stock to book this order.')
+        const reservedQuantity = Math.min(quantity, Math.max(0, opening))
         const now = new Date().toISOString()
         const orderId = 'ORD-' + Utilities.getUuid()
         const normalizedUnitPrice = Math.round(unitPrice * 100) / 100
@@ -3096,6 +3113,7 @@
           Amount: Math.round(quantity * normalizedUnitPrice * 100) / 100,
           'Fulfilled Quantity': 0,
           'Cancelled Quantity': 0,
+          'Reserved Quantity': reservedQuantity,
           Status: 'Booked',
           Notes: notes,
           'Sales Channel': salesChannel,
@@ -3103,17 +3121,19 @@
           'IndiaMART SKU': indiaMartSku,
           'Unit Cost': unitCost,
         }
-        item['Reserved Stock'] = stockNumber_(item['Reserved Stock'], 'Reserved stock') + quantity
+        item['Reserved Stock'] = stockNumber_(item['Reserved Stock'], 'Reserved stock') + reservedQuantity
         item['Available Stock'] = finishedAvailableStock_(item)
         item['Last Updated'] = now
         createBackupOnce_(spreadsheet, backupState)
         updateStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber, item)
         appendStockRow_(orderSheet.sheet, orderSheet.headers, order)
-        const movement = appendStockMovement_(spreadsheet, stockMovementRecord_({
-          sku: sku, type: 'Reserve', quantity: quantity, referenceId: orderId,
-          reason: 'Sales order booking', opening: opening, closing: item['Available Stock'],
-          createdBy: payload.createdBy, itemType: 'Finished Goods', salesChannel: salesChannel,
-        }), backupState)
+        const movement = reservedQuantity > 0
+          ? appendStockMovement_(spreadsheet, stockMovementRecord_({
+            sku: sku, type: 'Reserve', quantity: reservedQuantity, referenceId: orderId,
+            reason: 'Sales order booking', opening: opening, closing: item['Available Stock'],
+            createdBy: payload.createdBy, itemType: 'Finished Goods', salesChannel: salesChannel,
+          }), backupState)
+          : null
         if (lead) {
           lead.Status = 'Converted'
           lead['Updated At'] = now
@@ -3144,6 +3164,13 @@
         const cancelled = stockNumber_(order['Cancelled Quantity'], 'Cancelled quantity')
         const remaining = quantity - fulfilled - cancelled
         if (remaining <= 0) throw apiError_(409, 'This sales order has no remaining units to cancel.')
+        const savedReservedQuantity = order['Reserved Quantity']
+        const reservedForOrder = savedReservedQuantity === '' || savedReservedQuantity === null || savedReservedQuantity === undefined
+          ? remaining
+          : stockNumber_(savedReservedQuantity, 'Order reserved quantity')
+        if (reservedForOrder < 0 || reservedForOrder > remaining) {
+          throw apiError_(409, 'The sales order reservation is invalid. Ask a supervisor to review it.')
+        }
         const sku = String(order['Product SKU'] || '').trim()
         const stockSheet = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
         const movementSheet = ensureStockSheet_(spreadsheet, 'Stock_Movement', ERP_STOCK_MOVEMENT_HEADERS, backupState)
@@ -3152,21 +3179,24 @@
         const item = readStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber)
         const opening = finishedAvailableStock_(item)
         const reserved = stockNumber_(item['Reserved Stock'], 'Reserved stock')
-        if (reserved < remaining) throw apiError_(409, 'Reserved stock no longer matches this order. Ask a supervisor to review it.')
-        item['Reserved Stock'] = reserved - remaining
+        if (reserved < reservedForOrder) throw apiError_(409, 'Reserved stock no longer matches this order. Ask a supervisor to review it.')
+        item['Reserved Stock'] = reserved - reservedForOrder
         item['Available Stock'] = finishedAvailableStock_(item)
         item['Last Updated'] = new Date().toISOString()
         order['Cancelled Quantity'] = cancelled + remaining
+        order['Reserved Quantity'] = 0
         order.Status = salesOrderStatus_(order)
         createBackupOnce_(spreadsheet, backupState)
         updateStockRow_(stockSheet.sheet, stockSheet.headers, stockRowNumber, item)
         updateStockRow_(orderSheet.sheet, orderSheet.headers, orderRowNumber, order)
-        const movement = stockMovementRecord_({
-          sku: sku, type: 'Release Reservation', quantity: remaining, referenceId: orderId,
-          reason: 'Sales order cancellation', opening: opening, closing: item['Available Stock'],
-          createdBy: payload.createdBy, itemType: 'Finished Goods', salesChannel: String(order['Sales Channel'] || 'DIRECT'),
-        })
-        appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
+        const movement = reservedForOrder > 0
+          ? stockMovementRecord_({
+            sku: sku, type: 'Release Reservation', quantity: reservedForOrder, referenceId: orderId,
+            reason: 'Sales order cancellation', opening: opening, closing: item['Available Stock'],
+            createdBy: payload.createdBy, itemType: 'Finished Goods', salesChannel: String(order['Sales Channel'] || 'DIRECT'),
+          })
+          : null
+        if (movement) appendStockRow_(movementSheet.sheet, movementSheet.headers, movement)
         SpreadsheetApp.flush()
         return { order: order, item: item, movement: movement }
       })
@@ -4036,8 +4066,8 @@
       const completed = String(payload.completed || '').trim()
       const pending = String(payload.pending || '').trim()
       const issues = String(payload.issues || '').trim()
-      if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
-        throw apiError_(400, 'Completed work is required; each report field must be 3,000 characters or fewer.')
+      if (!completed) {
+        throw apiError_(400, 'Completed work is required.')
       }
       return withWriteLock_(function () {
         const date = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')
@@ -4601,9 +4631,9 @@
       const pending = String(payload.pending || '').replace(/\r\n?/g, '\n').trim()
       const issues = String(payload.issues || '').replace(/\r\n?/g, '\n').trim()
       if (!/^[A-Za-z0-9._:-]{1,120}$/.test(taskId) || ['In Progress', 'Submitted'].indexOf(status) < 0 ||
-          [completed, pending, issues].some(function (value) { return value.length > 3000 || ecommerceTaskHasControlCharacters_(value, true) }) ||
+          [completed, pending, issues].some(function (value) { return ecommerceTaskHasControlCharacters_(value, true) }) ||
           (status === 'Submitted' && !completed)) {
-        throw apiError_(400, 'Enter a completed-work summary up to 3,000 characters before submitting.')
+        throw apiError_(400, 'Enter completed work before submitting the task.')
       }
       return withWriteLock_(function () {
         if (!spreadsheet.getSheetByName('Daily_Tasks')) throw apiError_(404, 'The assigned daily task was not found.')
@@ -4717,8 +4747,8 @@
       const completed = String(payload.completed || '').trim()
       const pending = String(payload.pending || '').trim()
       const issues = String(payload.issues || '').trim()
-      if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
-        throw apiError_(400, 'Completed work is required; each report field must be 3,000 characters or fewer.')
+      if (!completed) {
+        throw apiError_(400, 'Completed work is required.')
       }
       return withWriteLock_(function () {
         const date = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')
@@ -4798,8 +4828,7 @@
             typeof report.id !== 'string' || !report.id || !validDate ||
             typeof report.userId !== 'string' || !report.userId ||
             typeof report.userName !== 'string' || typeof report.completed !== 'string' ||
-            typeof report.pending !== 'string' || typeof report.issues !== 'string' ||
-            report.completed.length > 3000 || report.pending.length > 3000 || report.issues.length > 3000) {
+            typeof report.pending !== 'string' || typeof report.issues !== 'string') {
           throw apiError_(500, 'A stored Sales daily report has an unsupported format.')
         }
         if (role === 'Sales Executive' && report.userId !== sessionUserId) continue

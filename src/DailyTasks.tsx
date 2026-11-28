@@ -339,9 +339,9 @@ export function DailyTasksView({ user }: Props) {
               {task.issues && <div><strong>Issues / notes</strong><p>{task.issues}</p></div>}
               {task.reviewNote && <div className="daily-task-review-note"><strong>Admin review</strong><p>{task.reviewNote}</p></div>}
               {canReport && <div className="daily-task-report-form">
-                <label>Completed work<textarea maxLength={3000} rows={3} value={draft.completed} onChange={event => setReportField(task, 'completed', event.target.value)} placeholder="What did you complete for this task?" /></label>
-                <label>Pending work<textarea maxLength={3000} rows={2} value={draft.pending} onChange={event => setReportField(task, 'pending', event.target.value)} placeholder="What remains unfinished?" /></label>
-                <label>Issues / notes<textarea maxLength={3000} rows={2} value={draft.issues} onChange={event => setReportField(task, 'issues', event.target.value)} placeholder="Mention blockers or notes for the Admin." /></label>
+                <label>Completed work<textarea rows={3} value={draft.completed} onChange={event => setReportField(task, 'completed', event.target.value)} placeholder="What did you complete for this task?" /></label>
+                <label>Pending work<textarea rows={2} value={draft.pending} onChange={event => setReportField(task, 'pending', event.target.value)} placeholder="What remains unfinished?" /></label>
+                <label>Issues / notes<textarea rows={2} value={draft.issues} onChange={event => setReportField(task, 'issues', event.target.value)} placeholder="Mention blockers or notes for the Admin." /></label>
                 <div className="daily-task-report-buttons">
                   <button className="secondary" type="button" disabled={busyTaskId !== ''} onClick={() => void updateReport(task, 'In Progress')}>{busyTaskId === task.id ? 'Saving…' : 'Save progress'}</button>
                   <button className="primary" type="button" disabled={busyTaskId !== ''} onClick={() => void updateReport(task, 'Submitted')}><CheckCircle2 size={15} /> Submit report</button>

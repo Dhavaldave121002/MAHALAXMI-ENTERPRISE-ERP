@@ -193,8 +193,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (!taskId || taskId.length > 120 || (status !== 'In Progress' && status !== 'Submitted')) {
         throw new ApiError(400, 'Choose a valid task and progress status.')
       }
-      if ([completed, pending, issues].some(value => value.length > 3000 || hasControlCharacters(value, true))) {
-        throw new ApiError(400, 'Each work-report field must be 3,000 characters or fewer.')
+      if ([completed, pending, issues].some(value => hasControlCharacters(value, true))) {
+        throw new ApiError(400, 'Work-report fields contain unsupported characters.')
       }
       if (status === 'Submitted' && !completed) throw new ApiError(400, 'Describe completed work before submitting the task.')
       const result = await updateWorkbookDailyTask({

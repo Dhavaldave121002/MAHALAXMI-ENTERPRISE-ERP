@@ -515,6 +515,10 @@ function toSalesActivity(record: Record<string, unknown>): SalesActivity {
 
 function toSalesOrder(record: Record<string, unknown>): SalesOrder {
   const salesChannel = recordText(record, 'Sales Channel')
+  const quantity = recordNumber(record, 'Quantity')
+  const fulfilledQuantity = recordNumber(record, 'Fulfilled Quantity')
+  const cancelledQuantity = recordNumber(record, 'Cancelled Quantity')
+  const savedReservedQuantity = record['Reserved Quantity']
   return {
     id: recordText(record, 'Order ID'),
     createdAt: recordText(record, 'Created At'),
@@ -528,11 +532,14 @@ function toSalesOrder(record: Record<string, unknown>): SalesOrder {
     listingSku: recordText(record, 'IndiaMART SKU'),
     unitCost: recordNullableNumber(record, 'Unit Cost'),
     productName: recordText(record, 'Product Name'),
-    quantity: recordNumber(record, 'Quantity'),
+    quantity,
     unitPrice: recordNumber(record, 'Unit Price'),
     amount: recordNumber(record, 'Amount'),
-    fulfilledQuantity: recordNumber(record, 'Fulfilled Quantity'),
-    cancelledQuantity: recordNumber(record, 'Cancelled Quantity'),
+    fulfilledQuantity,
+    cancelledQuantity,
+    reservedQuantity: savedReservedQuantity === undefined || savedReservedQuantity === null || savedReservedQuantity === ''
+      ? Math.max(0, quantity - fulfilledQuantity - cancelledQuantity)
+      : Math.max(0, recordNumber(record, 'Reserved Quantity')),
     status: recordText(record, 'Status'),
     notes: recordText(record, 'Notes'),
   }
@@ -1199,7 +1206,7 @@ export default function App() {
   }
 
   const createSalesOrder = async (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId?: string }) => {
-    const result = await apiFetch<{ order: Record<string, unknown>; item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
+    const result = await apiFetch<{ order: Record<string, unknown>; item: Record<string, unknown>; movement?: Record<string, unknown> | null }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'createSalesOrder', ...input }),
@@ -1207,24 +1214,25 @@ export default function App() {
     const order = toSalesOrder(result.order)
     const orders = [order, ...salesOrders.filter(existing => existing.id !== order.id)]
     const item = toFinishedGood(result.item)
-    const movement = toStockMovement(result.movement)
+    const movement = result.movement ? toStockMovement(result.movement) : null
     setSalesOrders(orders)
     refreshSalesTargetActuals(orders)
     setFinishedGoods(previous => [item, ...previous.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
     setProducts(previous => previous.map(product => product.sku.toLowerCase() === item.sku.toLowerCase()
       ? { ...product, stock: item.availableStock }
       : product))
-    setStockMovements(previous => [movement, ...previous.filter(existing => existing.id !== movement.id)])
+    if (movement) setStockMovements(previous => [movement, ...previous.filter(existing => existing.id !== movement.id)])
     if (input.leadId) {
       setSalesLeads(previous => previous.map(lead => lead.id === input.leadId
         ? { ...lead, status: 'Converted', updatedAt: order.createdAt }
         : lead))
     }
     workbookLastRefreshAt.current = Date.now()
+    return order.reservedQuantity
   }
 
   const cancelSalesOrder = async (orderId: string) => {
-    const result = await apiFetch<{ order: Record<string, unknown>; item: Record<string, unknown>; movement: Record<string, unknown> }>('/api/erp', {
+    const result = await apiFetch<{ order: Record<string, unknown>; item: Record<string, unknown>; movement?: Record<string, unknown> | null }>('/api/erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'cancelSalesOrder', orderId }),
@@ -1232,14 +1240,14 @@ export default function App() {
     const order = toSalesOrder(result.order)
     const orders = [order, ...salesOrders.filter(existing => existing.id !== order.id)]
     const item = toFinishedGood(result.item)
-    const movement = toStockMovement(result.movement)
+    const movement = result.movement ? toStockMovement(result.movement) : null
     setSalesOrders(orders)
     refreshSalesTargetActuals(orders)
     setFinishedGoods(previous => [item, ...previous.filter(existing => existing.sku.toLowerCase() !== item.sku.toLowerCase())])
     setProducts(previous => previous.map(product => product.sku.toLowerCase() === item.sku.toLowerCase()
       ? { ...product, stock: item.availableStock }
       : product))
-    setStockMovements(previous => [movement, ...previous.filter(existing => existing.id !== movement.id)])
+    if (movement) setStockMovements(previous => [movement, ...previous.filter(existing => existing.id !== movement.id)])
     workbookLastRefreshAt.current = Date.now()
   }
 
@@ -1681,7 +1689,7 @@ function ModuleView(props: {
   addSalesLead: (lead: Omit<SalesLeadImportRow, 'assignedUserId'> & { assignedUserId: string }) => Promise<void>
   assignSalesLead: (leadId: string, assignedUserId: string) => Promise<void>
   updateSalesLead: (input: { leadId: string; status: SalesLeadStatus; activityType: SalesActivityType; outcome: string; notes: string; nextFollowUp: string }) => Promise<void>
-  createSalesOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId?: string }) => Promise<void>
+  createSalesOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId?: string }) => Promise<number>
   previewIndiaMartCatalog: () => Promise<IndiaMartCatalogCandidate[]>
   saveIndiaMartListings: (listings: IndiaMartListing[]) => Promise<IndiaMartListing[]>
   cancelSalesOrder: (orderId: string) => Promise<void>
@@ -2076,9 +2084,9 @@ function ModuleView(props: {
         {graphicDesignReportsLoading && <div className="empty-state" role="status">Loading daily reports…</div>}
         {graphicDesignReportsError && <p className="ecommerce-error" role="alert">{graphicDesignReportsError}</p>}
         <form className="ecommerce-form" onSubmit={submitGraphicDesignDailyReport}>
-          <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} placeholder="Summarize designs, posts, videos, and other work completed today." /></label>
-          <label>Pending work<textarea name="pending" maxLength={3000} rows={3} placeholder="List work still in progress or waiting for feedback." /></label>
-          <label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} placeholder="Mention blockers or notes for the Admin." /></label>
+          <label>Completed work<textarea name="completed" required rows={4} placeholder="Summarize designs, posts, videos, and other work completed today." /></label>
+          <label>Pending work<textarea name="pending" rows={3} placeholder="List work still in progress or waiting for feedback." /></label>
+          <label>Issues / notes<textarea name="issues" rows={3} placeholder="Mention blockers or notes for the Admin." /></label>
           <button className="primary" type="submit" disabled={graphicDesignReportSaving}><CheckCircle2 size={15} /> {graphicDesignReportSaving ? 'Saving…' : 'Submit daily report'}</button>
         </form>
         <p className="ecommerce-feedback" role="status" aria-live="polite">{graphicDesignReportMessage}</p>
@@ -2318,8 +2326,8 @@ function ModuleView(props: {
     const completed = String(form.get('completed') || '').trim()
     const pending = String(form.get('pending') || '').trim()
     const issues = String(form.get('issues') || '').trim()
-    if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
-      setGraphicDesignReportMessage('Completed work is required; each field must be 3,000 characters or fewer.')
+    if (!completed) {
+      setGraphicDesignReportMessage('Completed work is required.')
       return
     }
     setGraphicDesignReportMessage('')
@@ -2888,6 +2896,15 @@ function ModuleView(props: {
       (product.isVariant || !deliveryVariantMasters.has(product.sku.toLowerCase()))
     )
     const selectedDeliveryProduct = deliveryProducts.find(product => product.sku === deliverySku)
+    const selectedOrderRemaining = selectedBookedOrder
+      ? Math.max(0, selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity)
+      : 0
+    const selectedOrderReserved = selectedBookedOrder
+      ? Math.min(selectedOrderRemaining, Math.max(0, selectedBookedOrder.reservedQuantity))
+      : 0
+    const selectedOrderDispatchable = selectedBookedOrder
+      ? Math.min(selectedOrderRemaining, selectedOrderReserved + Math.max(0, selectedDeliveryProduct?.stock || 0))
+      : 0
     const selectedDeliveryListing = marketplaceListings.find(listing =>
       listing.productSku.toLowerCase() === deliverySku.toLowerCase() &&
       channelPlatforms.includes(listing.platform.trim().toUpperCase()) &&
@@ -2898,7 +2915,7 @@ function ModuleView(props: {
       <section>
         <div className="page-heading"><div><p>FINISHED GOODS · {isShipping ? 'DISPATCH' : 'RETURNS'}</p><h1>{module}</h1></div></div>
         {!canManageDelivery ? <p className="local-storage-note">Read-only view. Only the Production Supervisor can record deliveries, returns, or damage; saved records are listed below.</p> : isShipping ? <form className="panel form-card delivery-form" onSubmit={submitDelivery}>
-          <div className="panel-heading"><div><h2>Create delivery</h2><p>Dispatch booked sales orders by selecting their order ID; the dispatch consumes reserved stock. Marketplace dispatches use available stock.</p></div></div>
+          <div className="panel-heading"><div><h2>Create delivery</h2><p>Dispatch booked sales orders by selecting their order ID. Reserved stock and any newly available stock can be dispatched; the rest stays open.</p></div></div>
           <div className="field-grid">
             <label>Platform / channel<select name="salesChannel" required value={deliveryChannel} onChange={event => {
               setDeliveryChannel(event.target.value)
@@ -2925,7 +2942,10 @@ function ModuleView(props: {
               setDeliverySalesOrderId(order?.id || '')
               setDeliverySku(order?.sku || '')
               setDeliveryReferenceId(order?.id || '')
-              setDeliveryQuantity(order ? String(order.quantity - order.fulfilledQuantity - order.cancelledQuantity) : '')
+              const remaining = order ? Math.max(0, order.quantity - order.fulfilledQuantity - order.cancelledQuantity) : 0
+              const available = order ? Math.max(0, products.find(product => product.sku === order.sku)?.stock || 0) : 0
+              const reserved = order ? Math.min(remaining, Math.max(0, order.reservedQuantity)) : 0
+              setDeliveryQuantity(order ? String(Math.min(remaining, reserved + available)) : '')
               setDeliveryUnitPrice(order ? String(order.unitPrice) : '')
             }}>
               <option value="">Select a booked sales order</option>
@@ -2945,14 +2965,14 @@ function ModuleView(props: {
               <option value="">{deliveryProducts.length ? 'Select platform SKU' : 'No active SKUs for this platform'}</option>
               {deliveryProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku} · Available {product.stock}</option>)}
             </select></label>
-            {selectedDeliveryProduct && <div className="delivery-stock"><span>{selectedBookedOrder ? 'Reserved for this order' : 'Available stock'}</span><strong>{selectedBookedOrder ? selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity : selectedDeliveryProduct.stock.toLocaleString('en-IN')} units</strong></div>}
+            {selectedDeliveryProduct && <div className="delivery-stock"><span>{selectedBookedOrder ? 'Ready to dispatch now' : 'Available stock'}</span><strong>{selectedBookedOrder ? selectedOrderDispatchable : selectedDeliveryProduct.stock.toLocaleString('en-IN')} units</strong>{selectedBookedOrder && <small>{selectedOrderReserved} reserved · {selectedOrderRemaining - selectedOrderReserved} still backordered</small>}</div>}
             {selectedDeliveryProduct && <label>Unit sale price<input name="unitPrice" type="number" min="0.01" step="0.01" required value={selectedBookedOrder ? String(selectedBookedOrder.unitPrice) : deliveryUnitPrice} onChange={event => setDeliveryUnitPrice(event.target.value)} disabled={Boolean(selectedBookedOrder)} />{selectedDeliveryListing && <small>Defaults to the listing price; adjust to the actual dispatch price if needed.</small>}</label>}
-            <label>Quantity<input name="quantity" type="number" min="1" max={selectedBookedOrder ? selectedBookedOrder.quantity - selectedBookedOrder.fulfilledQuantity - selectedBookedOrder.cancelledQuantity : undefined} step="1" required value={deliveryQuantity} onChange={event => setDeliveryQuantity(event.target.value)} /></label>
+            <label>Quantity<input name="quantity" type="number" min="1" max={selectedBookedOrder ? selectedOrderDispatchable : undefined} step="1" required value={deliveryQuantity} onChange={event => setDeliveryQuantity(event.target.value)} disabled={Boolean(selectedBookedOrder) && selectedOrderDispatchable <= 0} /></label>
             <label>Order / shipment reference<input name="referenceId" maxLength={100} required placeholder={deliveryChannel === 'DIRECT' || deliveryChannel === 'INDIAMART' ? 'Select sales order above' : 'Marketplace order number'} value={deliveryReferenceId} onChange={event => setDeliveryReferenceId(event.target.value)} readOnly={Boolean(selectedBookedOrder)} /></label>
             <label className="delivery-note">Delivery notes<input name="reason" maxLength={300} placeholder="Optional delivery note" /></label>
             </>}
           </div>
-          {deliveryPartnerReady && <button className="primary wide" type="submit" disabled={!canManageDelivery || deliveryProducts.length === 0 || deliveryChannel === 'INDIAMART' && !selectedBookedOrder}>Save delivery and dispatch stock</button>}
+          {deliveryPartnerReady && <button className="primary wide" type="submit" disabled={!canManageDelivery || deliveryProducts.length === 0 || deliveryChannel === 'INDIAMART' && !selectedBookedOrder || Boolean(selectedBookedOrder) && selectedOrderDispatchable <= 0}>Save delivery and dispatch stock</button>}
           {canManageDelivery && deliveryPartnerReady && deliveryProducts.length === 0 && <p className="local-storage-note">Add an active {deliveryChannel} marketplace listing in Product Catalog before recording a delivery for this platform.</p>}
         </form> : <>
           <form className="panel form-card return-order-form" onSubmit={event => {
@@ -4976,7 +4996,7 @@ function EcommerceWorkspace({
           {showReport && <section className="panel ecommerce-section">
             <div className="panel-heading"><div><h2>Daily work report</h2><p>{user.role === 'E-commerce Manager' ? 'Submit one team report each day; resubmitting updates today’s report.' : 'One report per platform each day; new submissions update today’s report.'}</p></div></div>
             {reportHistoryError && <p className="ecommerce-error" role="alert">{reportHistoryError}</p>}
-            <form className="ecommerce-form" onSubmit={event => void submitDailyReport(event)}><label>Completed work<textarea name="completed" required maxLength={3000} rows={4} /></label><label>Pending work<textarea name="pending" maxLength={3000} rows={3} /></label><label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} /></label><button className="primary" type="submit" disabled={busy}><CheckCircle2 size={15} /> Submit daily report</button></form>
+            <form className="ecommerce-form" onSubmit={event => void submitDailyReport(event)}><label>Completed work<textarea name="completed" required rows={4} /></label><label>Pending work<textarea name="pending" rows={3} /></label><label>Issues / notes<textarea name="issues" rows={3} /></label><button className="primary" type="submit" disabled={busy}><CheckCircle2 size={15} /> Submit daily report</button></form>
             <section className="ecommerce-report-saved" aria-label="Daily report status">
               <p>Report date today: {formatIndiaDate(indiaDateKey())}</p>
               {latestOwnReport ? <>

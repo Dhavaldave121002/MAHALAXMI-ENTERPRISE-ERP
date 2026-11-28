@@ -4,14 +4,14 @@ import { getSessionUser, requireAdmin } from './_lib/session.js'
 import { listUsers, listWorkbookSalesReports, submitWorkbookSalesReport } from './_lib/workbook.js'
 
 function requiredReportText(value: unknown, label: string) {
-  if (typeof value !== 'string') throw new ApiError(400, `${label} is required and must be 3,000 characters or fewer.`)
+  if (typeof value !== 'string') throw new ApiError(400, `${label} is required.`)
   const result = value.trim()
   const hasInvalidControl = result.split('').some(character => {
     const code = character.charCodeAt(0)
     return (code < 32 && ![9, 10, 13].includes(code)) || code === 127
   })
-  if (!result || result.length > 3000 || hasInvalidControl) {
-    throw new ApiError(400, `${label} is required and must be 3,000 characters or fewer.`)
+  if (!result || hasInvalidControl) {
+    throw new ApiError(400, `${label} is required.`)
   }
   return result
 }
@@ -24,8 +24,8 @@ function optionalReportText(value: unknown, label: string) {
     const code = character.charCodeAt(0)
     return (code < 32 && ![9, 10, 13].includes(code)) || code === 127
   })
-  if (result.length > 3000 || hasInvalidControl) {
-    throw new ApiError(400, `${label} must be 3,000 characters or fewer.`)
+  if (hasInvalidControl) {
+    throw new ApiError(400, `${label} contains unsupported characters.`)
   }
   return result
 }

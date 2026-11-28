@@ -56,8 +56,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     const completed = typeof body.completed === 'string' ? body.completed.trim() : ''
     const pending = typeof body.pending === 'string' ? body.pending.trim() : ''
     const issues = typeof body.issues === 'string' ? body.issues.trim() : ''
-    if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
-      throw new ApiError(400, 'Completed work is required; each report field must be 3,000 characters or fewer.')
+    if (!completed) {
+      throw new ApiError(400, 'Completed work is required.')
     }
     const result = await submitWorkbookGraphicDesignReport({
       id: user.id,

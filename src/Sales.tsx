@@ -73,8 +73,8 @@ export function SalesDailyReportView(props: {
     const completed = String(values.get('completed') || '').trim()
     const pending = String(values.get('pending') || '').trim()
     const issues = String(values.get('issues') || '').trim()
-    if (!completed || completed.length > 3000 || pending.length > 3000 || issues.length > 3000) {
-      setDailyWorkReportMessage('Completed work is required; each field must be 3,000 characters or fewer.')
+    if (!completed) {
+      setDailyWorkReportMessage('Completed work is required.')
       return
     }
     setSavingDailyWorkReport(true)
@@ -242,9 +242,9 @@ export function SalesDailyReportView(props: {
         <summary className="sales-work-report-toggle">Optional daily work summary · completed / pending / issues</summary>
         <p className="sales-readonly-note">Separate from the enquiry table above; one work summary per Sales Executive each day.</p>
         {role === 'Sales Executive' && <form key={todayWorkReport?.updatedAt || 'new'} className="ecommerce-form" onSubmit={event => void submitDailyWorkReport(event)}>
-          <label>Completed work<textarea name="completed" required maxLength={3000} rows={4} defaultValue={todayWorkReport?.completed || ''} /></label>
-          <label>Pending work<textarea name="pending" maxLength={3000} rows={3} defaultValue={todayWorkReport?.pending || ''} /></label>
-          <label>Issues / notes<textarea name="issues" maxLength={3000} rows={3} defaultValue={todayWorkReport?.issues || ''} /></label>
+          <label>Completed work<textarea name="completed" required rows={4} defaultValue={todayWorkReport?.completed || ''} /></label>
+          <label>Pending work<textarea name="pending" rows={3} defaultValue={todayWorkReport?.pending || ''} /></label>
+          <label>Issues / notes<textarea name="issues" rows={3} defaultValue={todayWorkReport?.issues || ''} /></label>
           <button className="primary" type="submit" disabled={savingDailyWorkReport}><CheckCircle2 size={15} /> {todayWorkReport ? 'Update today’s report' : 'Submit daily report'}</button>
         </form>}
         {role !== 'Sales Executive' && <p className="sales-readonly-note">Read-only report history for {dailyReportDate}. Sales Executives can submit or update their own report for today.</p>}
@@ -1110,7 +1110,7 @@ export function SalesOrdersView(props: {
   orders: SalesOrder[]
   products: SalesProduct[]
   indiaMartListings: IndiaMartListing[]
-  createOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId?: string }) => Promise<void>
+  createOrder: (input: { leadId: string; customerName: string; sku: string; productName: string; quantity: number; unitPrice: number; notes: string; salesChannel: 'DIRECT' | 'INDIAMART'; indiaMartListingId?: string }) => Promise<number>
   cancelOrder: (orderId: string) => Promise<void>
 }) {
   const { role, currentUserId, leads, orders, products, indiaMartListings, createOrder, cancelOrder } = props
@@ -1142,10 +1142,10 @@ export function SalesOrdersView(props: {
     const price = salesChannel === 'INDIAMART' ? selectedIndiaMartListing?.listedPrice ?? 0 : Number(unitPrice)
     if ((isCustomCustomer && (!customerName || customerName.length > 180)) ||
         (!isCustomCustomer && !assignedLeads.some(lead => lead.id === selectedLeadId)) ||
-        !selectedProduct || !Number.isInteger(quantity) || quantity < 1 || quantity > selectedProduct.stock ||
+        !selectedProduct || !Number.isInteger(quantity) || quantity < 1 || quantity > 100000 ||
         !Number.isFinite(price) || price <= 0 ||
         salesChannel === 'INDIAMART' && !selectedIndiaMartListing) {
-      setMessage('Choose an assigned lead or enter a customer name, then choose an in-stock listing and valid quantity.')
+      setMessage('Choose an assigned lead or enter a customer name, then choose a product and a whole-number quantity up to 100,000.')
       return
     }
     const productName = String(values.get('productName') || '').trim()
@@ -1156,7 +1156,7 @@ export function SalesOrdersView(props: {
     setBusy(true)
     setMessage('')
     try {
-      await createOrder({
+      const reservedQuantity = await createOrder({
         leadId: isCustomCustomer ? '' : selectedLeadId,
         customerName,
         sku: selectedProduct.sku,
@@ -1173,7 +1173,10 @@ export function SalesOrdersView(props: {
       setSelectedIndiaMartListingId('')
       setUnitPrice('')
       setQuantityDraft('')
-      setMessage('Order booked; stock reserved and sales target updated.')
+      const backorderedQuantity = quantity - reservedQuantity
+      setMessage(backorderedQuantity > 0
+        ? `Order booked. ${reservedQuantity.toLocaleString('en-IN')} units reserved; ${backorderedQuantity.toLocaleString('en-IN')} remain backordered until stock is available.`
+        : 'Order booked; all units reserved and sales target updated.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Order could not be booked.')
     } finally {
@@ -1209,17 +1212,18 @@ export function SalesOrdersView(props: {
             {salesChannel === 'INDIAMART'
               ? activeIndiaMartListings.map(listing => {
                   const product = activeProducts.find(item => item.sku === listing.productSku)
-                  return <option key={listing.id} value={listing.id} disabled={!product || product.stock <= 0 || !listing.listedPrice}>{listing.productName} · {listing.listingSku} · IndiaMART {listing.listingInventory ?? '—'} · ERP available {product?.stock ?? 0}</option>
+                  return <option key={listing.id} value={listing.id} disabled={!product || !listing.listedPrice}>{listing.productName} · {listing.listingSku} · IndiaMART {listing.listingInventory ?? '—'} · ERP available {product?.stock ?? 0}</option>
                 })
-              : activeProducts.map(product => <option key={product.sku} value={product.sku} disabled={product.stock <= 0}>{product.name} · {product.sku} · Available {product.stock}</option>)}
+              : activeProducts.map(product => <option key={product.sku} value={product.sku}>{product.name} · {product.sku} · Available {product.stock}</option>)}
           </select></label>
           {selectedProduct && <div className="sales-stock-note"><span>Available after existing reservations</span><strong>{selectedProduct.stock.toLocaleString('en-IN')} units</strong></div>}
-          <label>Quantity<input name="quantity" type="number" min="1" max={selectedProduct?.stock || undefined} step="1" required value={quantityDraft} onChange={event => setQuantityDraft(event.target.value)} disabled={!selectedProduct || selectedProduct.stock <= 0} /></label>
+          <label>Quantity<input name="quantity" type="number" min="1" max="100000" step="1" required value={quantityDraft} onChange={event => setQuantityDraft(event.target.value)} disabled={!selectedProduct} /></label>
+          {selectedProduct && Number(quantityDraft) > selectedProduct.stock && <small className="field-hint">The available {selectedProduct.stock.toLocaleString('en-IN')} units will be reserved first; the extra {Math.max(0, Number(quantityDraft) - selectedProduct.stock).toLocaleString('en-IN')} will remain backordered until stock is available.</small>}
           <label>Unit price (INR)<input type="number" min="0.01" step="0.01" required value={salesChannel === 'INDIAMART' ? selectedIndiaMartListing?.listedPrice ?? '' : unitPrice} onChange={event => setUnitPrice(event.target.value)} readOnly={salesChannel === 'INDIAMART'} /></label>
           <label className="sales-note-field">Order notes<input name="notes" maxLength={500} placeholder="Delivery or customer requirement" /></label>
         </div>
-        {selectedProduct && <p className="sales-amount-hint">Estimated order amount: <strong>{money((Number(quantityDraft) || 0) * (salesChannel === 'INDIAMART' ? selectedIndiaMartListing?.listedPrice || 0 : Number(unitPrice) || 0))}</strong>. Server validates current price and stock and reserves it atomically.</p>}
-        <button className="primary wide" type="submit" disabled={busy || !customerSelection || !selectedProduct || selectedProduct.stock <= 0}><Plus size={16} /> Book order</button>
+        {selectedProduct && <p className="sales-amount-hint">Estimated order amount: <strong>{money((Number(quantityDraft) || 0) * (salesChannel === 'INDIAMART' ? selectedIndiaMartListing?.listedPrice || 0 : Number(unitPrice) || 0))}</strong>. Available stock is reserved atomically; any balance remains open for later fulfillment.</p>}
+        <button className="primary wide" type="submit" disabled={busy || !customerSelection || !selectedProduct}><Plus size={16} /> Book order</button>
         {message && <p className="sales-message" role="status">{message}</p>}
       </form>}
       {role === 'Sales Executive' && assignedLeads.length === 0 && <p className="local-storage-note">No open leads are assigned to you yet. You can still book an order by entering a one-time customer name.</p>}
@@ -1227,9 +1231,11 @@ export function SalesOrdersView(props: {
         <div className="panel-heading"><div><h2>Booked orders</h2><p>{orders.length} orders · {role === 'Sales Executive' ? 'your bookings' : 'all Sales Executive bookings'}</p></div></div>
         {sortedOrders.length ? <div className="table-card entries-table"><table><thead><tr><th>Booked</th><th>Order ID</th><th>Channel</th><th>Customer</th><th>Salesperson</th><th>SKU / product</th><th>Qty</th><th>Unit price</th><th>Booked amount</th><th>Fulfilment</th><th>Status</th><th /></tr></thead><tbody>
           {sortedOrders.map(order => {
-            const remaining = order.quantity - order.fulfilledQuantity - order.cancelledQuantity
+            const remaining = Math.max(0, order.quantity - order.fulfilledQuantity - order.cancelledQuantity)
+            const reserved = Math.min(remaining, Math.max(0, order.reservedQuantity))
+            const backordered = remaining - reserved
             const mayCancel = remaining > 0 && role !== 'Production Supervisor' && (role !== 'Sales Executive' || order.salesUserId === currentUserId)
-            return <tr key={order.id}><td>{dateForSales(order.createdAt)}</td><td><code>{order.id}</code></td><td>{order.salesChannel === 'INDIAMART' ? 'IndiaMART' : 'Direct'}</td><td>{order.customerName}</td><td>{order.salesUserName}</td><td><code>{order.listingSku || order.sku}</code><small>{order.listingSku ? `ERP SKU: ${order.sku}` : order.productName}</small></td><td>{order.quantity}</td><td>{money(order.unitPrice)}</td><td>{money(activeOrderAmount(order))}</td><td>{order.fulfilledQuantity} fulfilled · {remaining} open</td><td><span className={`status ${order.status === 'Booked' ? 'pending' : 'active'}`}>{order.status}</span></td><td>{mayCancel && <button className="secondary" disabled={busy} onClick={() => { if (window.confirm(`Cancel the remaining ${remaining} units of ${order.id}? Reserved stock will be released.`)) { setBusy(true); void cancelOrder(order.id).then(() => setMessage('Order cancelled and reserved stock released.')).catch(error => setMessage(error instanceof Error ? error.message : 'Order could not be cancelled.')).finally(() => setBusy(false)) } }}>Cancel remaining</button>}</td></tr>
+            return <tr key={order.id}><td>{dateForSales(order.createdAt)}</td><td><code>{order.id}</code></td><td>{order.salesChannel === 'INDIAMART' ? 'IndiaMART' : 'Direct'}</td><td>{order.customerName}</td><td>{order.salesUserName}</td><td><code>{order.listingSku || order.sku}</code><small>{order.listingSku ? `ERP SKU: ${order.sku}` : order.productName}</small></td><td>{order.quantity}</td><td>{money(order.unitPrice)}</td><td>{money(activeOrderAmount(order))}</td><td>{order.fulfilledQuantity} fulfilled · {remaining} open<small>{reserved} reserved · {backordered} backordered</small></td><td><span className={`status ${order.status === 'Booked' ? 'pending' : 'active'}`}>{order.status}</span></td><td>{mayCancel && <button className="secondary" disabled={busy} onClick={() => { if (window.confirm(`Cancel the remaining ${remaining} units of ${order.id}? Reserved stock will be released.`)) { setBusy(true); void cancelOrder(order.id).then(() => setMessage('Order cancelled and reserved stock released.')).catch(error => setMessage(error instanceof Error ? error.message : 'Order could not be cancelled.')).finally(() => setBusy(false)) } }}>Cancel remaining</button>}</td></tr>
           })}
         </tbody></table></div> : <div className="empty-state"><FileSpreadsheet size={22} /><strong>No sales orders yet</strong><span>New bookings will be listed here for the Admin and Production Supervisor.</span></div>}
       </section>

@@ -889,7 +889,7 @@ export async function createWorkbookSalesOrder(input: SessionBoundInput & {
   return callAppsScript<{
     order: Record<string, unknown>
     item: Record<string, unknown>
-    movement: Record<string, unknown>
+    movement: Record<string, unknown> | null
   }>('createSalesOrder', { ...input, ...sessionBoundPayload(input) })
 }
 
@@ -917,7 +917,7 @@ export async function cancelWorkbookSalesOrder(input: SessionBoundInput & { orde
   return callAppsScript<{
     order: Record<string, unknown>
     item: Record<string, unknown>
-    movement: Record<string, unknown>
+    movement: Record<string, unknown> | null
   }>('cancelSalesOrder', { ...input, ...sessionBoundPayload(input) })
 }
 
