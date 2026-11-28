@@ -308,10 +308,15 @@ function parseMeeshoWorkbook(workbook: XLSX.WorkBook) {
     const status = String(values[7] ?? '').trim().toLowerCase()
     const transactionId = String(values[11] ?? '').trim()
     const paymentDate = normalizeDate(values[12])
-    const gross = cleanAmount(values[14])
-    const refund = Math.abs(cleanAmount(values[15]))
-    const fees = [21, 22, 23, 24, 25, 26, 27, 28].reduce((sum, column) => sum + Math.abs(cleanAmount(values[column])), 0)
-    const taxWithheld = Math.abs(cleanAmount(values[32])) + Math.abs(cleanAmount(values[34]))
+    const gross = cleanAmount(values[15])
+    const refund = Math.abs(cleanAmount(values[16]))
+    const feeAmounts = [17, 18, 19, 20, 22, 23, 24, 25, 26, 27]
+      .map(column => cleanAmount(values[column]))
+    const fees = feeAmounts.reduce((sum, amount) => sum + Math.max(0, -amount), 0)
+    const taxWithheld = Math.abs(cleanAmount(values[34])) + Math.abs(cleanAmount(values[36]))
+    const shippingCharge = cleanAmount(values[29])
+    const otherCharges = -feeAmounts.reduce((sum, amount) => sum + Math.max(0, amount), 0) -
+      Math.max(0, shippingCharge) - cleanAmount(values[28]) - cleanAmount(values[32]) - cleanAmount(values[33])
     orders.push({
       recordType: 'ORDER',
       recordId: subOrder,
@@ -322,12 +327,12 @@ function parseMeeshoWorkbook(workbook: XLSX.WorkBook) {
       platformSku: sku,
       erpSku: sku,
       quantity,
-      grossSales: status.includes('cancel') ? 0 : gross,
+      grossSales: gross,
       refunds: status.includes('rto') || status.includes('return') || refund > 0 ? refund : 0,
       marketplaceFees: fees,
-      shippingFees: Math.abs(cleanAmount(values[28])),
+      shippingFees: Math.max(0, -shippingCharge),
       advertisingFees: 0,
-      otherCharges: Math.abs(cleanAmount(values[27])),
+      otherCharges,
       taxWithheld,
       productCost: null,
       expectedSettlement: 0,
@@ -609,7 +614,7 @@ export function MarketplaceReconciliationView({ user }: Props) {
       </div>
       <div className="reconciliation-import-notes">
         <p>Prepare <strong>ORDER</strong> rows with sales, fees, SKU, quantity, and total product cost. Add a separate <strong>SETTLEMENT</strong> row for each payout, including its expected amount and optional bank credit.</p>
-        <p>For Amazon, import the Orders export as Orders / transactions, then import the Payments/Settlement report as Settlements / bank credits. The payout import excludes its overlapping order lines to avoid double-counting sales. For other exports with different headers, map/copy the data into the template. Blank product cost or bank credit is flagged rather than guessed.</p>
+        <p>For Amazon, import the Orders export as Orders / transactions, then import the Payments/Settlement report as Settlements / bank credits. The payout import excludes its overlapping order lines to avoid double-counting sales. Meesho payment workbooks import both orders and payouts from the Order Payments tab in one upload; other tabs such as Ads Cost are not imported here. For other exports with different headers, map/copy the data into the template. Blank product cost or bank credit is flagged rather than guessed.</p>
         <p>{isAdmin
           ? 'As Super Admin, you can import reports for any supported marketplace.'
           : `Your account can import only platforms assigned by the Super Admin: ${availablePlatforms.join(', ') || 'none assigned'}.`}</p>
