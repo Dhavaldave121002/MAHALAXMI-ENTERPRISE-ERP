@@ -287,7 +287,7 @@ const ERP_ASSISTANT_FAQS: AssistantFaqEntry[] = [
   },
   {
     question: 'How do I import marketplace order or settlement reports?',
-    answer: 'An E-commerce Executive can import reports only for platforms assigned to their account. Supported files are XLSX, XLS, CSV, or a ZIP containing those report files; PDFs inside ZIPs are ignored. A selected file can be up to 25 MB. Rows are uploaded in batches of 500, so there is no fixed 1,000-row cap for the whole file, though file size and normal browser/server limits still apply. Use ORDER rows for order/SKU/quantity/gross-sales data and separate SETTLEMENT rows for payout data. The Super Admin can view reconciliation records but cannot import them.',
+    answer: 'The Super Admin can import reports for any supported marketplace from Marketplace Reconciliation. An E-commerce Executive can import only platforms assigned to their account. Supported files are XLSX, XLS, CSV, or a ZIP containing those report files; PDFs inside ZIPs are ignored. A selected file can be up to 25 MB. Rows are uploaded in batches of 500, so there is no fixed 1,000-row cap for the whole file, though file size and normal browser/server limits still apply. Use ORDER rows for order/SKU/quantity/gross-sales data and separate SETTLEMENT rows for payout data.',
     keywords: ['import marketplace report', 'marketplace reconciliation import', 'import settlement', 'import order report', 'reconciliation excel', 'reconciliation csv', 'zip report', '1000 row limit', '1000 rows', '500 rows batch', 'meesho report import', 'marketplace report upload', 'marketplace report nahi import', 'zip import', 'excel import limit', 'order data import', 'payment data import', 'ઓર્ડર રિપોર્ટ ઇમ્પોર્ટ'],
   },
   {

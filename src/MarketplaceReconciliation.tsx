@@ -34,6 +34,8 @@ type Props = {
 
 type ERPExpense = { date: string; amount: number }
 
+const RECONCILIATION_PLATFORMS = ['AMAZON', 'FLIPKART', 'MEESHO', 'SHOPIFY', 'MYNTRA']
+
 const columns = [
   'Record Type', 'Record ID', 'Platform', 'Transaction Date', 'Order ID', 'Settlement ID',
   'Platform SKU', 'ERP SKU', 'Quantity', 'Gross Sales', 'Refunds', 'Marketplace Fees',
@@ -420,14 +422,16 @@ async function requestReconciliationData() {
 }
 
 export function MarketplaceReconciliationView({ user }: Props) {
+  const isAdmin = user.role === 'Super Admin'
+  const availablePlatforms = isAdmin ? RECONCILIATION_PLATFORMS : user.platforms || []
   const [records, setRecords] = useState<MarketplaceRecord[]>([])
   const [erpExpenses, setErpExpenses] = useState<ERPExpense[]>([])
   const [selectedMonth, setSelectedMonth] = useState('')
-  const [loading, setLoading] = useState(user.role === 'Super Admin')
+  const [loading, setLoading] = useState(isAdmin)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [defaultPlatform, setDefaultPlatform] = useState(user.platforms?.[0] || '')
+  const [defaultPlatform, setDefaultPlatform] = useState(availablePlatforms[0] || '')
   const [defaultType, setDefaultType] = useState<'ORDER' | 'SETTLEMENT'>('ORDER')
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -514,6 +518,7 @@ export function MarketplaceReconciliationView({ user }: Props) {
         imported += Number(result.imported || 0)
         duplicates += Number(result.duplicates || 0)
       }
+      if (isAdmin) await refresh()
       setMessage(`Import complete: ${imported} new rows added; ${duplicates} duplicate rows skipped. (${mappedRows.length} source rows processed.)`)
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : 'The report could not be imported.')
@@ -523,44 +528,50 @@ export function MarketplaceReconciliationView({ user }: Props) {
     }
   }
 
-  if (user.role !== 'Super Admin') {
+  const importPanel = (
+    <section className="panel reconciliation-import-panel">
+      <div className="reconciliation-import-actions">
+        <div><FileSpreadsheet size={22} /><div><strong>Standard report template</strong><span>Use the same template for Amazon, Flipkart, Meesho, Shopify, and Myntra.</span></div></div>
+        <button className="secondary" type="button" onClick={downloadTemplate}><Download size={16} /> Download CSV template</button>
+      </div>
+      <div className="reconciliation-import-notes">
+        <p>Prepare <strong>ORDER</strong> rows with sales, fees, SKU, quantity, and total product cost. Add a separate <strong>SETTLEMENT</strong> row for each payout, including its expected amount and optional bank credit.</p>
+        <p>Choose the marketplace and report type for each upload. Common column names are recognized; if a platform export uses different headers, map/copy its data into the template. Blank product cost or bank credit is flagged rather than guessed.</p>
+        <p>{isAdmin
+          ? 'As Super Admin, you can import reports for any supported marketplace.'
+          : `Your account can import only platforms assigned by the Super Admin: ${availablePlatforms.join(', ') || 'none assigned'}.`}</p>
+      </div>
+      <div className="reconciliation-import-fields">
+        <label>Marketplace<select value={defaultPlatform} required onChange={event => setDefaultPlatform(event.target.value)}>
+          {availablePlatforms.map(platform => <option key={platform} value={platform}>{platform}</option>)}
+        </select></label>
+        <label>Report type<select value={defaultType} onChange={event => setDefaultType(event.target.value as 'ORDER' | 'SETTLEMENT')}>
+          <option value="ORDER">Orders / transactions</option><option value="SETTLEMENT">Settlements / bank credits</option>
+        </select></label>
+      </div>
+      <input
+        ref={fileRef}
+        className="reconciliation-file-input"
+        type="file"
+        accept=".csv,.xlsx,.xls,.zip"
+        aria-label="Choose marketplace report"
+        disabled={saving}
+        onChange={event => void importFile(event.target.files?.[0])}
+      />
+      <button className="primary" type="button" disabled={saving || !defaultPlatform} onClick={() => fileRef.current?.click()}>
+        <Upload size={16} /> {saving ? 'Importing report…' : 'Choose report to import'}
+      </button>
+      {!isAdmin && error && <p className="ecommerce-error" role="alert">{error}</p>}
+      {message && <p className="ecommerce-feedback" role="status">{message}</p>}
+    </section>
+  )
+
+  if (!isAdmin) {
     return <section className="marketplace-reconciliation">
       <div className="page-heading">
         <div><p>E-COMMERCE</p><h1>Marketplace Report Import</h1><span className="dashboard-description">Import normalized order and settlement data for your assigned marketplaces.</span></div>
       </div>
-      <section className="panel reconciliation-import-panel">
-        <div className="reconciliation-import-actions">
-          <div><FileSpreadsheet size={22} /><div><strong>Standard report template</strong><span>Use the same template for Amazon, Flipkart, Meesho, Shopify, and Myntra.</span></div></div>
-          <button className="secondary" type="button" onClick={downloadTemplate}><Download size={16} /> Download CSV template</button>
-        </div>
-        <div className="reconciliation-import-notes">
-          <p>Prepare <strong>ORDER</strong> rows with sales, fees, SKU, quantity, and total product cost. Add a separate <strong>SETTLEMENT</strong> row for each payout, including its expected amount and optional bank credit.</p>
-          <p>Choose the marketplace and report type for each upload. Common column names are recognized; if a platform export uses different headers, map/copy its data into the template. Blank product cost or bank credit is flagged rather than guessed.</p>
-          <p>Your account can import only platforms assigned by the Super Admin: {user.platforms?.join(', ') || 'none assigned'}.</p>
-        </div>
-        <div className="reconciliation-import-fields">
-          <label>Marketplace<select value={defaultPlatform} required onChange={event => setDefaultPlatform(event.target.value)}>
-            {(user.platforms || []).map(platform => <option key={platform} value={platform}>{platform}</option>)}
-          </select></label>
-          <label>Report type<select value={defaultType} onChange={event => setDefaultType(event.target.value as 'ORDER' | 'SETTLEMENT')}>
-            <option value="ORDER">Orders / transactions</option><option value="SETTLEMENT">Settlements / bank credits</option>
-          </select></label>
-        </div>
-        <input
-          ref={fileRef}
-          className="reconciliation-file-input"
-          type="file"
-          accept=".csv,.xlsx,.xls,.zip"
-          aria-label="Choose marketplace report"
-          disabled={saving}
-          onChange={event => void importFile(event.target.files?.[0])}
-        />
-        <button className="primary" type="button" disabled={saving || !defaultPlatform} onClick={() => fileRef.current?.click()}>
-          <Upload size={16} /> {saving ? 'Importing report…' : 'Choose report to import'}
-        </button>
-        {error && <p className="ecommerce-error" role="alert">{error}</p>}
-        {message && <p className="ecommerce-feedback" role="status">{message}</p>}
-      </section>
+      {importPanel}
     </section>
   }
 
@@ -572,6 +583,10 @@ export function MarketplaceReconciliationView({ user }: Props) {
         <label>Report period<input aria-label="Filter report month" type="month" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} /></label>
         <button className="secondary" type="button" onClick={() => void refresh()} disabled={loading}><RefreshCw size={16} /> Refresh</button>
       </div>
+    </div>
+    <div className="reconciliation-admin-import">
+      <h2>Import marketplace reports</h2>
+      {importPanel}
     </div>
     {error && <p className="ecommerce-error" role="alert">{error}</p>}
     {loading ? <div className="panel empty-state" role="status">Loading marketplace reports…</div> : <>

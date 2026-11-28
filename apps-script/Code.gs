@@ -4230,8 +4230,8 @@
     }
 
     function importMarketplaceReconciliation_(spreadsheet, payload) {
-      if (String(payload.sessionUserRole || '') !== 'E-commerce Executive') {
-        throw apiError_(403, 'Only an E-commerce Executive can import marketplace reports.')
+      if (['E-commerce Executive', 'Super Admin'].indexOf(String(payload.sessionUserRole || '')) < 0) {
+        throw apiError_(403, 'Only an E-commerce Executive or the Super Admin can import marketplace reports.')
       }
       if (!Array.isArray(payload.rows) || payload.rows.length < 1 || payload.rows.length > 500) {
         throw apiError_(400, 'Import between 1 and 500 report rows per batch.')

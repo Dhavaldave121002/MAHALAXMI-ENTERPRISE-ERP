@@ -310,6 +310,8 @@ main { min-width: 0; }.topbar { height: 72px; background: #fff; border-bottom: 1
 .settings-hub-card small{margin-top:5px;color:#8b95a7;font-size:10px;line-height:1.45}
 .marketplace-reconciliation .page-heading{align-items:flex-end}
 .reconciliation-import-panel{padding:18px}
+.reconciliation-admin-import{margin-bottom:16px}
+.reconciliation-admin-import>h2{margin:0 0 10px;color:#263147;font-size:15px}
 .reconciliation-import-actions{display:flex;align-items:center;justify-content:space-between;gap:14px}
 .reconciliation-import-actions>div{display:flex;align-items:center;gap:10px;color:#5369d8}
 .reconciliation-import-actions strong,.reconciliation-import-actions span{display:block}

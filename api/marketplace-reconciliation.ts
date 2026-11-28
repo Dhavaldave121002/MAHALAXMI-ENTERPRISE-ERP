@@ -200,8 +200,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       return
     }
 
-    if (user.role !== 'E-commerce Executive') {
-      throw new ApiError(403, 'Only an E-commerce Executive can import marketplace reports.')
+    if (user.role !== 'E-commerce Executive' && user.role !== 'Super Admin') {
+      throw new ApiError(403, 'Only an E-commerce Executive or the Super Admin can import marketplace reports.')
     }
     const body = await readJsonBody(request)
     if (!Array.isArray(body.rows) || body.rows.length === 0 || body.rows.length > 500) {
