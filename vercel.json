@@ -2,6 +2,11 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/erp.ts": {
+      "maxDuration": 75
+    }
+  },
   "rewrites": [
     { "source": "/api/auth/(.*)", "destination": "/api/auth?action=$1" },
     { "source": "/api/cameras/(.*)", "destination": "/api/cameras?action=$1" },

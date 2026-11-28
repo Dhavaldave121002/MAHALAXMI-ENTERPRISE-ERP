@@ -124,8 +124,17 @@ export function getSessionSecret() {
   return secret
 }
 
-async function callAppsScript<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+async function callAppsScript<T>(
+  action: string,
+  payload: Record<string, unknown> = {},
+  timeoutMs?: number,
+  timeoutMessage = 'Google Apps Script request timed out. Please retry.',
+): Promise<T> {
   const config = getAppsScriptConfiguration()
+  const controller = timeoutMs ? new AbortController() : null
+  const timeout = timeoutMs
+    ? setTimeout(() => controller?.abort(), timeoutMs)
+    : null
   let response: Response
   try {
     response = await fetch(config.url, {
@@ -134,48 +143,60 @@ async function callAppsScript<T>(action: string, payload: Record<string, unknown
       body: JSON.stringify({ secret: config.secret, action, payload }),
       cache: 'no-store',
       redirect: 'follow',
+      ...(controller ? { signal: controller.signal } : {}),
     })
   } catch {
+    if (controller?.signal.aborted) {
+      if (timeout) clearTimeout(timeout)
+      throw new ApiError(504, timeoutMessage)
+    }
+    if (timeout) clearTimeout(timeout)
     throw new ApiError(503, 'Could not reach the Google Apps Script web app. Check its deployment URL and access settings.')
   }
-  if (!response.ok) throw new ApiError(503, 'Google Apps Script returned an HTTP error. Check its deployment.')
 
-  let result: unknown
   try {
-    result = await response.json()
-  } catch {
-    throw new ApiError(503, 'Google Apps Script did not return JSON. Check that the deployed web app is accessible.')
-  }
-  if (result && typeof result === 'object' && 'error' in result && typeof result.error === 'string') {
-    if (result.error === 'Unknown ERP action.' || result.error === 'Unknown audit event.') {
-      throw new ApiError(503, 'The connected Google Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.')
+    if (!response.ok) throw new ApiError(503, 'Google Apps Script returned an HTTP error. Check its deployment.')
+
+    let result: unknown
+    try {
+      result = await response.json()
+    } catch {
+      if (controller?.signal.aborted) throw new ApiError(504, timeoutMessage)
+      throw new ApiError(503, 'Google Apps Script did not return JSON. Check that the deployed web app is accessible.')
     }
-  }
-  if (!result || typeof result !== 'object' || Array.isArray(result) || !('ok' in result)) {
-    const responseKeys = result && typeof result === 'object' && !Array.isArray(result)
-      ? Object.keys(result).slice(0, 8)
-      : []
-    console.error('Google Apps Script returned an unexpected response envelope.', {
-      status: response.status,
-      contentType: response.headers.get('content-type') || 'unknown',
-      responseKeys,
-    })
-    throw new ApiError(
-      503,
-      'Connected Apps Script returned an incompatible response. Verify Vercel GOOGLE_APPS_SCRIPT_URL points to the current /exec deployment and deploy the latest Code.gs.',
-    )
-  }
-  if (result.ok !== true) {
-    const status = 'status' in result && typeof result.status === 'number' ? result.status : 503
-    const message = 'error' in result && typeof result.error === 'string' ? result.error : 'Google Apps Script request failed.'
-    if (message === 'Unknown ERP action.' || message === 'Unknown audit event.') {
-      throw new ApiError(503, 'The connected Google Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.')
+    if (result && typeof result === 'object' && 'error' in result && typeof result.error === 'string') {
+      if (result.error === 'Unknown ERP action.' || result.error === 'Unknown audit event.') {
+        throw new ApiError(503, 'The connected Google Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.')
+      }
     }
-    throw new ApiError(status >= 400 && status < 500 ? status : 503, message)
+    if (!result || typeof result !== 'object' || Array.isArray(result) || !('ok' in result)) {
+      const responseKeys = result && typeof result === 'object' && !Array.isArray(result)
+        ? Object.keys(result).slice(0, 8)
+        : []
+      console.error('Google Apps Script returned an unexpected response envelope.', {
+        status: response.status,
+        contentType: response.headers.get('content-type') || 'unknown',
+        responseKeys,
+      })
+      throw new ApiError(
+        503,
+        'Connected Apps Script returned an incompatible response. Verify Vercel GOOGLE_APPS_SCRIPT_URL points to the current /exec deployment and deploy the latest Code.gs.',
+      )
+    }
+    if (result.ok !== true) {
+      const status = 'status' in result && typeof result.status === 'number' ? result.status : 503
+      const message = 'error' in result && typeof result.error === 'string' ? result.error : 'Google Apps Script request failed.'
+      if (message === 'Unknown ERP action.' || message === 'Unknown audit event.') {
+        throw new ApiError(503, 'The connected Google Apps Script deployment is outdated. Deploy the latest Code.gs as a new web-app version.')
+      }
+      throw new ApiError(status >= 400 && status < 500 ? status : 503, message)
+    }
+    if (!('data' in result)) throw new ApiError(503, 'Google Apps Script response is missing its data.')
+    if (!READ_ONLY_APPS_SCRIPT_ACTIONS.has(action)) invalidateWorkbookDataCache()
+    return result.data as T
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
-  if (!('data' in result)) throw new ApiError(503, 'Google Apps Script response is missing its data.')
-  if (!READ_ONLY_APPS_SCRIPT_ACTIONS.has(action)) invalidateWorkbookDataCache()
-  return result.data as T
 }
 
 export async function getWorkbookData(): Promise<WorkbookData> {
@@ -237,7 +258,12 @@ function parsePlatforms(value: unknown): EcommercePlatform[] {
 }
 
 export async function listUsers() {
-  const result = await callAppsScript<{ users: Record<string, unknown>[] }>('getUsers')
+  const result = await callAppsScript<{ users: Record<string, unknown>[] }>(
+    'getUsers',
+    {},
+    12_000,
+    'Account verification timed out. Check the connection and retry.',
+  )
   if (!result || !Array.isArray(result.users)) throw new ApiError(503, 'Apps Script returned an invalid user list.')
   return readUsers(result.users)
 }
@@ -521,6 +547,8 @@ export async function listWorkbookAssistantState(user: SessionBoundInput) {
   return callAppsScript<{ messages: AssistantMessage[]; memory: string; retentionHours: number }>(
     'listAssistantState',
     sessionBoundPayload(user),
+    12_000,
+    'Loading Saathi history timed out. Use Refresh to try again.',
   )
 }
 

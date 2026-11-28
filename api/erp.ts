@@ -53,9 +53,12 @@ import { fetchIndiaMartCatalog } from './_lib/indiamart.js'
 import { workspaceData } from './ecommerce.js'
 import {
   generateOpenAiGeneralReply,
+  generateOpenAiGeneralImage,
   generatePrivateAssistantReply,
+  isOpenAiImageGenerationConfigured,
   isOpenAiGeneralConfigured,
   isPrivateAssistantConfigured,
+  transcribeOpenAiGeneralAudio,
   type AssistantReply,
   type AssistantRecordContext,
 } from './_lib/assistant.js'
@@ -1754,6 +1757,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         ...state,
         modelReady: isPrivateAssistantConfigured(),
         generalAiReady: isOpenAiGeneralConfigured(),
+        imageGenerationReady: isOpenAiImageGenerationConfigured(),
         faqModeReady: true,
       })
       return
@@ -1764,8 +1768,33 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     }
     if (action === 'askGeneralAssistant') {
       const question = requiredText(body.message, 'Message', 3000)
-      const answer = await generateOpenAiGeneralReply(question)
+      let imageDataUrl: string | undefined
+      if (body.imageDataUrl !== undefined) {
+        if (typeof body.imageDataUrl !== 'string') {
+          throw new ApiError(400, 'Choose a JPEG, PNG, or WebP image.')
+        }
+        if (body.imageDataUrl.length > 2_100_000) {
+          throw new ApiError(400, 'Choose an image smaller than 1.5 MB.')
+        }
+        imageDataUrl = body.imageDataUrl
+      }
+      const answer = await generateOpenAiGeneralReply(question, imageDataUrl)
       sendJson(response, 200, { answer })
+      return
+    }
+    if (action === 'generateGeneralImage') {
+      const prompt = requiredText(body.message, 'Image description', 2000)
+      const imageDataUrl = await generateOpenAiGeneralImage(prompt)
+      sendJson(response, 200, { imageDataUrl })
+      return
+    }
+    if (action === 'transcribeGeneralAudio') {
+      const audioDataUrl = body.audioDataUrl
+      if (typeof audioDataUrl !== 'string' || audioDataUrl.length > 2_900_000) {
+        throw new ApiError(400, 'Keep the voice recording under 2 MB.')
+      }
+      const transcript = await transcribeOpenAiGeneralAudio(audioDataUrl)
+      sendJson(response, 200, { transcript })
       return
     }
     if (action === 'askAssistant') {

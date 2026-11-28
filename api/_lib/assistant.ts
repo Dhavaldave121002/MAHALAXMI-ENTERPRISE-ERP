@@ -106,9 +106,27 @@ function openAiGeneralConfiguration() {
   return { apiKey, model }
 }
 
+function openAiImageConfiguration() {
+  const apiKey = process.env.OPENAI_API_KEY?.trim() || ''
+  const model = process.env.OPENAI_IMAGE_MODEL?.trim() || ''
+  if (!apiKey || !model) {
+    throw new ApiError(503, 'Image generation is not configured. Ask the administrator to configure its server-side model.')
+  }
+  return { apiKey, model }
+}
+
 export function isOpenAiGeneralConfigured() {
   try {
     openAiGeneralConfiguration()
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isOpenAiImageGenerationConfigured() {
+  try {
+    openAiImageConfiguration()
     return true
   } catch {
     return false
@@ -240,8 +258,19 @@ export async function generatePrivateAssistantReply(input: {
   }
 }
 
-export async function generateOpenAiGeneralReply(question: string): Promise<string> {
+function validatedImageDataUrl(value: string) {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(value)
+  if (!match) throw new ApiError(400, 'Choose a JPEG, PNG, or WebP image.')
+  const image = Buffer.from(match[2], 'base64')
+  if (!image.length || image.length > 1_500_000 || image.toString('base64') !== match[2]) {
+    throw new ApiError(400, 'Choose an image smaller than 1.5 MB.')
+  }
+  return value
+}
+
+export async function generateOpenAiGeneralReply(question: string, imageDataUrl?: string): Promise<string> {
   const config = openAiGeneralConfiguration()
+  const image = imageDataUrl ? validatedImageDataUrl(imageDataUrl) : ''
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 20_000)
   try {
@@ -256,9 +285,17 @@ export async function generateOpenAiGeneralReply(question: string): Promise<stri
         messages: [
           {
             role: 'system',
-            content: 'You are a general-purpose assistant. Reply in the language and script used by the user. You have no access to Mahalaxmi ERP, private records, or live web search. Never claim to have checked current facts, changed records, or performed actions. For information that needs live verification, clearly say you cannot verify it. Never request passwords, API keys, or other credentials. Give concise, practical answers.',
+            content: 'You are Mahalaxmi Saathi’s general business and productivity assistant. Reply in the language and script used by the user. Help with business plans, market-research frameworks, customer segments, competitor-analysis methods, SWOT, pricing, unit economics, go-to-market plans, and practical next steps. You have no access to Mahalaxmi ERP, private records, or live web search. Never invent current market size, competitor facts, citations, or claim to have checked current facts, changed records, or performed actions. Clearly label assumptions and estimates; ask for the target region, product, customer, and budget when those details materially affect the analysis. For current market research, provide a validation plan and identify the sources or data the user should check. Never request passwords, API keys, or other credentials. Give clear, structured, practical answers.',
           },
-          { role: 'user', content: question },
+          {
+            role: 'user',
+            content: image
+              ? [
+                  { type: 'text', text: question },
+                  { type: 'image_url', image_url: { url: image, detail: 'auto' } },
+                ]
+              : question,
+          },
         ],
         max_completion_tokens: 700,
       }),
@@ -296,6 +333,128 @@ export async function generateOpenAiGeneralReply(question: string): Promise<stri
     }
     console.error('OpenAI General AI connection failed.')
     throw new ApiError(502, 'Could not reach OpenAI General AI. Check the server-side connection, then retry.')
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export async function generateOpenAiGeneralImage(prompt: string): Promise<string> {
+  const config = openAiImageConfiguration()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 60_000)
+  try {
+    const response = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        prompt,
+        n: 1,
+        size: '1024x1024',
+        quality: 'low',
+        output_format: 'jpeg',
+      }),
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      console.error('OpenAI image generation returned HTTP status', response.status)
+      throw new ApiError(502, 'OpenAI could not generate the image. Check the image model and API permissions, then retry.')
+    }
+
+    let result: unknown
+    try {
+      result = await response.json()
+    } catch {
+      throw new ApiError(502, 'OpenAI image generation returned an unreadable response. Please retry.')
+    }
+    if (!result || typeof result !== 'object' || !('data' in result) ||
+        !Array.isArray(result.data) || !result.data[0] ||
+        typeof result.data[0] !== 'object' || !('b64_json' in result.data[0]) ||
+        typeof result.data[0].b64_json !== 'string') {
+      throw new ApiError(502, 'OpenAI image generation returned an invalid image. Please retry.')
+    }
+    const imageBase64 = result.data[0].b64_json
+    if (!imageBase64 || imageBase64.length > 4_000_000 ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(imageBase64)) {
+      throw new ApiError(502, 'OpenAI image generation returned an image that is too large or invalid.')
+    }
+    return `data:image/jpeg;base64,${imageBase64}`
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError(504, 'Image generation took too long. Try a shorter prompt, then retry.')
+    }
+    console.error('OpenAI image generation connection failed.')
+    throw new ApiError(502, 'Could not reach OpenAI image generation. Check the server-side connection, then retry.')
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export async function transcribeOpenAiGeneralAudio(audioDataUrl: string): Promise<string> {
+  const match = /^data:(audio\/[a-z0-9.+-]+(?:;codecs=[a-z0-9.+-]+)?);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(audioDataUrl)
+  const allowedTypes = new Set(['audio/webm', 'audio/ogg', 'audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/mp3', 'audio/x-m4a'])
+  const mimeType = match?.[1].split(';')[0].toLowerCase() || ''
+  if (!match || !allowedTypes.has(mimeType)) {
+    throw new ApiError(400, 'Record or choose audio in WebM, Ogg, WAV, MP3, or M4A format.')
+  }
+  const audio = Buffer.from(match[2], 'base64')
+  if (!audio.length || audio.length > 2 * 1024 * 1024 || audio.toString('base64') !== match[2]) {
+    throw new ApiError(400, 'Keep the voice recording under 2 MB.')
+  }
+  const extensions: Record<string, string> = {
+    'audio/webm': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/wav': 'wav',
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'mp4',
+    'audio/mp3': 'mp3',
+    'audio/x-m4a': 'm4a',
+  }
+  const config = openAiGeneralConfiguration()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 25_000)
+  try {
+    const form = new FormData()
+    form.append('file', new Blob([audio], { type: mimeType }), `saathi-voice.${extensions[mimeType]}`)
+    form.append('model', 'gpt-transcribe')
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+      body: form,
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      console.error('OpenAI voice transcription returned HTTP status', response.status)
+      throw new ApiError(502, 'OpenAI could not transcribe the recording. Check its model permissions, then retry.')
+    }
+
+    let result: unknown
+    try {
+      result = await response.json()
+    } catch {
+      throw new ApiError(502, 'OpenAI voice transcription returned an unreadable response. Please retry.')
+    }
+    if (!result || typeof result !== 'object' || !('text' in result) || typeof result.text !== 'string') {
+      throw new ApiError(502, 'OpenAI voice transcription returned an invalid response. Please retry.')
+    }
+    const transcript = result.text.trim()
+    if (!transcript || transcript.length > 3000) {
+      throw new ApiError(502, 'The recording was empty or too long. Record a shorter voice message.')
+    }
+    return transcript
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError(504, 'Voice transcription took too long. Try a shorter recording, then retry.')
+    }
+    console.error('OpenAI voice transcription connection failed.')
+    throw new ApiError(502, 'Could not reach OpenAI voice transcription. Check the server-side connection, then retry.')
   } finally {
     clearTimeout(timeout)
   }
