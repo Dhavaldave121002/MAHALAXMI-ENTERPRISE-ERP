@@ -1,8 +1,8 @@
     const ERP_USER_COLUMNS = ['User ID', 'Name', 'Username', 'Role', 'Active', 'Password Salt', 'Password Hash', 'Created At', 'Assigned Platforms', 'Manager ID']
     const ERP_DATA_SHEETS = ['Users', 'Products', 'SKU_Variants', 'Marketplace_Listings', 'Machines', 'Raw_Materials', 'Finished_Goods', 'Stock_Movement', 'Production', 'Production_Targets', 'Sales_Leads', 'Sales_Activities', 'Sales_Orders', 'Sales_Targets', 'Graphic_Design_Tasks', 'Suppliers', 'Accounts_Expenses']
     const ERP_WRITE_SHEETS = ['Products', 'SKU_Variants', 'Machines', 'Production']
-    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'listAssistantState', 'saveAssistantTurn', 'clearAssistantMemory', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
-    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    const ERP_SESSION_BOUND_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'deleteProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'listGraphicDesignReports', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'listEcommerceLabels', 'downloadEcommerceLabel', 'startCameraClipUpload', 'uploadCameraClipChunk', 'listCameraClips', 'readCameraClipRange', 'cleanupExpiredCameraClips', 'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment', 'listAssistantState', 'saveAssistantTurn', 'clearAssistantMemory', 'submitEcommerceReport', 'listEcommerceReports', 'listEcommerceTasks', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'listSalesReports', 'getEcommerceTargets', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
+    const ERP_AUDIT_ACTIONS = ['appendUser', 'setUserActive', 'setUserManager', 'setUserPassword', 'appendRecord', 'addMarketplaceListing', 'recordProduction', 'deleteProduction', 'reviewProductionQuality', 'submitGraphicDesignTask', 'updateGraphicDesignProgress', 'reviewGraphicDesignTask', 'submitGraphicDesignReport', 'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData', 'updateMarketplaceSku', 'updateMarketplaceListing', 'uploadEcommerceLabel', 'submitEcommerceReport', 'createEcommerceTask', 'updateEcommerceTask', 'reviewEcommerceTask', 'submitSalesReport', 'setEcommerceTarget', 'setProductionTarget', 'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget', 'addSupplier', 'setSupplierActive', 'recordAccountExpense']
     ERP_SESSION_BOUND_ACTIONS.push('importMarketplaceReconciliation')
     ERP_SESSION_BOUND_ACTIONS.push('listMarketplaceReconciliation')
     ERP_AUDIT_ACTIONS.push('importMarketplaceReconciliation')
@@ -491,6 +491,8 @@
           return deleteUnusedStockItem_(spreadsheet, payload)
         case 'recordProduction':
           return recordProduction_(spreadsheet, payload)
+        case 'deleteProduction':
+          return deleteProduction_(spreadsheet, payload)
         case 'reviewProductionQuality':
           return reviewProductionQuality_(spreadsheet, payload)
         case 'submitGraphicDesignTask':
@@ -1157,6 +1159,7 @@
         setUserPassword: 'Changed account password',
         addMarketplaceListing: 'Created marketplace listing',
         recordProduction: 'Recorded production',
+        deleteProduction: 'Deleted production entry',
         reviewProductionQuality: 'Reviewed production quality',
         submitGraphicDesignTask: 'Submitted creative task',
         updateGraphicDesignProgress: 'Updated creative production status',
@@ -2244,6 +2247,22 @@
           'QC Rejected Quantity', 'QC Reviewed By', 'QC Reviewed At',
         ], backupState)
 
+        if (productionSheet.getLastRow() >= 2) {
+          const existingRows = productionSheet.getRange(2, 1, productionSheet.getLastRow() - 1, productionHeaders.length).getDisplayValues()
+          for (let i = 0; i < existingRows.length; i += 1) {
+            const existing = {}
+            productionHeaders.forEach(function (header, columnIndex) { existing[header] = existingRows[i][columnIndex] })
+            const sameEntry =
+              String(existing.Date || '') === String(record.Date || '') &&
+              String(existing['Machine ID'] || '').trim().toLowerCase() === String(record['Machine ID'] || '').trim().toLowerCase() &&
+              String(existing['Production Block'] || '').trim() === productionBlock &&
+              String(existing['Variant SKU'] || existing['Master SKU'] || '').trim().toLowerCase() === sku.toLowerCase() &&
+              Number(existing['Actual Quantity']) === actual &&
+              Number(existing['Rejected Quantity']) === rejected
+            if (sameEntry) throw apiError_(409, 'This production entry already exists for the selected date, block, machine, and SKU.')
+          }
+        }
+
         const finished = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
         const rowNumber = findStockRow_(finished.sheet, finished.headers, 'Product SKU', sku)
         let item = readStockRow_(finished.sheet, finished.headers, rowNumber)
@@ -2280,6 +2299,56 @@
         else appendStockRow_(finished.sheet, finished.headers, item)
         SpreadsheetApp.flush()
         return { finishedGood: item, movement: null }
+      })
+    }
+
+    function deleteProduction_(spreadsheet, payload) {
+      const role = String(payload.sessionUserRole || '')
+      if (role !== 'Production Supervisor' && role !== 'Super Admin') {
+        throw apiError_(403, 'Only the Production Supervisor or Super Admin can delete production.')
+      }
+      const productionId = String(payload.productionId || '').trim()
+      if (!productionId) throw apiError_(400, 'Choose a production batch.')
+      return withWriteLock_(function () {
+        const productionSheet = spreadsheet.getSheetByName('Production')
+        if (!productionSheet || productionSheet.getLastRow() < 2) throw apiError_(404, 'The production batch was not found.')
+        const headers = productionSheet.getRange(1, 1, 1, productionSheet.getLastColumn()).getDisplayValues()[0].map(function (value) { return value.trim() })
+        const idIndex = headers.indexOf('Production ID')
+        if (idIndex < 0) throw apiError_(422, 'The Production sheet is missing Production ID.')
+        const values = productionSheet.getRange(2, 1, productionSheet.getLastRow() - 1, headers.length).getDisplayValues()
+        let rowIndex = -1
+        let record = null
+        for (let i = 0; i < values.length; i += 1) {
+          if (String(values[i][idIndex] || '').trim() === productionId) {
+            rowIndex = i + 2
+            record = {}
+            headers.forEach(function (header, columnIndex) { record[header] = values[i][columnIndex] })
+            break
+          }
+        }
+        if (!record) throw apiError_(404, 'The production batch was not found.')
+
+        const sku = String(record['Variant SKU'] || record['Master SKU'] || '').trim()
+        const actual = stockNumber_(record['Actual Quantity'], 'Actual quantity')
+        const approved = stockNumber_(record['QC Approved Quantity'], 'QC approved quantity')
+        const rejected = stockNumber_(record['QC Rejected Quantity'], 'QC rejected quantity')
+        const backupState = { created: false }
+        const finished = ensureStockSheet_(spreadsheet, 'Finished_Goods', ERP_FINISHED_GOODS_HEADERS, backupState)
+        const stockRowNumber = findStockRow_(finished.sheet, finished.headers, 'Product SKU', sku)
+        let item = stockRowNumber ? readStockRow_(finished.sheet, finished.headers, stockRowNumber) : null
+        if (item) {
+          item['Production Received'] = Math.max(0, stockNumber_(item['Production Received'], 'Production received') - actual)
+          item.Rejected = Math.max(0, stockNumber_(item.Rejected, 'Rejected') - rejected)
+          item['Quality Approved'] = Math.max(0, stockNumber_(item['Quality Approved'], 'Quality approved') - approved)
+          item['Available Stock'] = finishedAvailableStock_(item)
+          item['Last Updated'] = new Date().toISOString()
+        }
+
+        createBackupOnce_(spreadsheet, backupState)
+        productionSheet.deleteRow(rowIndex)
+        if (item && stockRowNumber) updateStockRow_(finished.sheet, finished.headers, stockRowNumber, item)
+        SpreadsheetApp.flush()
+        return { deleted: true, record: record, finishedGood: item || {} }
       })
     }
 

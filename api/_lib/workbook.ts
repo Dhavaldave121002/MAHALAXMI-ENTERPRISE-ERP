@@ -677,6 +677,13 @@ export async function recordWorkbookProduction(record: Record<string, unknown>, 
   )
 }
 
+export async function deleteWorkbookProduction(productionId: string, actor: Pick<PublicUser, 'id' | 'role'>) {
+  return callAppsScript<{ deleted: boolean; record: Record<string, unknown>; finishedGood: Record<string, unknown> }>(
+    'deleteProduction',
+    { productionId, ...sessionBoundPayload(actor) },
+  )
+}
+
 export async function reviewWorkbookProductionQuality(input: SessionBoundInput & {
   productionId: string
   approved: number

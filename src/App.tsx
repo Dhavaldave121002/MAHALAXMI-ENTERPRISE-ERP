@@ -1031,6 +1031,31 @@ export default function App() {
     return result.record
   }
 
+  const deleteProduction = async (productionId: string) => {
+    const result = await apiFetch<{ deleted: boolean; record: Production; finishedGood: FinishedGood }>('/api/erp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'deleteProduction', productionId }),
+    })
+    setProduction(prev => prev.filter(item => item.id !== result.record.id))
+    setFinishedGoods(prev => [result.finishedGood, ...prev.filter(item => item.sku.toLowerCase() !== result.finishedGood.sku.toLowerCase())])
+    setProducts(prev => prev.map(item => item.sku.toLowerCase() === result.finishedGood.sku.toLowerCase()
+      ? { ...item, stock: result.finishedGood.availableStock }
+      : item))
+    setProductionTargets(previous => previous.map(target => {
+      const inPeriod = result.record.date >= target.startDate && result.record.date <= target.endDate
+      const sameMachine = result.record.machine.toLowerCase() === target.machineId.toLowerCase()
+      const sameProduct = target.sku
+        ? result.record.sku.toLowerCase() === target.sku.toLowerCase()
+        : result.record.product.toLowerCase() === target.productName.toLowerCase()
+      return inPeriod && sameMachine && sameProduct
+        ? { ...target, actual: Math.max(0, target.actual - result.record.actual) }
+        : target
+    }))
+    workbookLastRefreshAt.current = Date.now()
+    notify('Production entry deleted and stock quantities reversed')
+  }
+
   const reviewProductionQuality = async (input: { productionId: string; approved: number; rejected: number }) => {
     const result = await apiFetch<{
       record: Production
@@ -1630,7 +1655,7 @@ export default function App() {
             <ModuleView module={module} clock={clock} products={products} marketplaceListings={marketplaceListings} production={production} productionTargets={productionTargets} rawMaterials={rawMaterials} finishedGoods={finishedGoods} stockMovements={stockMovements} suppliers={suppliers} accountExpenses={accountExpenses} workbookMeta={workbookMeta}
               search={search} setSearch={setSearch} exportExcel={exportExcel} saveProduct={saveProduct} saveVariant={saveVariant} saveMarketplaceListing={saveMarketplaceListing} importMarketplaceWorkbook={importMarketplaceWorkbook}
               resetErpData={resetErpData}
-              saveProduction={saveProduction} reviewProductionQuality={reviewProductionQuality} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveMachineStatus={saveMachineStatus} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
+              saveProduction={saveProduction} deleteProduction={deleteProduction} reviewProductionQuality={reviewProductionQuality} saveProductionTarget={saveProductionTarget} saveMachine={saveMachine} saveMachineStatus={saveMachineStatus} saveRawMaterial={saveRawMaterial} applyStockMovement={applyStockMovement}
               saveSupplier={saveSupplier} updateSupplierActive={updateSupplierActive} saveAccountExpense={saveAccountExpense}
               graphicDesignTasks={graphicDesignTasks} submitGraphicDesignTask={submitGraphicDesignTask} updateGraphicDesignProgress={updateGraphicDesignProgress} reviewGraphicDesignTask={reviewGraphicDesignTask}
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
@@ -1661,6 +1686,7 @@ function ModuleView(props: {
   importMarketplaceWorkbook: (rows: Pick<MarketplaceImportRows, 'products' | 'variants' | 'listings' | 'finishedGoods'>) => Promise<MarketplaceImportResult>;
   resetErpData: (confirmation: string) => Promise<ErpResetResult>;
   saveProduction: (input: { date: string; machine: string; block: string; sku: string; product: string; actual: number; rejected: number }) => Promise<Production>;
+  deleteProduction: (productionId: string) => Promise<void>;
   reviewProductionQuality: (input: { productionId: string; approved: number; rejected: number }) => Promise<Production>;
   graphicDesignTasks: GraphicDesignTask[];
   submitGraphicDesignTask: (input: { plannedDate: string; month: string; sku: string; platforms: string[]; contentType: 'Post' | 'Video'; brief: string; caption: string; script: string }) => Promise<GraphicDesignTask>;
@@ -1695,7 +1721,7 @@ function ModuleView(props: {
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, saveMachineStatus, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, indiaMartListings, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget, previewIndiaMartCatalog, saveIndiaMartListings } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, deleteProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, saveMachineStatus, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, indiaMartListings, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget, previewIndiaMartCatalog, saveIndiaMartListings } = props
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditLoading, setAuditLoading] = useState(true)
   const [auditError, setAuditError] = useState('')
@@ -1883,6 +1909,8 @@ function ModuleView(props: {
   }, [module, sessionUser.role])
   const [productionDate, setProductionDate] = useState(() => indiaDateKey(clock))
   const [productionBlockChoice, setProductionBlockChoice] = useState('')
+  const [productionSaving, setProductionSaving] = useState(false)
+  const [productionDeletingId, setProductionDeletingId] = useState('')
   const [marketplaceImportPreview, setMarketplaceImportPreview] = useState<MarketplaceImportRows | null>(null)
   const [marketplaceImportFileName, setMarketplaceImportFileName] = useState('')
   const [marketplaceImportError, setMarketplaceImportError] = useState('')
@@ -2181,6 +2209,7 @@ function ModuleView(props: {
 
   const submitProduction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (productionSaving) return
     const formElement = e.currentTarget
     const form = new FormData(formElement)
     const actual = Number(form.get('actual'))
@@ -2191,6 +2220,7 @@ function ModuleView(props: {
       notify('Select an active SKU and enter valid whole-number quantities')
       return
     }
+    setProductionSaving(true)
     try {
       await saveProduction({
         date: String(form.get('date')),
@@ -2206,6 +2236,8 @@ function ModuleView(props: {
       formElement.reset()
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Production entry could not be saved')
+    } finally {
+      setProductionSaving(false)
     }
   }
 
@@ -3459,7 +3491,13 @@ function ModuleView(props: {
     )
     const availableMachines = machines.filter(machine => machine.status.toLowerCase() !== 'maintenance')
     const visibleProduction = production.filter(row => row.date === today)
-    const productionRows = visibleProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td><span className={`status ${row.qcStatus === 'Reviewed' ? 'active' : 'pending'}`}>{row.qcStatus}</span></td><td>{row.qcApproved}</td><td>{row.qcRejected}</td><td>{row.createdBy || '—'}</td></tr>)
+    const productionRows = visibleProduction.map(row => <tr key={row.id}><td>{formatIndiaDate(row.date)}</td><td>{row.block || '—'}</td><td>{row.machine}</td><td>{row.product}</td><td><code>{row.sku}</code></td><td>{row.actual}</td><td>{row.rejected}</td><td><span className={`status ${row.qcStatus === 'Reviewed' ? 'active' : 'pending'}`}>{row.qcStatus}</span></td><td>{row.qcApproved}</td><td>{row.qcRejected}</td><td>{row.createdBy || '—'}</td><td>{sessionUser.role === 'Production Supervisor' || sessionUser.role === 'Super Admin'
+      ? <button type="button" className="text-action danger" disabled={productionDeletingId === row.id} onClick={() => {
+          if (!window.confirm(`Delete this production entry for ${row.product} (${row.actual} units)?`)) return
+          setProductionDeletingId(row.id)
+          void deleteProduction(row.id).catch(error => notify(error instanceof Error ? error.message : 'Production entry could not be deleted')).finally(() => setProductionDeletingId(''))
+        }}>{productionDeletingId === row.id ? 'Deleting…' : 'Delete'}</button>
+      : '—'}</td></tr>)
     const exportDailyReport = () => {
       const sheet = XLSX.utils.json_to_sheet(visibleProduction)
       const workbook = XLSX.utils.book_new()
@@ -3510,7 +3548,7 @@ function ModuleView(props: {
                   ? <p className="local-storage-note">Current India time is outside a production block or during a break. Select the block manually for this entry.</p>
                   : <p className="local-storage-note">For a different production date, select the block manually.</p>}
               {(activeProducts.length === 0 || availableMachines.length === 0) && <p className="local-storage-note">{activeProducts.length === 0 ? 'No active SKUs yet. Ask the Super Admin or Production Supervisor to add products and variants.' : ''}{activeProducts.length === 0 && availableMachines.length === 0 ? ' ' : ''}{availableMachines.length === 0 ? 'No working machines configured. Ask the Super Admin or Production Supervisor to add a machine.' : ''}</p>}
-              <button className="primary wide" type="submit" disabled={activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> Save production record</button>
+              <button className="primary wide" type="submit" disabled={productionSaving || activeProducts.length === 0 || availableMachines.length === 0}><Plus size={17} /> {productionSaving ? 'Saving…' : 'Save production record'}</button>
             </form>
             <div className="panel time-card">
               <div className="panel-heading"><div><h2>Production blocks</h2><p>Break periods are excluded</p></div></div>
@@ -3519,7 +3557,7 @@ function ModuleView(props: {
             </div>
           </div>
         ) : <p className="local-storage-note">Only the Production Supervisor can add production entries. Existing records are available here for inspection.</p>}
-        <div className="table-card entries-table"><PaginatedTable label="Today's production entries" resetKey={today} header={<thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Initial reject estimate</th><th>QC status</th><th>QC pass</th><th>QC reject</th><th>Entered by</th></tr></thead>} rows={productionRows} />{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
+        <div className="table-card entries-table"><PaginatedTable label="Today's production entries" resetKey={today} header={<thead><tr><th>Date</th><th>Block</th><th>Machine</th><th>Product</th><th>SKU</th><th>Actual</th><th>Initial reject estimate</th><th>QC status</th><th>QC pass</th><th>QC reject</th><th>Entered by</th><th>Action</th></tr></thead>} rows={productionRows} />{visibleProduction.length === 0 && <div className="empty-state"><ClipboardCheck size={24} /><strong>No production entries today</strong><span>Records will appear after saving.</span></div>}</div>
       </section>
     )
   }

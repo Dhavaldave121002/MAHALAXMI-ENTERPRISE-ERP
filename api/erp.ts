@@ -31,6 +31,7 @@ import {
   initializeWorkbookZeroFinishedStock,
   importWorkbookMarketplaceCatalog,
   recordWorkbookProduction,
+  deleteWorkbookProduction,
   reviewWorkbookProductionQuality,
   readWorkbookChatAttachment,
   recordWorkbookSalesActivity,
@@ -1723,7 +1724,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       'previewIndiaMartCatalog', 'saveIndiaMartListings',
     ]
     const sessionBoundActions = [
-      'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'importMarketplaceWorkbook', 'resetErpData',
+      'addRawMaterial', 'applyStockMovement', 'initializeZeroFinishedStock', 'archiveStockItem', 'deleteUnusedStockItem', 'deleteProduction', 'importMarketplaceWorkbook', 'resetErpData',
       'addSupplier', 'setSupplierActive', 'recordAccountExpense',
       'importSalesLeads', 'addSalesLead', 'assignSalesLead', 'recordSalesActivity', 'createSalesOrder', 'cancelSalesOrder', 'setSalesTarget',
       'listChatData', 'listChatMessages', 'listChatTyping', 'setChatTyping', 'sendChatMessage', 'readChatAttachment',
@@ -2052,6 +2053,35 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       if (!data) throw new ApiError(500, 'Workbook data is unavailable for production validation.')
       const record = await addProduction(data, user, body)
       sendJson(response, 201, { record })
+      return
+    }
+    if (action === 'deleteProduction') {
+      if (user.role !== 'Production Supervisor' && user.role !== 'Super Admin') {
+        throw new ApiError(403, 'Only the Production Supervisor or Super Admin can delete production records.')
+      }
+      const productionId = requiredText(body.productionId, 'Production batch', 120)
+      const result = await deleteWorkbookProduction(productionId, user)
+      const record = productionFromRecord(result.record, 0)
+      sendJson(response, 200, {
+        deleted: result.deleted,
+        record,
+        finishedGood: {
+          sku: text(result.finishedGood['Product SKU']),
+          name: text(result.finishedGood['Product Name']),
+          openingStock: number(result.finishedGood['Opening Stock']),
+          productionReceived: number(result.finishedGood['Production Received']),
+          qualityApproved: number(result.finishedGood['Quality Approved']),
+          rejected: number(result.finishedGood.Rejected),
+          reservedStock: number(result.finishedGood['Reserved Stock']),
+          availableStock: number(result.finishedGood['Available Stock']),
+          dispatchedStock: number(result.finishedGood['Dispatched Stock']),
+          returnedStock: number(result.finishedGood['Returned Stock']),
+          damagedStock: number(result.finishedGood['Damaged Stock']),
+          adjustmentIn: number(result.finishedGood['Adjustment In']),
+          adjustmentOut: number(result.finishedGood['Adjustment Out']),
+          status: text(result.finishedGood.Status) || 'Active',
+        } satisfies FinishedGood,
+      })
       return
     }
     if (action === 'reviewProductionQuality') {
