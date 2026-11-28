@@ -6,17 +6,23 @@ import {
   RotateCcw, Search, Settings, ShoppingCart, Target, Truck, UserCog, Users,
   Plus, Download, Upload, Bell, CheckCircle2, LogOut, LockKeyhole, Video, Sparkles,
 } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import * as XLSX from 'xlsx'
-import { IndiaMartView, SalesDailyReportView, SalesDashboardView, SalesLeadsView, SalesOrdersView } from './Sales'
-import { MarketplaceReconciliationView } from './MarketplaceReconciliation'
-import { DailyTasksView } from './DailyTasks'
-import { ScreenRecordingControl, type ScreenRecordingController } from './ScreenRecording'
+import type { ScreenRecordingController } from './ScreenRecording'
+import type { IndiaMartCatalogCandidate, IndiaMartListing, SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
+import './App.css'
+const IndiaMartView = lazy(() => import('./Sales').then(module => ({ default: module.IndiaMartView })))
+const SalesDailyReportView = lazy(() => import('./Sales').then(module => ({ default: module.SalesDailyReportView })))
+const SalesDashboardView = lazy(() => import('./Sales').then(module => ({ default: module.SalesDashboardView })))
+const SalesLeadsView = lazy(() => import('./Sales').then(module => ({ default: module.SalesLeadsView })))
+const SalesOrdersView = lazy(() => import('./Sales').then(module => ({ default: module.SalesOrdersView })))
+const MarketplaceReconciliationView = lazy(() => import('./MarketplaceReconciliation').then(module => ({ default: module.MarketplaceReconciliationView })))
+const DailyTasksView = lazy(() => import('./DailyTasks').then(module => ({ default: module.DailyTasksView })))
+const ScreenRecordingControl = lazy(() => import('./ScreenRecording').then(module => ({ default: module.ScreenRecordingControl })))
 const CameraMonitoringView = lazy(() => import('./ScreenMonitoring').then(module => ({ default: module.ScreenMonitoringView })))
 const ChatView = lazy(() => import('./Chat').then(module => ({ default: module.ChatView })))
 const AssistantView = lazy(() => import('./Assistant').then(module => ({ default: module.AssistantView })))
-import type { IndiaMartCatalogCandidate, IndiaMartListing, SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus, SalesOrder, SalesTarget, SalesTargetPeriod } from './salesTypes'
-import './App.css'
+const ProductionChart = lazy(() => import('./ProductionChart').then(module => ({ default: module.ProductionChart })))
+
+const loadXlsx = () => import('xlsx')
 
 type Module = 'Dashboard' | 'Sales Dashboard' | 'Sales Daily Report' | 'Leads' | 'IndiaMART' | 'Production' | 'Production Targets' | 'Stitching' | 'Graphic Design' | 'Raw Material' | 'Finished Goods' |
   'Product Catalog' | 'Orders' | 'Inventory' |
@@ -1424,6 +1430,7 @@ export default function App() {
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('Workbook must be 10 MB or smaller')
       if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error('Choose an .xlsx, .xls or .csv file')
+      const XLSX = await loadXlsx()
       const buffer = await file.arrayBuffer()
       const workbook = XLSX.read(buffer)
       if (workbook.Sheets.Products_Import && workbook.Sheets.Marketplace_Listings_Import) {
@@ -1474,7 +1481,8 @@ export default function App() {
     }
   }
 
-  const exportExcel = () => {
+  const exportExcel = async () => {
+    const XLSX = await loadXlsx()
     const sheet = XLSX.utils.json_to_sheet(products)
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, sheet, 'Product Master')
@@ -1636,7 +1644,7 @@ export default function App() {
 
         <div className="content">
           {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
-          {sessionUser.role !== 'Super Admin' && <ScreenRecordingControl ref={screenRecordingRef} user={{ id: sessionUser.id, name: sessionUser.name, role: sessionUser.role }} />}
+          {sessionUser.role !== 'Super Admin' && <Suspense fallback={<div className="screen-recording-status">Loading recorder…</div>}><ScreenRecordingControl ref={screenRecordingRef} user={{ id: sessionUser.id, name: sessionUser.name, role: sessionUser.role }} /></Suspense>}
           {module === 'Dashboard' ? (
             <DashboardView
               role={sessionUser.role}
@@ -1838,26 +1846,38 @@ function ModuleView(props: {
   useEffect(() => {
     if (module !== 'User Management' || sessionUser.role !== 'Super Admin') return
     let active = true
+    let loadingReports = false
+    const loadReports = async () => {
+      if (loadingReports) return
+      loadingReports = true
+      try {
+        const response = await fetch('/api/ecommerce-reports', { cache: 'no-store' })
+        const result = await response.json() as { error?: string; reports?: EcommerceDailyReport[] }
+        if (!response.ok) throw new Error(result.error || 'Daily reports could not be loaded.')
+        if (!Array.isArray(result.reports)) throw new Error('The server returned an invalid daily reports list.')
+        if (active) {
+          setEcommerceReports(result.reports)
+          setEcommerceReportsError('')
+        }
+      } catch (error) {
+        if (active) setEcommerceReportsError(error instanceof Error ? error.message : 'Daily reports could not be loaded.')
+      } finally {
+        loadingReports = false
+        if (active) setEcommerceReportsLoading(false)
+      }
+    }
     void Promise.resolve().then(() => {
       if (!active) return
       setEcommerceReportsLoading(true)
-      return fetch('/api/ecommerce-reports', { cache: 'no-store' })
-        .then(async response => {
-          const result = await response.json() as { error?: string; reports?: EcommerceDailyReport[] }
-          if (!response.ok) throw new Error(result.error || 'Daily reports could not be loaded.')
-          if (active) {
-            setEcommerceReports(result.reports || [])
-            setEcommerceReportsError('')
-          }
-        })
-        .catch(error => {
-          if (active) setEcommerceReportsError(error instanceof Error ? error.message : 'Daily reports could not be loaded.')
-        })
-        .finally(() => {
-          if (active) setEcommerceReportsLoading(false)
-        })
+      void loadReports()
     })
-    return () => { active = false }
+    const interval = window.setInterval(() => void loadReports(), 30_000)
+    window.addEventListener('focus', loadReports)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', loadReports)
+    }
   }, [module, sessionUser.role])
   useEffect(() => {
     if (module !== 'User Management' || sessionUser.role !== 'Super Admin') return
@@ -1886,26 +1906,38 @@ function ModuleView(props: {
   useEffect(() => {
     if (module !== 'Graphic Design' && !(module === 'Daily Work Report' && sessionUser.role === 'Graphic Designer')) return
     let active = true
+    let loadingReports = false
+    const loadReports = async () => {
+      if (loadingReports) return
+      loadingReports = true
+      try {
+        const response = await fetch('/api/graphic-design-reports', { cache: 'no-store' })
+        const result = await response.json() as { error?: string; reports?: GraphicDesignDailyReport[] }
+        if (!response.ok) throw new Error(result.error || 'Graphic Design daily reports could not be loaded.')
+        if (!Array.isArray(result.reports)) throw new Error('The server returned an invalid Graphic Design reports list.')
+        if (active) {
+          setGraphicDesignReports(result.reports)
+          setGraphicDesignReportsError('')
+        }
+      } catch (error) {
+        if (active) setGraphicDesignReportsError(error instanceof Error ? error.message : 'Graphic Design daily reports could not be loaded.')
+      } finally {
+        loadingReports = false
+        if (active) setGraphicDesignReportsLoading(false)
+      }
+    }
     void Promise.resolve().then(() => {
       if (!active) return
       setGraphicDesignReportsLoading(true)
-      return fetch('/api/graphic-design-reports', { cache: 'no-store' })
-        .then(async response => {
-          const result = await response.json() as { error?: string; reports?: GraphicDesignDailyReport[] }
-          if (!response.ok) throw new Error(result.error || 'Graphic Design daily reports could not be loaded.')
-          if (active) {
-            setGraphicDesignReports(result.reports || [])
-            setGraphicDesignReportsError('')
-          }
-        })
-        .catch(error => {
-          if (active) setGraphicDesignReportsError(error instanceof Error ? error.message : 'Graphic Design daily reports could not be loaded.')
-        })
-        .finally(() => {
-          if (active) setGraphicDesignReportsLoading(false)
-        })
+      void loadReports()
     })
-    return () => { active = false }
+    const interval = window.setInterval(() => void loadReports(), 30_000)
+    window.addEventListener('focus', loadReports)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', loadReports)
+    }
   }, [module, sessionUser.role])
   const [productionDate, setProductionDate] = useState(() => indiaDateKey(clock))
   const [productionBlockChoice, setProductionBlockChoice] = useState('')
@@ -1922,6 +1954,7 @@ function ModuleView(props: {
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('Workbook must be 10 MB or smaller.')
       if (!/\.xlsx$/i.test(file.name)) throw new Error('Choose the combined .xlsx marketplace import workbook.')
+      const XLSX = await loadXlsx()
       const workbook = XLSX.read(await file.arrayBuffer())
       const readSheet = (name: string, requiredHeaders: string[]) => {
         const sheet = workbook.Sheets[name]
@@ -2127,12 +2160,12 @@ function ModuleView(props: {
   if (
     module === 'Daily Tasks'
   ) {
-    return <DailyTasksView user={sessionUser} />
+    return <Suspense fallback={<div className="panel empty-state">Loading daily tasks…</div>}><DailyTasksView user={sessionUser} /></Suspense>
   }
   if (
     module === 'Marketplace Reconciliation'
   ) {
-    return <MarketplaceReconciliationView user={sessionUser} />
+    return <Suspense fallback={<div className="panel empty-state">Loading marketplace reconciliation…</div>}><MarketplaceReconciliationView user={sessionUser} /></Suspense>
   }
   if (
     module === 'E-commerce Workspace' || module === 'E-commerce Stock' ||
@@ -2149,16 +2182,16 @@ function ModuleView(props: {
     ? sessionUser.role
     : 'Super Admin'
   if (module === 'IndiaMART') {
-    return <IndiaMartView
+    return <Suspense fallback={<div className="panel empty-state">Loading IndiaMART…</div>}><IndiaMartView
       role={salesRole}
       listings={indiaMartListings}
       products={products}
       previewCatalog={previewIndiaMartCatalog}
       saveListings={saveIndiaMartListings}
-    />
+    /></Suspense>
   }
   if (module === 'Sales Dashboard') {
-    return <SalesDashboardView
+    return <Suspense fallback={<div className="panel empty-state">Loading Sales Dashboard…</div>}><SalesDashboardView
       role={salesRole}
       currentUser={{ id: sessionUser.id, name: sessionUser.name }}
       salesUsers={salesUsers}
@@ -2170,20 +2203,20 @@ function ModuleView(props: {
       indiaMartListings={indiaMartListings}
       stockMovements={stockMovements}
       setTarget={setSalesTarget}
-    />
+    /></Suspense>
   }
   if (module === 'Sales Daily Report') {
-    return <SalesDailyReportView
+    return <Suspense fallback={<div className="panel empty-state">Loading Sales Daily Report…</div>}><SalesDailyReportView
       role={salesRole}
       currentUser={{ id: sessionUser.id, name: sessionUser.name }}
       leads={salesLeads}
       activities={salesActivities}
       orders={salesOrders}
       addLead={addSalesLead}
-    />
+    /></Suspense>
   }
   if (module === 'Leads') {
-    return <SalesLeadsView
+    return <Suspense fallback={<div className="panel empty-state">Loading leads…</div>}><SalesLeadsView
       role={salesRole}
       leads={salesLeads}
       activities={salesActivities}
@@ -2192,10 +2225,10 @@ function ModuleView(props: {
       addLead={addSalesLead}
       assignLead={assignSalesLead}
       updateLead={updateSalesLead}
-    />
+    /></Suspense>
   }
   if (module === 'Orders') {
-    return <SalesOrdersView
+    return <Suspense fallback={<div className="panel empty-state">Loading orders…</div>}><SalesOrdersView
       role={salesRole}
       currentUserId={sessionUser.id}
       leads={salesLeads}
@@ -2204,7 +2237,7 @@ function ModuleView(props: {
       indiaMartListings={indiaMartListings}
       createOrder={createSalesOrder}
       cancelOrder={cancelSalesOrder}
-    />
+    /></Suspense>
   }
 
   const submitProduction = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -2615,8 +2648,9 @@ function ModuleView(props: {
     }
   }
 
-  const exportMonthlyReport = () => {
+  const exportMonthlyReport = async () => {
     try {
+    const XLSX = await loadXlsx()
     const workbook = XLSX.utils.book_new()
     const financialRows = [
       { Metric: 'Dispatched revenue', Amount: dispatchedRevenue, Notes: 'Only dispatches with a recorded sale price are included.' },
@@ -3090,7 +3124,8 @@ function ModuleView(props: {
         {['Idle', 'Running', 'Maintenance'].map(status => <option key={status} value={status}>{status}</option>)}
       </select>
       : <span className="status active">{machine.status}</span>}</td></tr>)
-    const exportMachines = () => {
+    const exportMachines = async () => {
+      const XLSX = await loadXlsx()
       const rows = machines.map(({ id, name, type, operator, status }) => ({ id, name, type, operator, status }))
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Machines')
@@ -3514,7 +3549,8 @@ function ModuleView(props: {
           void deleteProduction(row.id).catch(error => notify(error instanceof Error ? error.message : 'Production entry could not be deleted')).finally(() => setProductionDeletingId(''))
         }}>{productionDeletingId === row.id ? 'Deleting…' : 'Delete'}</button>
       : '—'}</td></tr>)
-    const exportDailyReport = () => {
+    const exportDailyReport = async () => {
+      const XLSX = await loadXlsx()
       const sheet = XLSX.utils.json_to_sheet(visibleProduction)
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, sheet, 'Daily Production')
@@ -3524,7 +3560,8 @@ function ModuleView(props: {
       XLSX.writeFile(workbook, `Mahalaxmi-Enterprise-Daily-Production-${today}.xlsx`)
       notify('Daily production report exported')
     }
-    const exportMonthlyReport = () => {
+    const exportMonthlyReport = async () => {
+      const XLSX = await loadXlsx()
       const monthlyRows = production.filter(row => row.date.startsWith(month))
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthlyRows), 'Monthly Production')
@@ -3591,7 +3628,8 @@ function ModuleView(props: {
     const pending = reportRows.reduce((total, row) => total + Math.max(0, row.actual - row.qcApproved - row.qcRejected), 0)
     const reportStock = [...new Set(reportRows.map(row => row.sku.toLowerCase()))]
       .reduce((total, sku) => total + (finishedGoods.find(item => item.sku.toLowerCase() === sku)?.availableStock || 0), 0)
-    const exportStitchingReport = () => {
+    const exportStitchingReport = async () => {
+      const XLSX = await loadXlsx()
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(reportRows.map(row => {
         const machine = stitchingMachines.find(item => item.id.toLowerCase() === row.machine.toLowerCase())
@@ -3754,7 +3792,8 @@ function ModuleView(props: {
       <td className="ecommerce-report-cell">{report.issues || '—'}</td>
       <td>{formatIndiaDateTime(report.updatedAt)}</td>
     </tr>)
-    const exportCreativePlan = () => {
+    const exportCreativePlan = async () => {
+      const XLSX = await loadXlsx()
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(monthTasks.map(task => ({
         Date: task.plannedDate,
@@ -3941,7 +3980,8 @@ function ModuleView(props: {
         notify(error instanceof Error ? error.message : 'User accounts could not be refreshed')
       }
     }
-    const exportUsers = () => {
+    const exportUsers = async () => {
+      const XLSX = await loadXlsx()
       const safeRows = users.map(({ id, name, username, role, active, platforms, managerId }) => ({
         ID: id, Name: name, Username: username, Role: role, Manager: users.find(account => account.id === managerId)?.name || '',
         Platforms: platforms.join(', '), Status: active ? 'Active' : 'Inactive',
@@ -4371,7 +4411,8 @@ function EcommerceMonthlyDashboard() {
     }
   }
 
-  const exportMonthlyReport = () => {
+  const exportMonthlyReport = async () => {
+    const XLSX = await loadXlsx()
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaries.map(item => ({
       Platform: item.platform,
@@ -4548,6 +4589,34 @@ function EcommerceWorkspace({
   }, [user.role])
 
   useEffect(() => { void reload() }, [reload])
+  useEffect(() => {
+    if (user.role !== 'E-commerce Executive' && user.role !== 'E-commerce Manager') return
+    let active = true
+    let loadingReports = false
+    const loadReports = async () => {
+      if (loadingReports) return
+      loadingReports = true
+      try {
+        const result = await apiFetch<{ reports: EcommerceDailyReport[] }>('/api/ecommerce-reports')
+        if (!Array.isArray(result.reports)) throw new Error('The server returned an invalid daily reports list.')
+        if (active) {
+          setOwnReports(result.reports)
+          setReportHistoryError('')
+        }
+      } catch (requestError) {
+        if (active) setReportHistoryError(requestError instanceof Error ? requestError.message : 'Saved reports could not be loaded.')
+      } finally {
+        loadingReports = false
+      }
+    }
+    const interval = window.setInterval(() => void loadReports(), 30_000)
+    window.addEventListener('focus', loadReports)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', loadReports)
+    }
+  }, [user.role])
 
   const listings = data?.listings.filter(listing => listing.platform === selectedPlatform) || []
   const visibleListings = listings.filter(listing => {
@@ -5349,7 +5418,9 @@ function DashboardView({
         <section className="panel production-panel">
           <div className="panel-heading"><div><h2>{role === 'Production Supervisor' ? 'Factory production' : role === 'Super Admin' ? 'Factory production' : 'My production overview'}</h2><p>Actual output, Monday through Sunday</p></div><button className="text-button" onClick={() => setModule('Production')}>Open production</button></div>
           <div className="chart-stat"><strong>{productionChart.reduce((sum, day) => sum + day.qty, 0)}</strong><span><ArrowUpRight size={14} /> This week</span></div>
-          <div className="chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={productionChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" interval={0} tickFormatter={value => formatIndiaWeekday(String(value))} axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip labelFormatter={label => `${formatIndiaWeekday(String(label))}, ${formatIndiaDate(String(label))}`} /><Bar dataKey="qty" fill="#4f46e5" radius={[5, 5, 0, 0]} /></BarChart></ResponsiveContainer></div>
+          <Suspense fallback={<div className="chart" role="status">Loading chart…</div>}>
+            <ProductionChart data={productionChart} formatDate={formatIndiaDate} formatWeekday={formatIndiaWeekday} />
+          </Suspense>
         </section>
 
         {role === 'Super Admin' ? (

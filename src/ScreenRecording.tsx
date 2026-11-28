@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { AlertTriangle, Circle, Monitor, Square, Video } from 'lucide-react'
-import { Room, Track } from 'livekit-client'
+import type { Room as LiveKitRoom } from 'livekit-client'
 import { uploadPrivateClip } from './privateClipUpload'
 import './ScreenRecording.css'
 
@@ -166,7 +166,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
     const streamRef = useRef<MediaStream | null>(null)
     const cameraStreamRef = useRef<MediaStream | null>(null)
     const pictureInPictureRef = useRef<PictureInPictureCapture | null>(null)
-    const screenRoomRef = useRef<Room | null>(null)
+    const screenRoomRef = useRef<LiveKitRoom | null>(null)
     const screenTrackRef = useRef<MediaStreamTrack | null>(null)
     const recorderRef = useRef<MediaRecorder | null>(null)
     const chunksRef = useRef<Blob[]>([])
@@ -349,7 +349,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
       let stream: MediaStream | null = null
       let cameraStream: MediaStream | null = null
       let pictureInPicture: PictureInPictureCapture | null = null
-      let screenRoom: Room | null = null
+      let screenRoom: LiveKitRoom | null = null
       let screenTrack: MediaStreamTrack | null = null
       let sharePromptResolved = false
       let auditStarted = false
@@ -416,6 +416,7 @@ export const ScreenRecordingControl = forwardRef<ScreenRecordingControlHandle, {
           return
         }
 
+        const { Room, Track } = await import('livekit-client')
         await recordScreenAuditEvent('screen_recording_started')
         auditStarted = true
         if (cancelStartRef.current) {

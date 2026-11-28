@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BarChart3, Boxes, CheckCircle2, Download, FileSpreadsheet, Phone, Plus, RefreshCw, Save, Search, Store, Target, Upload } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import type {
   IndiaMartCatalogCandidate, IndiaMartListing, SalesAccount, SalesActivity, SalesActivityType, SalesLead, SalesLeadImportRow, SalesLeadStatus,
   SalesDailyReport, SalesOrder, SalesTarget, SalesTargetPeriod,
@@ -29,22 +28,34 @@ export function SalesDailyReportView(props: {
 
   useEffect(() => {
     let active = true
-    void fetch('/api/sales-reports', { cache: 'no-store' })
-      .then(async response => {
+    let loadingReports = false
+    const loadReports = async () => {
+      if (loadingReports) return
+      loadingReports = true
+      try {
+        const response = await fetch('/api/sales-reports', { cache: 'no-store' })
         const result = await response.json() as { error?: string; reports?: SalesDailyReport[] }
         if (!response.ok) throw new Error(result.error || 'Sales daily reports could not be loaded.')
+        if (!Array.isArray(result.reports)) throw new Error('The server returned an invalid Sales daily reports list.')
         if (active) {
-          setDailyWorkReports(result.reports || [])
+          setDailyWorkReports(result.reports)
           setDailyWorkReportsError('')
         }
-      })
-      .catch(error => {
+      } catch (error) {
         if (active) setDailyWorkReportsError(error instanceof Error ? error.message : 'Sales daily reports could not be loaded.')
-      })
-      .finally(() => {
+      } finally {
+        loadingReports = false
         if (active) setDailyWorkReportsLoading(false)
-      })
-    return () => { active = false }
+      }
+    }
+    void loadReports()
+    const interval = window.setInterval(() => void loadReports(), 30_000)
+    window.addEventListener('focus', loadReports)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', loadReports)
+    }
   }, [])
 
   const today = currentIndiaDate()
@@ -126,7 +137,8 @@ export function SalesDailyReportView(props: {
     }
   }
 
-  const exportDailyReport = () => {
+  const exportDailyReport = async () => {
+    const XLSX = await import('xlsx')
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
       Date: dailyReportDate,
@@ -441,7 +453,8 @@ export function IndiaMartView(props: {
         listing.unitCost !== null && listing.unitCost >= 0 && listing.listingInventory !== null && listing.listingInventory > 0)),
   )
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
+    const XLSX = await import('xlsx')
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([INDIA_MART_LISTING_HEADERS]), 'IndiaMART Listings')
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
@@ -462,6 +475,7 @@ export function IndiaMartView(props: {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('IndiaMART workbook must be 5 MB or smaller.')
       if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error('Choose an .xlsx, .xls, or .csv IndiaMART listing file.')
+      const XLSX = await import('xlsx')
       const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: false })
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
       if (!sheet) throw new Error('The selected file has no worksheet.')
@@ -751,7 +765,8 @@ export function SalesDashboardView(props: {
     }
   }
 
-  const exportReport = () => {
+  const exportReport = async () => {
+    const XLSX = await import('xlsx')
     const workbook = XLSX.utils.book_new()
     const summary = role === 'Sales Executive'
       ? [{
@@ -949,6 +964,7 @@ export function SalesLeadsView(props: {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('Lead workbook must be 5 MB or smaller.')
       if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error('Choose an .xlsx, .xls, or .csv lead file.')
+      const XLSX = await import('xlsx')
       const workbook = XLSX.read(await file.arrayBuffer(), { cellDates: false })
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
       if (!sheet) throw new Error('The selected file has no worksheet.')
@@ -1010,7 +1026,8 @@ export function SalesLeadsView(props: {
     }
   }
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
+    const XLSX = await import('xlsx')
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([{
       Date: '2026-11-27',
