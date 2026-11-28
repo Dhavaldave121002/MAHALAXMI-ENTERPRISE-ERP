@@ -115,6 +115,48 @@ function openAiImageConfiguration() {
   return { apiKey, model }
 }
 
+async function openAiFailure(response: Response, feature: string) {
+  let code = ''
+  try {
+    const body: unknown = await response.json()
+    if (body && typeof body === 'object' && 'error' in body &&
+        body.error && typeof body.error === 'object' && 'code' in body.error &&
+        typeof body.error.code === 'string') {
+      code = body.error.code
+    }
+  } catch {
+    code = ''
+  }
+  console.error(`OpenAI ${feature} request failed`, {
+    status: response.status,
+    code: code || 'unknown',
+    requestId: response.headers.get('x-request-id') || 'unknown',
+  })
+
+  if (response.status === 401 || code === 'invalid_api_key') {
+    return new ApiError(502, 'OpenAI rejected the API key. Update OPENAI_API_KEY in Vercel and redeploy.')
+  }
+  if (code === 'insufficient_quota' || code === 'billing_hard_limit_reached') {
+    return new ApiError(502, 'OpenAI API credits or billing are unavailable. Add API credits or check the project usage limit.')
+  }
+  if (code === 'organization_verification_required') {
+    return new ApiError(502, 'OpenAI requires organization verification for this model. Complete verification in the OpenAI Platform, then retry.')
+  }
+  if (response.status === 403 || code === 'insufficient_permissions') {
+    return new ApiError(502, `OpenAI denied ${feature}. Check that the key has Model capabilities → Write and that the model is enabled for your organization.`)
+  }
+  if (response.status === 404 || code === 'model_not_found') {
+    return new ApiError(502, `OpenAI could not find the configured model for ${feature}. Verify the exact model ID in Vercel and redeploy.`)
+  }
+  if (response.status === 429) {
+    return new ApiError(502, `OpenAI rate-limited ${feature}. Check billing and usage limits, wait briefly, then retry.`)
+  }
+  if (response.status === 400) {
+    return new ApiError(502, `OpenAI rejected the ${feature} request. Check the configured model ID and its supported API options.`)
+  }
+  return new ApiError(502, `OpenAI could not complete ${feature} (HTTP ${response.status}). Check the OpenAI Platform status and retry.`)
+}
+
 export function isOpenAiGeneralConfigured() {
   try {
     openAiGeneralConfiguration()
@@ -303,8 +345,7 @@ export async function generateOpenAiGeneralReply(question: string, imageDataUrl?
       signal: controller.signal,
     })
     if (!response.ok) {
-      console.error('OpenAI General AI request returned HTTP status', response.status)
-      throw new ApiError(502, 'OpenAI General AI could not answer. Check its server-side configuration, then retry.')
+      throw await openAiFailure(response, 'General AI')
     }
 
     let result: unknown
@@ -361,8 +402,7 @@ export async function generateOpenAiGeneralImage(prompt: string): Promise<string
       signal: controller.signal,
     })
     if (!response.ok) {
-      console.error('OpenAI image generation returned HTTP status', response.status)
-      throw new ApiError(502, 'OpenAI could not generate the image. Check the image model and API permissions, then retry.')
+      throw await openAiFailure(response, 'image generation')
     }
 
     let result: unknown
@@ -430,8 +470,7 @@ export async function transcribeOpenAiGeneralAudio(audioDataUrl: string): Promis
       signal: controller.signal,
     })
     if (!response.ok) {
-      console.error('OpenAI voice transcription returned HTTP status', response.status)
-      throw new ApiError(502, 'OpenAI could not transcribe the recording. Check its model permissions, then retry.')
+      throw await openAiFailure(response, 'voice transcription')
     }
 
     let result: unknown

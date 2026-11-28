@@ -9,6 +9,7 @@ type AssistantMessage = {
   content: string
   createdAt: string
   imageDataUrl?: string
+  source?: 'openai'
 }
 type AssistantState = {
   messages: AssistantMessage[]
@@ -21,6 +22,13 @@ type AssistantState = {
 }
 
 type SelectedImage = { dataUrl: string; name: string }
+type PendingExternalRequest =
+  | { kind: 'answer'; message: string; imageDataUrl?: string }
+  | { kind: 'image'; message: string }
+  | { kind: 'transcription'; audioDataUrl: string }
+
+const GENERAL_INTENT = /\b(business plan|market research|market analysis|swot|competitor analysis|pricing strategy|unit economics|go[- ]to[- ]market|marketing plan|brand strategy|business strategy|general question|write a poem|what is gst)\b|વ્યવસાય યોજના|બિઝનેસ પ્લાન|બજાર સંશોધન|સ્પર્ધક વિશ્લેષણ|व्यवसाय योजना|बाज़ार अनुसंधान/iu
+const IMAGE_GENERATION_INTENT = /\b(create|generate|make|draw)\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|illustration|logo)\b|\bdesign\s+(?:me\s+)?(?:a\s+)?logo\b|(?:image|picture|photo|logo)\s+(?:banavo|banao|bana do)|(?:બનાવો|બનાવી)\s*(?:ઇમેજ|છબી|ફોટો)/iu
 
 const GENERAL_SUGGESTIONS = [
   'Create a practical business plan for my product and target customers.',
@@ -142,10 +150,11 @@ export function AssistantView({ user }: { user: AssistantUser }) {
   const [generalAiReady, setGeneralAiReady] = useState(false)
   const [imageGenerationReady, setImageGenerationReady] = useState(false)
   const [faqModeReady, setFaqModeReady] = useState(false)
-  const [mode, setMode] = useState<'erp' | 'general'>('erp')
   const [generalTask, setGeneralTask] = useState<'chat' | 'image'>('chat')
   const [generalMessages, setGeneralMessages] = useState<AssistantMessage[]>([])
+  const [pendingExternal, setPendingExternal] = useState<PendingExternalRequest | null>(null)
   const [message, setMessage] = useState('')
+  const [voiceTranscriptPending, setVoiceTranscriptPending] = useState(false)
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -213,72 +222,143 @@ export function AssistantView({ user }: { user: AssistantUser }) {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, sending])
+  }, [messages, generalMessages, pendingExternal, sending, transcribingVoice])
+
+  const appendOpenAiExchange = (
+    question: string,
+    answer: string,
+    userImageDataUrl?: string,
+    assistantImageDataUrl?: string,
+  ) => {
+    const createdAt = new Date().toISOString()
+    const userMessage: AssistantMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: question,
+      ...(userImageDataUrl ? { imageDataUrl: userImageDataUrl } : {}),
+      source: 'openai',
+      createdAt,
+    }
+    const assistantMessage: AssistantMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: answer,
+      ...(assistantImageDataUrl ? { imageDataUrl: assistantImageDataUrl } : {}),
+      source: 'openai',
+      createdAt,
+    }
+    setGeneralMessages(previous => [...previous, userMessage, assistantMessage].slice(-8))
+  }
+
+  const confirmExternalRequest = async () => {
+    if (!pendingExternal || sending) return
+    const request = pendingExternal
+    if (request.kind === 'image' ? !imageGenerationReady : !generalAiReady) {
+      setError(request.kind === 'image'
+        ? 'Image generation is not configured. Ask the administrator to check OPENAI_IMAGE_MODEL.'
+        : 'General AI is not configured. Ask the administrator to check the OpenAI setup.')
+      return
+    }
+    setSending(true)
+    setError('')
+    if (request.kind === 'transcription') setTranscribingVoice(true)
+    try {
+      if (request.kind === 'answer') {
+        const result = await postAssistant<{ answer: string }>('askGeneralAssistant', {
+          message: request.message,
+          ...(request.imageDataUrl ? { imageDataUrl: request.imageDataUrl } : {}),
+        })
+        appendOpenAiExchange(request.message, result.answer, request.imageDataUrl)
+        setSelectedImage(null)
+        setMessage('')
+      } else if (request.kind === 'image') {
+        const result = await postAssistant<{ imageDataUrl: string }>('generateGeneralImage', { message: request.message })
+        appendOpenAiExchange(
+          request.message,
+          'Generated image. Download it if you want to keep a copy.',
+          undefined,
+          result.imageDataUrl,
+        )
+        setMessage('')
+        setGeneralTask('chat')
+      } else {
+        const result = await postAssistant<{ transcript: string }>('transcribeGeneralAudio', {
+          audioDataUrl: request.audioDataUrl,
+        })
+        setMessage(previous => [previous.trim(), result.transcript].filter(Boolean).join(' '))
+          setVoiceTranscriptPending(true)
+      }
+      setPendingExternal(null)
+      if (request.kind !== 'transcription') setVoiceTranscriptPending(false)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'OpenAI could not complete this request.')
+    } finally {
+      setSending(false)
+      setTranscribingVoice(false)
+    }
+  }
+
+  const cancelExternalRequest = () => {
+    setPendingExternal(null)
+    setError('')
+    if (generalTask === 'image') setGeneralTask('chat')
+  }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const question = message.trim()
-    const canAsk = mode === 'general'
-      ? generalTask === 'image' ? imageGenerationReady : generalAiReady
-      : modelReady || faqModeReady
     const prompt = question || (selectedImage ? 'Describe this image and summarize its visible contents.' : '')
-    if (!prompt || sending || !canAsk || recordingVoice || transcribingVoice) return
+    if (!prompt || sending || pendingExternal || recordingVoice || transcribingVoice) return
+
+    if (generalTask === 'image' || IMAGE_GENERATION_INTENT.test(prompt)) {
+      if (!imageGenerationReady) {
+        setError('Image generation is not configured. Ask the administrator to check OPENAI_IMAGE_MODEL.')
+        return
+      }
+      setPendingExternal({ kind: 'image', message: prompt })
+      setError('')
+      return
+    }
+
+    if (selectedImage || voiceTranscriptPending || GENERAL_INTENT.test(prompt)) {
+      if (!generalAiReady) {
+        setError('General AI is not configured. Ask the administrator to check the OpenAI setup.')
+        return
+      }
+      setPendingExternal({
+        kind: 'answer',
+        message: prompt,
+        ...(selectedImage ? { imageDataUrl: selectedImage.dataUrl } : {}),
+      })
+      setError('')
+      return
+    }
+
+    if (!modelReady && !faqModeReady) {
+      setError('The private ERP assistant is not ready. Check its setup, then retry.')
+      return
+    }
     setSending(true)
     setError('')
     setMessage('')
     try {
-      if (mode === 'general') {
-        if (generalTask === 'image') {
-          const result = await postAssistant<{ imageDataUrl: string }>('generateGeneralImage', { message: prompt })
-          const createdAt = new Date().toISOString()
-          const userMessage: AssistantMessage = {
-            id: crypto.randomUUID(),
-            role: 'user',
-            content: prompt,
-            createdAt,
-          }
-          const assistantMessage: AssistantMessage = {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: 'Generated image. Download it if you want to keep a copy.',
-            imageDataUrl: result.imageDataUrl,
-            createdAt,
-          }
-          setGeneralMessages(previous => [...previous, userMessage, assistantMessage].slice(-8))
-        } else {
-          const result = await postAssistant<{ answer: string }>('askGeneralAssistant', {
-            message: prompt,
-            ...(selectedImage ? { imageDataUrl: selectedImage.dataUrl } : {}),
-          })
-          const createdAt = new Date().toISOString()
-          const userMessage: AssistantMessage = {
-            id: crypto.randomUUID(),
-            role: 'user',
-            content: prompt,
-            ...(selectedImage ? { imageDataUrl: selectedImage.dataUrl } : {}),
-            createdAt,
-          }
-          const assistantMessage: AssistantMessage = {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: result.answer,
-            createdAt,
-          }
-          setGeneralMessages(previous => [...previous, userMessage, assistantMessage].slice(-8))
-          setSelectedImage(null)
-        }
-      } else {
-        const result = await postAssistant<{
-          userMessage: AssistantMessage
-          assistantMessage: AssistantMessage
-          memory: string
-        }>('askAssistant', { message: question })
-        setMessages(previous => [...previous, result.userMessage, result.assistantMessage].slice(-40))
-        setMemory(result.memory)
-      }
+      const result = await postAssistant<{
+        userMessage: AssistantMessage
+        assistantMessage: AssistantMessage
+        memory: string
+      }>('askAssistant', { message: question })
+      setMessages(previous => [...previous, result.userMessage, result.assistantMessage].slice(-40))
+      setMemory(result.memory)
+      setVoiceTranscriptPending(false)
     } catch (requestError) {
+      const errorMessage = requestError instanceof Error ? requestError.message : 'Mahalaxmi Saathi could not answer.'
+      if (generalAiReady && errorMessage.startsWith('No verified FAQ matches this question yet.')) {
+        setPendingExternal({ kind: 'answer', message: question })
+        setError('')
+      } else {
+        setError(errorMessage)
+      }
       setMessage(question)
-      setError(requestError instanceof Error ? requestError.message : 'Mahalaxmi Saathi could not answer.')
     } finally {
       setSending(false)
     }
@@ -303,7 +383,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
     }
   }
 
-  const transcribeRecording = async (recording: Blob) => {
+  const prepareVoiceTranscription = async (recording: Blob) => {
     if (!recording.size) {
       setError('No audio was captured. Check microphone permission and try again.')
       return
@@ -312,16 +392,12 @@ export function AssistantView({ user }: { user: AssistantUser }) {
       setError('Keep the voice recording under 2 MB. Try a shorter recording.')
       return
     }
-    setTranscribingVoice(true)
     setError('')
     try {
       const audioDataUrl = await readDataUrl(recording)
-      const result = await postAssistant<{ transcript: string }>('transcribeGeneralAudio', { audioDataUrl })
-      setMessage(previous => [previous.trim(), result.transcript].filter(Boolean).join(' '))
-    } catch (transcriptionError) {
-      setError(transcriptionError instanceof Error ? transcriptionError.message : 'Voice transcription failed.')
-    } finally {
-      setTranscribingVoice(false)
+      setPendingExternal({ kind: 'transcription', audioDataUrl })
+    } catch (readError) {
+      setError(readError instanceof Error ? readError.message : 'Voice recording could not be prepared.')
     }
   }
 
@@ -347,7 +423,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
         mediaStreamRef.current?.getTracks().forEach(track => track.stop())
         mediaStreamRef.current = null
         mediaRecorderRef.current = null
-        void transcribeRecording(recording)
+        void prepareVoiceTranscription(recording)
       }
       recorder.start()
       setRecordingVoice(true)
@@ -406,10 +482,9 @@ export function AssistantView({ user }: { user: AssistantUser }) {
     }
   }
 
-  const canAsk = mode === 'general'
-    ? generalTask === 'image' ? imageGenerationReady : generalAiReady
-    : modelReady || faqModeReady
-  const visibleMessages = mode === 'general' ? generalMessages : messages
+  const canAsk = modelReady || faqModeReady || generalAiReady || imageGenerationReady
+  const visibleMessages = [...messages, ...generalMessages]
+    .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
   const suggestions = FAQ_SUGGESTIONS[user.role] || FAQ_SUGGESTIONS['Store Manager']
 
   return (
@@ -418,50 +493,21 @@ export function AssistantView({ user }: { user: AssistantUser }) {
         <div className="assistant-heading-copy">
           <p>ERP & GENERAL HELP</p>
           <h1><Sparkles size={24} /> Mahalaxmi Saathi</h1>
-          <span>Hi {user.name} — get private ERP guidance or general business planning and creative help.</span>
+          <span>Hi {user.name} — ask ERP, business, image, or voice questions in this one chat.</span>
         </div>
         <button className="secondary" type="button" onClick={() => { setLoading(true); void reload() }} disabled={loading}>
           <RefreshCw size={16} /> Refresh
         </button>
       </div>
 
-      <div className="assistant-mode-picker" role="group" aria-label="Choose assistant mode">
-        <button
-          className={mode === 'erp' ? 'selected' : ''}
-          type="button"
-          aria-pressed={mode === 'erp'}
-          onClick={() => { setMode('erp'); setError(''); setSelectedImage(null) }}
-          disabled={sending || recordingVoice || transcribingVoice}
-        >
-          Private ERP assistant
-        </button>
-        <button
-          className={mode === 'general' ? 'selected' : ''}
-          type="button"
-          aria-pressed={mode === 'general'}
-          onClick={() => { setMode('general'); setError(''); setSelectedImage(null) }}
-          disabled={(!generalAiReady && !imageGenerationReady) || sending || recordingVoice || transcribingVoice}
-          title={generalAiReady || imageGenerationReady ? 'Use opted-in OpenAI general and media features' : 'General AI is not configured'}
-        >
-          General AI (OpenAI)
-        </button>
-      </div>
+      <p className="assistant-privacy-note assistant-external-notice">
+        One chat: ERP questions stay on the private assistant. Before any general question, image, or voice recording is sent to OpenAI, Saathi asks you to confirm.
+        Only the content you approve is sent—not ERP records, tasks, private chat history, or saved memory. OpenAI replies stay in this browser session.
+        Voice transcripts can be reviewed before sending. Read aloud uses your browser/device voice. Market research is a framework, not live web research; video generation is unavailable.
+        Avoid confidential information and credentials. OpenAI usage may incur separate charges.
+      </p>
 
-      {mode === 'general' ? (
-        <p className="assistant-privacy-note assistant-external-notice">
-          Only the text, image, or voice recording you choose to submit is sent to OpenAI; ERP records, tasks, private chat history, and saved memory are not included or saved here.
-          Voice is transcribed by OpenAI; review the transcript before sending. Spoken replies use your browser/device voice. This integration cannot browse live sources, so market research is a plan/framework—not verified current research.
-          Video generation is not available here. Do not include confidential information, passwords, or API keys. OpenAI usage may incur separate charges.
-        </p>
-      ) : (
-        <p className="assistant-privacy-note">
-          Saathi uses your signed-in role and only retrieves matching ERP records or tasks you are allowed to see. It cannot change ERP records.
-          Chat moves to private Drive Trash after 24 hours of inactivity and is permanently removed after 30 days.
-          A separate memory summary stays until you clear it.
-        </p>
-      )}
-
-      {mode === 'erp' && !modelReady && (
+      {!modelReady && (
         <div className="assistant-setup-note" role="status">
           <AlertCircle size={18} />
           <span>Private AI is not connected. You can ask documented FAQs, but full multilingual answers and live ERP lookups need the company model server.</span>
@@ -473,7 +519,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
           <span>General AI is not configured. An administrator can configure the server-only OpenAI API settings; never paste an API key into chat or frontend code.</span>
         </div>
       )}
-      {mode === 'general' && !imageGenerationReady && (
+      {!imageGenerationReady && (
         <div className="assistant-setup-note" role="status">
           <AlertCircle size={18} />
           <span>Image generation is not configured. An administrator must set the server-side OPENAI_IMAGE_MODEL. OpenAI video generation is not currently available in this integration.</span>
@@ -481,7 +527,7 @@ export function AssistantView({ user }: { user: AssistantUser }) {
       )}
       {error && <div className="assistant-error" role="alert"><AlertCircle size={17} />{error}</div>}
 
-      {mode === 'erp' && <details className="assistant-memory">
+      <details className="assistant-memory">
         <summary>Saved AI memory <span>{memory ? 'Stored separately from chat history' : 'No saved memory yet'}</span></summary>
         <div className="assistant-memory-content">
           <p>{memory || 'Saathi may save a short summary of useful conversation context. It is instructed not to save passwords or API keys; do not send secrets in chat.'}</p>
@@ -489,68 +535,32 @@ export function AssistantView({ user }: { user: AssistantUser }) {
             <Trash2 size={15} /> {clearingMemory ? 'Clearing…' : 'Clear my AI memory'}
           </button>
         </div>
-      </details>}
-
-      {mode === 'general' && (
-        <div className="assistant-mode-picker assistant-task-picker" role="group" aria-label="Choose general AI task">
-          <button
-            className={generalTask === 'chat' ? 'selected' : ''}
-            type="button"
-            aria-pressed={generalTask === 'chat'}
-            onClick={() => { setGeneralTask('chat'); setError('') }}
-            disabled={sending || recordingVoice || transcribingVoice}
-          >
-            Business & general help
-          </button>
-          <button
-            className={generalTask === 'image' ? 'selected' : ''}
-            type="button"
-            aria-pressed={generalTask === 'image'}
-            onClick={() => { setGeneralTask('image'); setSelectedImage(null); setError('') }}
-            disabled={!imageGenerationReady || sending || recordingVoice || transcribingVoice}
-            title={imageGenerationReady ? 'Generate an image from a description' : 'Image generation is not configured'}
-          >
-            Generate image
-          </button>
-        </div>
-      )}
+      </details>
 
       <div className="assistant-workspace">
         <div className="assistant-messages" aria-live="polite">
-          {loading && mode === 'erp' && <div className="assistant-empty">Loading your private assistant history…</div>}
-          {!loading && visibleMessages.length === 0 && (
+          {loading && <div className="assistant-empty">Loading your saved ERP assistant history…</div>}
+          {visibleMessages.length === 0 && (
             <div className="assistant-welcome">
               <span className="assistant-welcome-icon"><Sparkles size={24} /></span>
               <strong>Namaste, {user.name}</strong>
-              <p>{mode === 'general'
-                ? generalTask === 'image'
-                  ? 'Describe the image you want. Generated images are temporary in this browser session; download anything you want to keep.'
-                  : 'Ask about business planning, pricing, SWOT, or research strategy. This mode cannot access ERP records or live web search.'
-                : modelReady
-                  ? 'Ask about ERP workflows or your assigned work.'
-                  : 'Ask a documented workflow FAQ. Live ERP details need the private AI server.'}</p>
-              {mode === 'erp' && <div className="assistant-suggestions" aria-label="Suggested questions">
-                {suggestions.map(suggestion => (
-                  <button key={suggestion} type="button" onClick={() => setMessage(suggestion)} disabled={sending}>
+              <p>Ask about ERP tasks or workflows, or try a business-planning question. General questions are sent to OpenAI only after you confirm.</p>
+              <div className="assistant-suggestions" aria-label="Suggested Saathi questions">
+                {[...suggestions.slice(0, 2), ...GENERAL_SUGGESTIONS.slice(0, 3)].map(suggestion => (
+                  <button key={suggestion} type="button" onClick={() => setMessage(suggestion)} disabled={sending || Boolean(pendingExternal)}>
                     {suggestion}
                   </button>
                 ))}
-              </div>}
-              {mode === 'general' && generalTask === 'chat' && (
-                <div className="assistant-suggestions" aria-label="Business planning prompt ideas">
-                  {GENERAL_SUGGESTIONS.map(suggestion => (
-                    <button key={suggestion} type="button" onClick={() => setMessage(suggestion)} disabled={sending}>
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              )}
+              </div>
             </div>
           )}
           {visibleMessages.map(item => (
             <article key={item.id} className={`assistant-message ${item.role === 'user' ? 'own' : ''}`}>
               <div className="assistant-message-meta">
                 <strong>{item.role === 'user' ? user.name : 'Mahalaxmi Saathi'}</strong>
+                <span className={`assistant-source-badge ${item.source === 'openai' ? 'external' : ''}`}>
+                  {item.source === 'openai' ? 'OpenAI · confirmed' : 'Private ERP'}
+                </span>
                 <time dateTime={item.createdAt}>{assistantTime(item.createdAt)}</time>
               </div>
               <p>{item.content}</p>
@@ -562,29 +572,46 @@ export function AssistantView({ user }: { user: AssistantUser }) {
                   )}
                 </div>
               )}
-              {mode === 'general' && item.role === 'assistant' && (
+              {item.role === 'assistant' && (
                 <button className="assistant-speak-button" type="button" onClick={() => readAloud(item.content)}>
                   <Volume2 size={14} /> Read aloud
                 </button>
               )}
             </article>
           ))}
-          {(sending || transcribingVoice) && (
-            <div className="assistant-thinking" role="status"><span /> {transcribingVoice ? 'Transcribing your voice…' : generalTask === 'image' && mode === 'general' ? 'Creating your image…' : 'Saathi is thinking…'}</div>
+          {(sending || transcribingVoice) && <div className="assistant-thinking" role="status"><span /> {transcribingVoice ? 'Transcribing your voice…' : generalTask === 'image' ? 'Creating your image…' : 'Saathi is thinking…'}</div>}
+          {pendingExternal && (
+            <section className="assistant-external-confirm" aria-label="Confirm OpenAI request">
+              <strong>Confirm before sending to OpenAI</strong>
+              <p>{pendingExternal.kind === 'transcription'
+                ? 'Your voice recording will be sent to OpenAI for transcription. The transcript will return to this box for you to review; it will not be sent as a question until you submit it.'
+                : pendingExternal.kind === 'image'
+                  ? 'Only this image description will be sent to OpenAI to generate an image.'
+                  : 'Only this question and the image attached below (if any) will be sent to OpenAI. ERP records, tasks, memory, and private chat history are not included.'}</p>
+              {pendingExternal.kind !== 'transcription' && <blockquote>{pendingExternal.message}</blockquote>}
+              <div className="assistant-external-confirm-actions">
+                <button className="primary" type="button" onClick={() => void confirmExternalRequest()} disabled={sending}>
+                  {pendingExternal.kind === 'transcription' ? 'Transcribe with OpenAI' : 'Send to OpenAI'}
+                </button>
+                <button className="secondary" type="button" onClick={cancelExternalRequest} disabled={sending}>
+                  Cancel
+                </button>
+              </div>
+            </section>
           )}
           <div ref={endRef} />
         </div>
         <form className="assistant-composer" onSubmit={submit}>
-          {selectedImage && mode === 'general' && generalTask === 'chat' && (
+          {selectedImage && generalTask === 'chat' && (
             <div className="assistant-image-preview">
               <img src={selectedImage.dataUrl} alt="Selected image preview" />
               <span>{selectedImage.name}</span>
-              <button type="button" aria-label="Remove selected image" onClick={() => setSelectedImage(null)} disabled={sending}>
+              <button type="button" aria-label="Remove selected image" onClick={() => setSelectedImage(null)} disabled={sending || Boolean(pendingExternal)}>
                 <X size={15} />
               </button>
             </div>
           )}
-          {mode === 'general' && generalTask === 'chat' && (
+          {generalTask === 'chat' && (
             <input
               ref={imageInputRef}
               className="assistant-sr-only"
@@ -599,67 +626,76 @@ export function AssistantView({ user }: { user: AssistantUser }) {
             />
           )}
           <div className="assistant-composer-row">
-            {mode === 'general' && generalTask === 'chat' && (
-              <div className="assistant-media-controls">
-                <button
-                  className="secondary assistant-icon-button"
-                  type="button"
-                  title="Attach an image for analysis"
-                  aria-label="Attach an image for analysis"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={!generalAiReady || sending || recordingVoice || transcribingVoice}
-                >
-                  <ImagePlus size={17} />
-                </button>
-                <button
-                  className={`secondary assistant-icon-button ${recordingVoice ? 'recording' : ''}`}
-                  type="button"
-                  title={recordingVoice ? 'Stop recording' : 'Record a voice question'}
-                  aria-label={recordingVoice ? 'Stop recording' : 'Record a voice question'}
-                  onClick={() => recordingVoice ? stopRecording() : void startRecording()}
-                  disabled={!generalAiReady || sending || transcribingVoice}
-                >
-                  {recordingVoice ? <Square size={16} /> : <Mic size={17} />}
-                </button>
-              </div>
-            )}
+            <div className="assistant-media-controls">
+              <button
+                className="secondary assistant-icon-button"
+                type="button"
+                title="Attach an image for analysis"
+                aria-label="Attach an image for analysis"
+                onClick={() => imageInputRef.current?.click()}
+                disabled={!generalAiReady || generalTask === 'image' || sending || recordingVoice || transcribingVoice || Boolean(pendingExternal)}
+              >
+                <ImagePlus size={17} />
+              </button>
+              <button
+                className={`secondary assistant-icon-button ${recordingVoice ? 'recording' : ''}`}
+                type="button"
+                title={recordingVoice ? 'Stop recording' : 'Record a voice question'}
+                aria-label={recordingVoice ? 'Stop recording' : 'Record a voice question'}
+                onClick={() => recordingVoice ? stopRecording() : void startRecording()}
+                disabled={!generalAiReady || sending || transcribingVoice || Boolean(pendingExternal)}
+              >
+                {recordingVoice ? <Square size={16} /> : <Mic size={17} />}
+              </button>
+              <button
+                className={`secondary assistant-create-image ${generalTask === 'image' ? 'selected' : ''}`}
+                type="button"
+                onClick={() => {
+                  setGeneralTask(previous => previous === 'image' ? 'chat' : 'image')
+                  setSelectedImage(null)
+                  setError('')
+                }}
+                disabled={!imageGenerationReady || sending || recordingVoice || transcribingVoice || Boolean(pendingExternal)}
+                title={imageGenerationReady ? 'Describe an image to create' : 'Image generation is not configured'}
+              >
+                Create image
+              </button>
+            </div>
             <label className="assistant-sr-only" htmlFor="assistant-message">Ask Mahalaxmi Saathi</label>
             <textarea
               id="assistant-message"
               value={message}
-              onChange={event => setMessage(event.target.value)}
+              onChange={event => {
+                setMessage(event.target.value)
+                setVoiceTranscriptPending(false)
+              }}
               onKeyDown={(event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
                 if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
                 event.preventDefault()
                 event.currentTarget.form?.requestSubmit()
               }}
-              placeholder={mode === 'general'
-                ? generalTask === 'image'
-                  ? 'Describe the image you want to create…'
-                  : 'Ask about business plans, market research, or attach an image…'
-                : modelReady ? 'Ask about ERP work or your assigned tasks…' : 'Ask a documented ERP workflow FAQ…'}
-              maxLength={mode === 'general' && generalTask === 'image' ? 2000 : 3000}
+              placeholder={generalTask === 'image'
+                ? 'Describe the image you want to create…'
+                : 'Ask Saathi about ERP, business planning, or attach an image…'}
+              maxLength={generalTask === 'image' ? 2000 : 3000}
               rows={2}
-              disabled={!canAsk || sending || recordingVoice || transcribingVoice}
+              disabled={!canAsk || sending || recordingVoice || transcribingVoice || Boolean(pendingExternal)}
             />
             <button
               className="primary"
               type="submit"
-              disabled={!canAsk || sending || recordingVoice || transcribingVoice ||
-                (mode === 'general' && generalTask === 'chat' ? !message.trim() && !selectedImage : !message.trim())}
+              disabled={!canAsk || sending || recordingVoice || transcribingVoice || Boolean(pendingExternal) ||
+                (generalTask === 'image' ? !message.trim() : !message.trim() && !selectedImage)}
             >
               <Send size={16} />
-              {sending ? 'Sending…' : mode === 'general' ? generalTask === 'image' ? 'Generate image' : 'Ask OpenAI' : 'Send'}
+              {sending ? 'Sending…' : generalTask === 'image' ? 'Create image' : 'Send'}
             </button>
           </div>
         </form>
         <div className="assistant-composer-note">
-          Enter sends; Shift+Enter starts a new line. {mode === 'general'
-            ? generalTask === 'chat'
-              ? 'Images and answers stay in this browser session only. Voice recordings are sent to OpenAI for transcription; review the text before sending. “Read aloud” uses your browser/device voice.'
-              : 'Image requests are sent to OpenAI and results stay in this browser session; download to save. Video generation is not available here.'
-            : modelReady ? 'Ask in any language.' : 'Full multilingual answers need the private AI server.'}
-          {' '}Answers can be wrong; verify important decisions in the ERP or with your supervisor.
+          Enter sends; Shift+Enter starts a new line. Saathi checks ERP questions privately first; OpenAI receives general/media content only after your confirmation.
+          OpenAI messages are temporary in this browser. Review voice transcripts before sending; “Read aloud” uses your browser/device voice.
+          {' '}Verify important decisions in the ERP or with your supervisor.
         </div>
       </div>
     </section>
