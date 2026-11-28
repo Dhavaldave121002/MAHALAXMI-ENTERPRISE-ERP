@@ -7,6 +7,88 @@ type AssistantFaqEntry = AssistantFaq & {
   keywords: string[]
 }
 
+const FAQ_TERM_ALIASES: Record<string, string> = {
+  aaj: 'today',
+  aaje: 'today',
+  'કેમ': 'how',
+  'કેવી': 'how',
+  'રીતે': 'how',
+  'શું': 'what',
+  'ક્યાં': 'where',
+  'નથી': 'not',
+  'નહીં': 'not',
+  'દેખાતું': 'show',
+  'દેખાય': 'show',
+  'દેખા': 'show',
+  'રિપોર્ટ': 'report',
+  'સ્ટોક': 'stock',
+  'માલ': 'stock',
+  'મશીન': 'machine',
+  'એન્ટ્રી': 'entry',
+  'ઓર્ડર': 'order',
+  'લીડ': 'lead',
+  'પાસવર્ડ': 'password',
+  'ઉત્પાદન': 'production',
+  'ગુણવત્તા': 'quality',
+  'ક્વોલિટી': 'quality',
+  'કામ': 'work',
+  'દૈનિક': 'daily',
+  'ઇમ્પોર્ટ': 'import',
+  'એક્સેલ': 'excel',
+  'રિટર્ન': 'return',
+  'નુકસાન': 'damage',
+  'खाते': 'account',
+  'कैसे': 'how',
+  'क्यों': 'why',
+  'कहाँ': 'where',
+  'क्या': 'what',
+  'नहीं': 'not',
+  'नही': 'not',
+  'दिख': 'show',
+  'दिखता': 'show',
+  'दिखती': 'show',
+  'रिपोर्ट': 'report',
+  'स्टॉक': 'stock',
+  'माल': 'stock',
+  'मशीन': 'machine',
+  'एंट्री': 'entry',
+  'ऑर्डर': 'order',
+  'लीड': 'lead',
+  'पासवर्ड': 'password',
+  'उत्पादन': 'production',
+  'गुणवत्ता': 'quality',
+  'काम': 'work',
+  'दैनिक': 'daily',
+  'इंपोर्ट': 'import',
+  'एक्सेल': 'excel',
+  'वापसी': 'return',
+  'नुकसान': 'damage',
+  dekh: 'show',
+  dekhatu: 'show',
+  dekhato: 'show',
+  dikh: 'show',
+  dikhai: 'show',
+  entry: 'entry',
+  entri: 'entry',
+  enrry: 'entry',
+  hai: 'is',
+  he: 'is',
+  kaise: 'how',
+  kem: 'how',
+  kya: 'what',
+  maal: 'stock',
+  machin: 'machine',
+  nahi: 'not',
+  nathi: 'not',
+  ordar: 'order',
+  prodakshan: 'production',
+  ripot: 'report',
+  show: 'show',
+  showing: 'show',
+  stok: 'stock',
+  su: 'what',
+}
+
 const ERP_ASSISTANT_FAQS: AssistantFaqEntry[] = [
   {
     question: 'What can Mahalaxmi Saathi do?',
@@ -21,22 +103,22 @@ const ERP_ASSISTANT_FAQS: AssistantFaqEntry[] = [
   {
     question: 'How do I complete a Daily Task?',
     answer: 'The Super Admin assigns dated work in Daily Tasks. The employee updates progress and submits completed, pending, and issue notes. The Super Admin then approves the work or requests changes. Non-admin users can ask Saathi about their own assigned tasks.',
-    keywords: ['daily task', 'daily tasks', 'my task', 'my tasks', 'pending task', 'pending tasks', 'task status', 'assign task', 'assign tasks', 'task complete', 'complete task', 'complete tasks', 'submit task', 'task approval', 'baki task', 'baki kaam', 'kaam', 'મારું કામ', 'બાકી કામ', 'દૈનિક કાર્ય'],
+    keywords: ['daily task', 'daily tasks', 'my task', 'my tasks', 'pending task', 'pending tasks', 'task status', 'assign task', 'assign tasks', 'task complete', 'complete task', 'complete tasks', 'submit task', 'task approval', 'baki task', 'baki kaam', 'kaam', 'मेरा काम', 'मेरा टास्क', 'બાકી કામ', 'મારું કામ', 'દૈનિક કાર્ય', 'मेरा काम कैसे पूरा करूं'],
   },
   {
     question: 'Who records production and reviews quality?',
     answer: 'The Production Supervisor records production and manages quality review. Machine Operators can inspect production and their assigned targets. Use the Production and Quality Control pages for the workflow; ask the supervisor if a correction or review is needed.',
-    keywords: ['production', 'record production', 'production entry', 'quality check', 'quality control', 'qc', 'machine operator', 'production target', 'ઉત્પાદન', 'ગુણવત્તા', 'મશીન'],
+    keywords: ['production', 'record production', 'production entry', 'quality check', 'quality control', 'qc', 'machine operator', 'production target', 'उत्पादन', 'उत्पादन एंट्री', 'ગુણવત્તા', 'મશીન', 'મશીનની એન્ટ્રી', 'क्वालिटी चेक'],
   },
   {
     question: 'How should I update stock?',
     answer: 'Record stock changes through the appropriate Stock Movement workflow. Do not edit workbook cells directly. Stock visibility and permitted actions depend on the signed-in ERP role.',
-    keywords: ['stock', 'inventory', 'stock movement', 'stock update', 'adjust stock', 'raw material', 'finished goods', 'sku', 'maal', 'સ્ટોક', 'કાચો માલ', 'તૈયાર માલ'],
+    keywords: ['stock', 'inventory', 'stock movement', 'stock update', 'adjust stock', 'raw material', 'finished goods', 'sku', 'maal', 'स्टॉक अपडेट', 'माल का स्टॉक', 'સ્ટોક', 'કાચો માલ', 'તૈયાર માલ', 'સ્ટોક કેવી રીતે અપડેટ કરવો'],
   },
   {
     question: 'How do Sales Executives work with leads and orders?',
     answer: 'Sales Executives work with their assigned leads, record follow-ups, and book orders against available active inventory. The Production Supervisor handles dispatches.',
-    keywords: ['sales lead', 'lead follow up', 'followup', 'customer', 'sales order', 'book order', 'dispatch', 'sales executive', 'વેચાણ', 'લીડ', 'ગ્રાહક', 'ઓર્ડર'],
+    keywords: ['sales lead', 'lead follow up', 'followup', 'customer', 'sales order', 'book order', 'dispatch', 'sales executive', 'सेल्स ऑर्डर', 'लीड फॉलो अप', 'વેચાણ', 'લીડ', 'ગ્રાહક', 'ઓર્ડર', 'ઓર્ડર બુક કેવી રીતે કરવો'],
   },
   {
     question: 'What can E-commerce staff access?',
@@ -131,7 +213,7 @@ const ERP_ASSISTANT_FAQS: AssistantFaqEntry[] = [
   {
     question: 'Who can add a supplier or change supplier status?',
     answer: 'The Super Admin and Production Supervisor can add suppliers. Only the Production Supervisor can activate or deactivate them. A raw material requires an active supplier, and each Purchase Inward requires a supplier and unit cost.',
-    keywords: ['add supplier', 'supplier status', 'activate supplier', 'deactivate supplier', 'purchase inward', 'raw material supplier', 'supplier missing', 'સપ્લાયર'],
+    keywords: ['add supplier', 'supplier status', 'activate supplier', 'deactivate supplier', 'raw material supplier', 'supplier missing', 'સપ્લાયર'],
   },
   {
     question: 'Why is a production entry not increasing finished-goods stock?',
@@ -168,6 +250,86 @@ const ERP_ASSISTANT_FAQS: AssistantFaqEntry[] = [
     answer: 'No. Saathi is read-only and cannot edit, approve, or reset ERP data. Only the Super Admin can run the separate Reset ERP data action, which clears business rows after making private backups. Ask the Super Admin to verify backups and deployment before any reset.',
     keywords: ['reset erp', 'clear erp data', 'delete all data', 'change records', 'approve work', 'assistant edit', 'read only', 'erp reset', 'ડેટા ડિલીટ'],
   },
+  {
+    question: 'How do I import marketplace order or settlement reports?',
+    answer: 'An E-commerce Executive can import reports only for platforms assigned to their account. Supported files are XLSX, XLS, CSV, or a ZIP containing those report files; PDFs inside ZIPs are ignored. A selected file can be up to 25 MB. Rows are uploaded in batches of 500, so there is no fixed 1,000-row cap for the whole file, though file size and normal browser/server limits still apply. Use ORDER rows for order/SKU/quantity/gross-sales data and separate SETTLEMENT rows for payout data. The Super Admin can view reconciliation records but cannot import them.',
+    keywords: ['import marketplace report', 'marketplace reconciliation import', 'import settlement', 'import order report', 'reconciliation excel', 'reconciliation csv', 'zip report', '1000 row limit', '1000 rows', '500 rows batch', 'meesho report import', 'marketplace report upload', 'marketplace report nahi import', 'zip import', 'excel import limit', 'order data import', 'payment data import', 'ઓર્ડર રિપોર્ટ ઇમ્પોર્ટ'],
+  },
+  {
+    question: 'Why were some marketplace report rows skipped?',
+    answer: 'The import result reports how many new rows were added and how many duplicate rows were skipped. A record is identified by its platform, record type, and record ID, so importing the same source record again does not add a second copy. Check that the platform is assigned to your account, ORDER rows have an order ID, SKU, quantity, and gross sales, and SETTLEMENT rows have a settlement ID and expected settlement. Use a separate SETTLEMENT row for payouts; do not put payout values on an ORDER row.',
+    keywords: ['marketplace rows skipped', 'duplicate reconciliation', 'duplicate rows skipped', 'import duplicate', 'reconciliation missing rows', 'report rows missing', 'order row required', 'settlement row required', 'record id duplicate', 'import error marketplace', 'રિપોર્ટ રો સ્કિપ'],
+  },
+  {
+    question: 'How does the Product Catalog workbook import work?',
+    answer: 'Use Product Catalog → Import workbook with the prepared Products_Import, SKU_Variants_Import, and Marketplace_Listings_Import sheets. The import merges new rows and updates matching records; blank cells do not erase saved values, and no catalog rows are deleted. Products are matched by stable product ID, existing SKU, or a unique exact title; ambiguous matches fail rather than guessing. Excel Management uploads are validation previews only, not catalog imports. A private Drive backup is made before changes.',
+    keywords: ['product catalog import', 'product catalog excel import', 'import product workbook', 'import products excel', 'product import workbook', 'update product sku', 'catalog workbook', 'excel management import', 'excel upload not imported', 'blank cells delete', 'catalog row deleted', 'product excel upload', 'પ્રોડક્ટ ઇમ્પોર્ટ'],
+  },
+  {
+    question: 'Can a machine have more than one production entry on the same day?',
+    answer: 'A machine can have at most one entry for each date and production block. The system has Block 1, Block 2, and Block 3, so separate entries for the same machine on the same date are allowed only in different blocks. If a duplicate entry is blocked, check the selected date and block before trying again. Only the Production Supervisor can submit production entries.',
+    keywords: ['duplicate machine entry', 'machine entry twice', 'one entry machine', 'one machine one entry', 'production entry duplicate', 'machine already has entry', 'same machine same day', 'production block', 'block 1', 'block 2', 'block 3', 'machine ni entry', 'ek machine ek entry', 'ek machine ek bar', 'same machine ek bar', '3 bar entry', 'teen bar entry', 'machine par teen entry', 'મશીન એન્ટ્રી'],
+  },
+  {
+    question: 'Why is a submitted daily report not showing?',
+    answer: 'Check the report date and the correct workspace first: E-commerce and Sales reports are separate from Graphic Design Daily Work Reports and Admin-assigned Daily Tasks. Employees generally see their own submissions; Managers see their direct reports, and the Super Admin can review reports across teams. Reopen or refresh the page and allow up to 30 seconds for the report list to refresh. If it is still missing, ask the Super Admin to verify the account role/assignment and check the Vercel and Apps Script execution logs.',
+    keywords: ['daily report not showing', 'report not visible', 'report not saved', 'submitted report missing', 'daily report missing', 'daily report kaha', 'report nahi dikh raha', 'report dikh nahi raha', 'report show nahi', 'report system par nahi dikh raha', 'daily report kaha hai', 'ecommerce report missing', 'sales report missing', 'designer report missing', 'रिपोर्ट नहीं दिख रही', 'रिपोर्ट क्यों नहीं दिख रही', 'રિપોર્ટ દેખાતો નથી', 'રિપોર્ટ કેમ નથી દેખાતો'],
+  },
+  {
+    question: 'Why does production not appear in finished-goods stock?',
+    answer: 'A new production batch is Pending QC and is not available as finished-goods stock until the Production Supervisor records its QC decision. The pass and reject quantities must add up to the batch output; only approved units increase stock. Check the batch date and QC status in Quality Control before creating a separate stock adjustment.',
+    keywords: ['production missing in stock', 'production not in finished goods', 'stock not updated after production', 'qc pending stock', 'pass quantity stock', 'qc approved stock', 'production batch stock', 'ઉત્પાદન સ્ટોકમાં નથી'],
+  },
+  {
+    question: 'How should I record raw-material and finished-goods stock changes?',
+    answer: 'Use the Raw Material or Finished Goods stock-movement pages rather than editing workbook cells. Raw Material supports purchase inward, issue, machine/stitching consumption, wastage, and adjustments. Finished Goods supports opening stock, dispatch, returns, damage, reservations, and adjustments. Roles determine which actions are available; ask the Production Supervisor if a correction is needed.',
+    keywords: ['raw material stock update', 'finished goods stock update', 'stock adjustment', 'purchase inward', 'material issue', 'material wastage', 'stitching consumption', 'stock movement entry', 'inventory update', 'stock ma shu karvu', 'કાચા માલનો સ્ટોક'],
+  },
+  {
+    question: 'Why do E-commerce and ERP sales report totals differ?',
+    answer: 'E-commerce monthly gross sales use dispatched units multiplied by the current marketplace listing selling price, then subtract return and damage values for net sales. Changing a listing price can therefore affect those calculations for earlier movements. ERP Reports instead use the unit price saved when each order was dispatched. Check the report period, platform, returns, and damage records before comparing totals; neither total should be treated as finalized accounting without verification.',
+    keywords: ['ecommerce sales report difference', 'erp report total differs', 'gross sales different', 'net sales calculation', 'listing price report', 'old order price changed', 'sales total mismatch', 'report amount mismatch', 'ઇકોમર્સ રિપોર્ટ તફાવત'],
+  },
+  {
+    question: 'What should I do if ERP activity logging is unavailable?',
+    answer: 'Activity logging is separate from Saathi and from normal ERP report data. Ask the Super Admin or Apps Script owner to deploy the latest apps-script/Code.gs as a new web-app version, confirm any requested Apps Script authorization, and inspect Apps Script Executions together with the Vercel function logs for the actual error. Do not send passwords, tokens, or private logs in chat; the exact cause cannot be determined from the warning alone.',
+    keywords: ['activity logging unavailable', 'audit logging unavailable', 'erp activity logging error', 'audit log error', 'logging temporarily unavailable', 'activity log warning', 'apps script executions', 'redeploy apps script', 'audit event failed', 'એક્ટિવિટી લોગિંગ'],
+  },
+  {
+    question: 'Does Excel Management import every spreadsheet into the ERP?',
+    answer: 'No. Excel Management uploads are validation previews and do not write rows into the ERP. For product, variant, and listing updates, use Product Catalog → Import workbook. For Sales leads, only the Super Admin can import 1–500 rows per file. Marketplace reconciliation imports XLSX, XLS, CSV, or supported ZIP files in batches of 500 rows, with a 25 MB per-file limit and no fixed total row-count limit.',
+    keywords: ['excel management import', 'excel upload not saved', 'excel preview only', 'import any excel', 'spreadsheet import limit', 'sales lead 500 rows', 'marketplace 1000 rows', 'excel file not syncing', 'excel import nahi ho raha', 'excell me limit', 'એક્સેલ ઇમ્પોર્ટ'],
+  },
+  {
+    question: 'How do I record a return, RTO, or damaged item?',
+    answer: 'Only the Production Supervisor can record returns or damage. In Returns & RTO, select the platform and shipped order/SKU, then enter a quantity no greater than the remaining shipped quantity. Sellable returned units increase available stock; damaged units are recorded as returned and damaged but do not become sellable stock. The Super Admin can view this page but cannot post the movement.',
+    keywords: ['record return', 'record rto', 'record damaged item', 'return stock', 'damage stock', 'returns and rto', 'return order quantity', 'रिटर्न कैसे करें', 'नुकसान हुआ माल', 'રિટર્ન કેવી રીતે કરવો', 'ઓર્ડર રિટર્ન', 'નુકસાન થયેલો માલ'],
+  },
+  {
+    question: 'How are financial Reports and Net tracked balance calculated?',
+    answer: 'The Super Admin can review monthly financial and operational summaries in Reports. Revenue is counted when a finished-goods dispatch is posted, using the sale price saved at dispatch; recorded returns and damage are subtracted, and recorded supplier purchases and manual expenses are shown. Historical dispatches or purchases without saved prices or costs are excluded rather than estimated. Net tracked balance is a limited operational measure, not accounting profit.',
+    keywords: ['financial report calculation', 'net tracked balance', 'accounts expense report', 'profit calculation', 'monthly accounts report', 'revenue returns expenses', 'रिपोर्ट में लाभ', 'ખર્ચનો રિપોર્ટ', 'નફાનો હિસાબ', 'account report kaise'],
+  },
+  {
+    question: 'How do I correct a stock movement that was already posted?',
+    answer: 'Stock Movement is an append-only audit ledger; posted movements cannot be deleted. Record a correcting adjustment instead, so the change remains traceable. An item with zero balance and movement history can only be archived; an item with zero balance and no history may be deleted. Ask the Production Supervisor to review the original movement and the correction.',
+    keywords: ['correct posted stock movement', 'delete stock movement', 'wrong stock entry', 'stock ledger correction', 'reverse stock movement', 'adjustment instead of delete', 'गलत स्टॉक एंट्री', 'સ્ટોક એન્ટ્રી સુધારવી', 'સ્ટોક મૂવમેન્ટ ડિલીટ'],
+  },
+  {
+    question: 'Does the ERP automatically sync marketplace orders or payments?',
+    answer: 'No. The ERP does not connect to marketplace APIs or automatically sync orders, settlements, or payments. E-commerce staff import supported marketplace order and settlement reports through Marketplace Reconciliation. Compare the imported records with the marketplace source and bank credit; do not treat an import as confirmation that a payment reached the bank.',
+    keywords: ['marketplace automatic sync', 'auto sync orders', 'payment sync', 'marketplace api', 'orders not syncing', 'marketplace payments', 'ऑर्डर अपने आप सिंक', 'માર્કેટપ્લેસ ઓટો સિંક', 'પેમેન્ટ સિંક'],
+  },
+  {
+    question: 'How do I record a raw-material purchase?',
+    answer: 'Use Raw Material → Purchase Inward and select an active supplier. Each inward needs a supplier and unit cost; the purchase movement records its supplier and total so monthly purchase amounts can be grouped by supplier. Use the separate issue, consumption, wastage, or adjustment movement for other stock changes, and do not edit the workbook directly.',
+    keywords: ['record raw material purchase', 'raw material purchase inward', 'purchase inward supplier', 'raw material inward', 'supplier unit cost', 'purchase material stock', 'कच्चा माल खरीद', 'રૉ મટીરિયલ ખરીદી', 'સપ્લાયર સાથે ખરીદી'],
+  },
+  {
+    question: 'Why is a returned item not available for sale?',
+    answer: 'Only sellable returned units are added back to available finished-goods stock. A damaged return is recorded for reporting but is not added to sellable stock. Check the return and damage quantities against the shipped order in Returns & RTO; ask the Production Supervisor to correct a wrongly classified movement.',
+    keywords: ['returned item not available', 'return not in stock', 'damaged return stock', 'sellable return', 'rto stock mismatch', 'रिटर्न स्टॉक में नहीं', 'નુકસાન રિટર્ન સ્ટોકમાં નથી', 'વેચી શકાય એવો રિટર્ન'],
+  },
 ]
 
 const STOP_WORDS = new Set([
@@ -179,9 +341,10 @@ const STOP_WORDS = new Set([
 
 function faqTokens(value: string) {
   return (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).map(term => {
-    if (term.length > 4 && term.endsWith('ies')) return `${term.slice(0, -3)}y`
-    if (term.length > 4 && term.endsWith('s') && !term.endsWith('ss')) return term.slice(0, -1)
-    return term
+    const aliased = FAQ_TERM_ALIASES[term] || term
+    if (aliased.length > 4 && aliased.endsWith('ies')) return `${aliased.slice(0, -3)}y`
+    if (aliased.length > 4 && aliased.endsWith('s') && !aliased.endsWith('ss')) return aliased.slice(0, -1)
+    return aliased
   })
 }
 
@@ -198,9 +361,8 @@ export function findRelevantAssistantFaqs(question: string, limit = 3): Assistan
       const keywords = faq.keywords.map(normalizeFaqText).filter(Boolean)
       const faqTerms = new Set(keywords.flatMap(faqTokens).filter(term => term.length > 1 && !STOP_WORDS.has(term)))
       const phraseScore = keywords.reduce((score, keyword) => {
-        return ` ${normalizedQuestion} `.includes(` ${keyword} `)
-          ? score + (keyword.includes(' ') ? 4 : 2)
-          : score
+        if (!` ${normalizedQuestion} `.includes(` ${keyword} `)) return score
+        return score + Math.max(2, faqTokens(keyword).length * 2)
       }, 0)
       const overlapScore = [...questionTerms].filter(term => faqTerms.has(term)).length
       return { faq, index, score: phraseScore + overlapScore }
