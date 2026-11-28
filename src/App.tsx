@@ -1555,7 +1555,6 @@ export default function App() {
             {authStatus === 'unavailable' && <div className="login-error">{serverMessage}</div>}
             <button className="primary wide" type="submit" disabled={loginBusy}>{loginBusy ? 'Signing in…' : 'Sign in'}</button>
           </form>
-          {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
         </section>
       </main>
     )
@@ -1643,7 +1642,6 @@ export default function App() {
         </header>
 
         <div className="content">
-          {activityAuditWarning && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
           {sessionUser.role !== 'Super Admin' && <Suspense fallback={<div className="screen-recording-status">Loading recorder…</div>}><ScreenRecordingControl ref={screenRecordingRef} user={{ id: sessionUser.id, name: sessionUser.name, role: sessionUser.role }} /></Suspense>}
           {module === 'Dashboard' ? (
             <DashboardView
@@ -1669,7 +1667,7 @@ export default function App() {
               initializeZeroFinishedStock={initializeZeroFinishedStock} zeroStockInitializationBusy={zeroStockInitializationBusy}
               archiveStockItem={archiveStockItem} deleteUnusedStockItem={deleteUnusedStockItem} fileRef={fileRef} importExcel={importExcel} notify={notify} setModule={setModule}
               machines={machines} users={users} setUsers={setUsers} sessionUser={sessionUser}
-              allowedModules={roleModules[sessionUser.role]}
+              allowedModules={roleModules[sessionUser.role]} activityAuditWarning={activityAuditWarning}
               salesLeads={salesLeads} salesActivities={salesActivities} salesOrders={salesOrders} indiaMartListings={indiaMartListings} salesTargets={salesTargets}
               salesUsers={salesAccounts} setSalesUsers={setSalesAccounts}
               importSalesLeads={importSalesLeads} addSalesLead={addSalesLead} assignSalesLead={assignSalesLead}
@@ -1716,7 +1714,7 @@ function ModuleView(props: {
   setModule: (v: Module) => void
   machines: Machine[];
   users: UserAccount[]; setUsers: React.Dispatch<React.SetStateAction<UserAccount[]>>; sessionUser: UserAccount
-  allowedModules: Module[]
+  allowedModules: Module[]; activityAuditWarning: string
   salesLeads: SalesLead[]; salesActivities: SalesActivity[]; salesOrders: SalesOrder[]; indiaMartListings: IndiaMartListing[]; salesTargets: SalesTarget[]
   salesUsers: SalesAccount[]; setSalesUsers: React.Dispatch<React.SetStateAction<SalesAccount[]>>
   importSalesLeads: (rows: SalesLeadImportRow[], assignedUserId: string) => Promise<{ added: number; skipped: number }>
@@ -1729,7 +1727,7 @@ function ModuleView(props: {
   cancelSalesOrder: (orderId: string) => Promise<void>
   setSalesTarget: (salesUserId: string, period: SalesTargetPeriod, periodKey: string, targetAmount: number) => Promise<void>
 }) {
-  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, deleteProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, saveMachineStatus, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, salesLeads, salesActivities, salesOrders, indiaMartListings, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget, previewIndiaMartCatalog, saveIndiaMartListings } = props
+  const { module, clock, products, marketplaceListings, production, productionTargets, rawMaterials, finishedGoods, stockMovements, suppliers, accountExpenses, saveSupplier, updateSupplierActive, saveAccountExpense, graphicDesignTasks, submitGraphicDesignTask, updateGraphicDesignProgress, reviewGraphicDesignTask, workbookMeta, search, setSearch, exportExcel, saveProduct, saveVariant, saveMarketplaceListing, importMarketplaceWorkbook, resetErpData, saveProduction, deleteProduction, reviewProductionQuality, saveProductionTarget, saveRawMaterial, applyStockMovement, initializeZeroFinishedStock, zeroStockInitializationBusy, archiveStockItem, deleteUnusedStockItem, saveMachine, saveMachineStatus, fileRef, importExcel, notify, setModule, machines, users, setUsers, sessionUser, allowedModules, activityAuditWarning, salesLeads, salesActivities, salesOrders, indiaMartListings, salesTargets, salesUsers, setSalesUsers, importSalesLeads, addSalesLead, assignSalesLead, updateSalesLead, createSalesOrder, cancelSalesOrder, setSalesTarget, previewIndiaMartCatalog, saveIndiaMartListings } = props
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [auditLoading, setAuditLoading] = useState(true)
   const [auditError, setAuditError] = useState('')
@@ -4167,6 +4165,7 @@ function ModuleView(props: {
         <div className="panel audit-card">
           <div className="panel-heading"><div><h2>ERP activity</h2><p>Auto-refreshes every 30 seconds · events retained for {auditRetentionDays} days</p></div></div>
           <p className="audit-scope-note">This log records sign-ins/sign-outs, ERP module visits, business-record actions, and screen-recording start/stop events. Screen video is optional and user-started; the browser shows a sharing prompt. The selected display may include other visible tabs or apps. No audio, keystrokes, or browser history is collected.</p>
+          {activityAuditWarning && !auditError && <p className="audit-warning" role="alert">{activityAuditWarning}</p>}
           {auditError && <p className="audit-warning" role="alert">{auditError}</p>}
           {auditLoading && <div className="empty-state" role="status">Loading audit events…</div>}
           {!auditLoading && !auditError && auditEvents.length === 0 && <div className="empty-state"><Archive size={24} /><strong>No activity recorded yet</strong><span>ERP events will appear here as users sign in and work.</span></div>}

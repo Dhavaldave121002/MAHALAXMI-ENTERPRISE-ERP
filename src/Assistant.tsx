@@ -493,24 +493,6 @@ export function AssistantView({ user }: { user: AssistantUser }) {
         Avoid confidential information and credentials. OpenAI usage may incur separate charges.
       </p>
 
-      {!modelReady && (
-        <div className="assistant-setup-note" role="status">
-          <AlertCircle size={18} />
-          <span>Private AI is not connected. You can ask documented FAQs, but full multilingual answers and live ERP lookups need the company model server.</span>
-        </div>
-      )}
-      {!generalAiReady && (
-        <div className="assistant-setup-note" role="status">
-          <AlertCircle size={18} />
-          <span>Saathi is currently in FAQ-only mode. No OpenAI request is made from this chat, so it will not incur OpenAI API charges.</span>
-        </div>
-      )}
-      {!imageGenerationReady && (
-        <div className="assistant-setup-note" role="status">
-          <AlertCircle size={18} />
-          <span>Image and voice AI features are paused in FAQ-only mode. OpenAI video generation is unavailable in this integration.</span>
-        </div>
-      )}
       {error && <div className="assistant-error" role="alert"><AlertCircle size={17} />{error}</div>}
 
       <details className="assistant-memory">
