@@ -379,7 +379,7 @@ function parseWorkbook(workbook: XLSX.WorkBook, defaultPlatform: string, default
   const headers = Object.keys(rows[0]).map(normalizeHeader)
   if (headers.includes('settlementid') && headers.includes('transactiontype') &&
       headers.includes('amountdescription') && headers.includes('amount') && headers.includes('totalamount')) {
-    return parseAmazonPayments(rows)
+    return parseAmazonPayments(rows).filter(row => row.recordType === defaultType)
   }
   if (headers.includes('amazonorderid') || headers.includes('purchaseorderid') && headers.includes('sku')) {
     return parseAmazonOrders(rows)
@@ -609,7 +609,7 @@ export function MarketplaceReconciliationView({ user }: Props) {
       </div>
       <div className="reconciliation-import-notes">
         <p>Prepare <strong>ORDER</strong> rows with sales, fees, SKU, quantity, and total product cost. Add a separate <strong>SETTLEMENT</strong> row for each payout, including its expected amount and optional bank credit.</p>
-        <p>For Amazon, choose Orders / transactions for the Orders export and Settlements / bank credits for the Payments/Settlement report; both formats are recognized directly. For other exports with different headers, map/copy the data into the template. Blank product cost or bank credit is flagged rather than guessed.</p>
+        <p>For Amazon, import the Orders export as Orders / transactions, then import the Payments/Settlement report as Settlements / bank credits. The payout import excludes its overlapping order lines to avoid double-counting sales. For other exports with different headers, map/copy the data into the template. Blank product cost or bank credit is flagged rather than guessed.</p>
         <p>{isAdmin
           ? 'As Super Admin, you can import reports for any supported marketplace.'
           : `Your account can import only platforms assigned by the Super Admin: ${availablePlatforms.join(', ') || 'none assigned'}.`}</p>
